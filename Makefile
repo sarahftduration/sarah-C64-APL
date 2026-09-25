@@ -17,7 +17,7 @@ build/%.bin: asm/%.asm
 	@mkdir -p build
 	$(ASM) --nostart --labels=build/$*.lbl --list=build/$*.lst -o $@ $<
 
-test: model-test $(BINS)
+test: model-test $(BINS) build/apl.prg
 	@for t in tests/test_*.py; do PYTHONPATH=tests $(PY) $$t || exit 1; done
 
 prg: build/apl.prg

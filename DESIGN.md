@@ -143,11 +143,14 @@ harness will fail any write outside the allowed set.
    back 850 of the 1.3 KB the move cost.
 3. **Done.** Assembled at `$0801` with the BASIC stub, computed heap base, `wsmax`
    16,000, real addresses in the harness. `make prg` builds `build/apl.prg`.
-4. A VICE smoke test: autostart the PRG, poke a line into the input buffer
-   through the monitor, run it, and compare the screen RAM at `$CC00`. **Blocked:**
-   VICE here has no C64 ROM images (kernal, basic, chargen), which are
-   copyrighted and not in the Ubuntu package. They need supplying, in VICE's
-   `C64` data directory; the PRG itself checks out (correct load address and stub).
+4. **Started.** `tests/test_vice.py` runs the PRG in headless VICE with the real
+   KERNAL: it autostarts (injected into RAM), BASIC runs the `SYS` stub, and the
+   CPU stops at `start` with the whole image in RAM. It needs the ROMs in `roms/`
+   as `chargen.bin`, `basic.bin` and `kernal.bin` (C64 revision 3: 901225-01,
+   901226-01, 901227-03; the directory is git-ignored, they are copyrighted) and
+   skips itself without them. Still to do, once there is a screen driver: poke a
+   line into the input buffer through the monitor, run it, and compare the screen
+   RAM at `$CC00`.
 5. Then the screen driver, charset (the 8x8 shapes for ASCII copied from the
    character ROM, plus our glyphs), keyboard entry and line editor.
 
