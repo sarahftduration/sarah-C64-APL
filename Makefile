@@ -1,8 +1,8 @@
 PY    := .venv/bin/python
-ASM   := 64tass -D SELFTEST=0
+ASM   := 64tass -D SELFTEST=0 -D KEYTEST=0
 SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
-INCS  := asm/pow10.inc asm/glyphs.inc $(wildcard asm/*.inc)
+INCS  := asm/pow10.inc asm/glyphs.inc asm/keys.inc $(wildcard asm/*.inc)
 
 .PHONY: all test model-test clean prg
 all: $(BINS)
@@ -12,6 +12,9 @@ asm/pow10.inc: tools/gen_pow10.py
 
 asm/glyphs.inc: tools/gen_glyphs.py tools/glyphs.py
 	python3 tools/gen_glyphs.py > $@
+
+asm/keys.inc: tools/gen_keys.py tools/keys.py
+	python3 tools/gen_keys.py > $@
 
 # every binary depends on every source: the .asm files include each other
 $(BINS): $(SRCS) $(INCS)

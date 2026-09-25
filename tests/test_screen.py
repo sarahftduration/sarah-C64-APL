@@ -53,6 +53,22 @@ class Screen:
         for b in data:
             self.put(b)
 
+    def back(self):
+        """One cell back (across a wrapped line), blanked; nothing at the top left."""
+        if self.col > 0:
+            self.col -= 1
+        elif self.row > 0:
+            self.row -= 1
+            self.col = 39
+        else:
+            return
+        self.ptr -= 1
+        self.mem[self.ptr] = 0x20
+
+    def clear(self):
+        self.mem = bytearray(b" " * 1000)
+        self.ptr = self.row = self.col = 0
+
 
 def text_bytes(v):
     s = apl64.format_value(v)
@@ -94,7 +110,7 @@ def build_selftest(lines):
     os.makedirs("build", exist_ok=True)
     with open("build/selftest_data.inc", "w") as f:
         f.write("\n".join(data) + "\n")
-    r = subprocess.run(["64tass", "-D", "SELFTEST=1", "-I", "build", "--labels=build/selftest.lbl",
+    r = subprocess.run(["64tass", "-D", "SELFTEST=1", "-D", "KEYTEST=0", "-I", "build", "--labels=build/selftest.lbl",
                         "-o", "build/selftest.prg", "asm/eval.asm"], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     labels = {}
@@ -160,7 +176,7 @@ def test_session():
           f"{len(LINES)}-line session all match the model on the real machine; charset RAM, VIC bank 3, NMI patch and IRQ verified")
 
 
-def _run_selftest(script, initbreak):
+def _run_selftest(script, initbreak, prg="build/selftest.prg"):
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         mon = os.path.join(d, "mon.txt")
@@ -168,7 +184,7 @@ def _run_selftest(script, initbreak):
             f.write("\n".join(l.replace("{DIR}", d) for l in script) + "\nquit\n")
         cmd = ["x64sc", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
                "roms/basic.bin", "-chargen", "roms/chargen.bin", "-autostartprgmode", "1", "-initbreak", initbreak,
-               "-limitcycles", "400000000", "-autostart", "build/selftest.prg", "-moncommands", mon]
+               "-limitcycles", "400000000", "-autostart", prg, "-moncommands", mon]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         files = {n: open(os.path.join(d, n), "rb").read() for n in os.listdir(d) if n != "mon.txt"}
         return r.stdout + r.stderr, files

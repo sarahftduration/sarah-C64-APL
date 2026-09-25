@@ -61,6 +61,20 @@ su2:    sta (cd),y
         sta echov
         lda #>echo_print
         sta echov+1
+        lda #<kbd_getin
+        sta getkey_vec
+        lda #>kbd_getin
+        sta getkey_vec+1
+        .if KEYTEST
+        lda #<keytest_data
+        sta ksp
+        lda #>keytest_data
+        sta ksp+1
+        lda #<script_getkey
+        sta getkey_vec
+        lda #>script_getkey
+        sta getkey_vec+1
+        .endif
         cli
         jmp app_main
 
@@ -266,6 +280,26 @@ ssc1:   sta (cd),y
         sta scr_row
         rts
 
+; step the cursor back one cell (across a wrapped line) and blank it; nothing at the top left
+scr_back:
+        lda scr_col
+        bne sb1
+        lda scr_row
+        beq sb4
+        dec scr_row
+        lda #39
+        sta scr_col
+        jmp sb2
+sb1:    dec scr_col
+sb2:    lda scrp
+        bne sb3
+        dec scrp+1
+sb3:    dec scrp
+        ldy #0
+        lda #' '
+        sta (scrp),y
+sb4:    rts
+
 ; --- text --------------------------------------------------------------------------------------------
 ; print the zero-terminated string at mp (scr_put may scroll, which uses cs and cd)
 print_z:
@@ -316,8 +350,7 @@ app_main:
         .if SELFTEST
         jmp selftest_run
         .else
-mainloop:
-        jmp mainloop            ; the keyboard and line editor come next
+        jmp repl
         .endif
 
         .if SELFTEST
@@ -397,4 +430,27 @@ selftest_done:
         .include "selftest_data.inc"
         .endif
 
+        .if KEYTEST
+; scripted keys: the test's key list (keytest_data), ended by a zero, then stop
+script_getkey:
+        lda ksp
+        sta mp
+        lda ksp+1
+        sta mp+1
+        ldy #0
+        lda (mp),y
+        beq selftest_done
+        inc ksp
+        bne sg9
+        inc ksp+1
+sg9:    rts
+        .if !SELFTEST
+selftest_done:
+        jmp selftest_done
+        .endif
+        .include "keytest_data.inc"
+        .endif
+
+        .include "editor.inc"
+        .include "keys.inc"
         .include "glyphs.inc"

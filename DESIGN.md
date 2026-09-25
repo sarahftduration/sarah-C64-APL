@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **14,192 bytes** (`$0801`-`$3F70`, including the start-up
-code, screen driver and charset data: about 900 bytes); tables 7,456 bytes; **heap
-28,384 bytes** (`$5D20` to `$CBFF`; it starts where the tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+Code and read-only tables **14,659 bytes** (`$0801`-`$4143`, including the start-up
+code, screen driver, charset data and editor: about 1.4 KB); tables 7,712 bytes;
+**heap 27,608 bytes** (`$6028` to `$CBFF`; it starts where the tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -151,8 +151,8 @@ harness will fail any write outside the allowed set.
    skips itself without them. Still to do, once there is a screen driver: poke a
    line into the input buffer through the monitor, run it, and compare the screen
    RAM at `$CC00`.
-5. **Screen driver and charset done** (see Display and input). Keyboard entry
-   and the line editor are next, then `)SAVE` / `)LOAD`.
+5. **Done**: screen driver, charset, keyboard entry and the line editor (see
+   Display and input). `)SAVE` / `)LOAD` and system commands are next.
 
 ### Verified in VICE
 
@@ -162,9 +162,10 @@ screen RAM with the model through a Python model of the driver (wrapping, exact
 RAM against the character ROM plus the glyph table, the VIC and CIA2 registers,
 `$01`, the KERNAL flags, the NMI vector, and that the KERNAL interrupt is still
 running. A screenshot confirmed the VIC really renders from the RAM charset in
-bank 3. Not yet checked: keyboard scan and `GETIN` with the screen moved; the
-RESTORE key itself (only the vector is verified); SAVE/LOAD staying silent and
-inside their zero page.
+bank 3. `tests/test_keys.py` types through the real KERNAL keyboard buffer (`GETIN`
+with the interrupt scan, screen moved) and runs scripted editor sessions. Not yet
+checked: the physical keyboard matrix; the RESTORE key itself (only the vector is
+verified); SAVE/LOAD staying silent and inside their zero page.
 
 ## Element types (homogeneous arrays, no mixing)
 
@@ -336,8 +337,8 @@ NONCE ERROR (not implemented), LIMIT ERROR, WS FULL`
 
 ## Display and input
 
-Start-up, charset and screen driver are done (`asm/startup.inc`); keyboard entry
-and the line editor are next.
+Start-up, the charset, the screen driver, keyboard entry and the line editor are
+done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
 
 - **Start-up** (`startup`, entered from the BASIC stub): `$01 = $36`; the
   KERNAL's cursor blink off and its SHIFT+C= charset switching off (`$CC`, `$0291`:
@@ -352,14 +353,35 @@ and the line editor are next.
   `asm/glyphs.inc`. **The glyph artwork is provisional.**
 - **Screen driver** (`scr_put`, installed as the formatter's `outv`): 40x25,
   direct writes to `$CC00`, our codes are the screen codes. `$0a` is a newline; a
-  character in column 39 wraps; below row 24 the screen scrolls one row. The
-  cursor pointer shares the test log pointer's zero-page slot.
-- **Errors** print their names (`print_error`).
-- **Self-test build** (`-D SELFTEST=1`): a scripted session (tokenizer, evaluator,
-  formatter, screen) that `tests/test_screen.py` runs in VICE.
-- Keyboard (to come): Commodore/Shift-modified keys for common glyphs plus a
-  two-key digraph fallback; the KERNAL's `GETIN` returns PETSCII, where an
-  unshifted letter is `$41`-`$5A` (our lower case) and a shifted one `$C1`-`$DA`.
+  character in column 39 wraps; below row 24 the screen scrolls one row;
+  `scr_back` steps back a cell, across a wrapped line. The cursor pointer shares
+  the test log pointer's zero-page slot.
+- **Keys** (`tools/keys.py`, which generates `asm/keys.inc`): the KERNAL's `GETIN`
+  delivers PETSCII; an unshifted letter is `$41`-`$5A` and a shifted one
+  `$C1`-`$DA`, which we type as lower and upper case. The **pound key is a
+  prefix**: the next key is looked up in the digraph table, using the standard APL
+  keyboard positions where the C64 has the key. The left-arrow key types `←`
+  directly.
+
+  | after `£` | types | after `£` | types | after `£` | types |
+  |---|---|---|---|---|---|
+  | `i` | `⍳` | `-` | `×` | `8` | `≠` |
+  | `r` | `⍴` | `=` | `÷` | `4` or `<` | `≤` |
+  | `j` | `∘` | `2` | `¯` | `6` or `>` | `≥` |
+  | `1` | `¨` | `0` | `⍤` | `'` | `⍬` |
+  | `[` | `←` | `]` | `→` | `.` | `⋄` |
+  | `,` | `⍝` | `h` | `∆` | shifted `h` | `⍙` |
+  | `←` key | `_` | `£` | `\` | anything else | nothing |
+
+- **Line editor** (`edit_key`, `repl`): the line is built in the tokenizer's input
+  buffer. Keys append; DEL backspaces (across wrapped rows); RETURN runs the line;
+  cursor-up recalls the last non-empty line; SHIFT+CLR/HOME clears the screen and
+  redraws the line; other keys do nothing. Lines are capped at 255 characters. The
+  prompt is six spaces, the cursor a block drawn while waiting for a key, and
+  errors print their names.
+- **Test builds**: `-D SELFTEST=1` runs a scripted session of lines
+  (`tests/test_screen.py`); `-D KEYTEST=1` reads keys from a script instead of the
+  keyboard (`tests/test_keys.py`). Normal builds pass both as 0.
 
 ## Evaluator (6502)
 
@@ -482,7 +504,8 @@ handle heap and GC; evaluator core with the structural primitives, the scalar
 functions, reduce and the output formatter.
 
 1. Memory map: implement the plan above (three decisions to confirm first).
-2. Keyboard entry and the line editor; then `)SAVE` / `)LOAD`.
+2. System commands (`)SAVE`, `)LOAD`, `)VARS`, ...), then the language features
+   the model still lacks.
 3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).

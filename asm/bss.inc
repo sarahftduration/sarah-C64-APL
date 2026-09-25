@@ -22,7 +22,8 @@ FMT     .fill 96                ; formatter variables
 DIGS    .fill 40                ; formatter: decimal digits
 FR      .fill 24                ; formatter: binary fraction
 COLW    .fill 256               ; formatter: column widths
-STV     .fill 16                ; screen and start-up variables
+STV     .fill 24                ; screen, start-up and editor variables
+HIST    .fill 256               ; the last line typed (cursor-up recalls it)
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer
@@ -30,6 +31,13 @@ stp     = STV+4                 ; self-test: data pointer
 stcount = STV+6
 stlen   = STV+7
 stidx   = STV+8
+klen    = STV+9                 ; editor: length of the line being typed
+kprefix = STV+10                ; a prefix key is waiting for its partner
+hlen    = STV+11                ; length of the remembered line
+kidx    = STV+12
+ktmp    = STV+13
+ksp     = STV+14                ; key script pointer (test builds)
+getkey_vec = STV+16             ; where keys come from
 HEAP_BASE = *
         .endv
 
