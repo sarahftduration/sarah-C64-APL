@@ -10,7 +10,7 @@ ORG     = $0801
         .byte 0
 basic_end:
         .word 0
-start:  rts                     ; entry point: the real start-up comes with the screen driver
+start:  jmp startup
         .cerror start != 2061, "the SYS address in the stub must match start"
 
         .include "layout.inc"
@@ -27,6 +27,7 @@ E_WSFULL = 8
         .include "scalar.inc"
         .include "reduce.inc"
         .include "format.inc"
+        .include "startup.inc"
 
 ; --- token index ------------------------------------------------------------------
 ; The token stream has variable-length literals, so it cannot be walked right to

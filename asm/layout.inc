@@ -29,6 +29,10 @@ dp      = $72
 logp    = $74
 ZP_POOL_END = $76
 
+; The screen driver's cursor pointer shares the test log pointer's slot: only the py65
+; tests use logp, and only the real machine uses the screen.
+scrp    = logp
+
 ; --- variables -----------------------------------------------------------------------
 ; The old zero-page image ($50-$FE) as RAM: the C64's cassette buffer, free because
 ; we never use tape. WS is chosen so that WS+$50 = $033C.

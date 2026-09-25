@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **13,294 bytes** (`$0801`-`$3BEE`); tables 7,440 bytes
-(`$4000`-`$5D0F`); **heap 29,424 bytes** (`$590F` to `$CBFF`; it starts where the
-tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+Code and read-only tables **14,192 bytes** (`$0801`-`$3F70`, including the start-up
+code, screen driver and charset data: about 900 bytes); tables 7,456 bytes; **heap
+28,384 bytes** (`$5D20` to `$CBFF`; it starts where the tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -151,15 +151,20 @@ harness will fail any write outside the allowed set.
    skips itself without them. Still to do, once there is a screen driver: poke a
    line into the input buffer through the monitor, run it, and compare the screen
    RAM at `$CC00`.
-5. Then the screen driver, charset (the 8x8 shapes for ASCII copied from the
-   character ROM, plus our glyphs), keyboard entry and line editor.
+5. **Screen driver and charset done** (see Display and input). Keyboard entry
+   and the line editor are next, then `)SAVE` / `)LOAD`.
 
-### To verify in VICE, not assumed
+### Verified in VICE
 
-The VIC seeing the RAM charset at `$D000` in bank 3; the interrupt keyboard scan
-and `GETIN` working with the screen moved and the cursor flag set; RESTORE doing
-nothing after the NMI patch; SAVE/LOAD staying silent and inside their own zero
-page; whether VICE can run headless for an automated check.
+`tests/test_screen.py` runs scripted sessions on the real KERNAL and compares
+screen RAM with the model through a Python model of the driver (wrapping, exact
+40-column lines, scrolling once and twice, a long session), and checks the charset
+RAM against the character ROM plus the glyph table, the VIC and CIA2 registers,
+`$01`, the KERNAL flags, the NMI vector, and that the KERNAL interrupt is still
+running. A screenshot confirmed the VIC really renders from the RAM charset in
+bank 3. Not yet checked: keyboard scan and `GETIN` with the screen moved; the
+RESTORE key itself (only the vector is verified); SAVE/LOAD staying silent and
+inside their zero page.
 
 ## Element types (homogeneous arrays, no mixing)
 
@@ -329,12 +334,32 @@ NONCE ERROR (not implemented), LIMIT ERROR, WS FULL`
 4. **VICE** for final integration: custom charset, screen output, `.prg`
    loading, disk I/O.
 
-## Display and input (planned)
+## Display and input
 
-- 40x25 text screen; matrices need column-aware output formatting.
-- Custom 2 KB APL character set in RAM, selected via `$D018`.
-- Keyboard: Commodore/Shift-modified keys for common glyphs plus a two-key
-  digraph fallback.
+Start-up, charset and screen driver are done (`asm/startup.inc`); keyboard entry
+and the line editor are next.
+
+- **Start-up** (`startup`, entered from the BASIC stub): `$01 = $36`; the
+  KERNAL's cursor blink off and its SHIFT+C= charset switching off (`$CC`, `$0291`:
+  that switch rewrites `$D018` and would re-point our charset); the NMI vector at
+  `$0318` patched to acknowledge and return; KERNAL messages off; charset
+  built; VIC bank 3, `$D018 = $34`; colours; screen cleared; interrupts on.
+- **Charset** (`build_charset`): 2 KB at `$D000` indexed by *our* codes, built
+  with interrupts off and `$01 = $33`: shapes copied from the character ROM's second
+  set (ASCII space to `?`, `@`, `A`-`Z`, `[`, `]`, `a`-`z`), plus hand-drawn glyphs
+  for the ASCII the C64 lacks (`\ ^ _ ` { | } ~`), a cursor block at `$7F`, and the
+  APL glyphs. The data and the artwork are in `tools/glyphs.py`, which generates
+  `asm/glyphs.inc`. **The glyph artwork is provisional.**
+- **Screen driver** (`scr_put`, installed as the formatter's `outv`): 40x25,
+  direct writes to `$CC00`, our codes are the screen codes. `$0a` is a newline; a
+  character in column 39 wraps; below row 24 the screen scrolls one row. The
+  cursor pointer shares the test log pointer's zero-page slot.
+- **Errors** print their names (`print_error`).
+- **Self-test build** (`-D SELFTEST=1`): a scripted session (tokenizer, evaluator,
+  formatter, screen) that `tests/test_screen.py` runs in VICE.
+- Keyboard (to come): Commodore/Shift-modified keys for common glyphs plus a
+  two-key digraph fallback; the KERNAL's `GETIN` returns PETSCII, where an
+  unshifted letter is `$41`-`$5A` (our lower case) and a shifted one `$C1`-`$DA`.
 
 ## Evaluator (6502)
 
@@ -457,8 +482,7 @@ handle heap and GC; evaluator core with the structural primitives, the scalar
 functions, reduce and the output formatter.
 
 1. Memory map: implement the plan above (three decisions to confirm first).
-2. Screen driver (the echo hook's real `fput`), keyboard entry and the custom
-   charset; then `)SAVE` / `)LOAD`.
+2. Keyboard entry and the line editor; then `)SAVE` / `)LOAD`.
 3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).

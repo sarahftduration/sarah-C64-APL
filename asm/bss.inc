@@ -22,6 +22,14 @@ FMT     .fill 96                ; formatter variables
 DIGS    .fill 40                ; formatter: decimal digits
 FR      .fill 24                ; formatter: binary fraction
 COLW    .fill 256               ; formatter: column widths
+STV     .fill 16                ; screen and start-up variables
+scr_row = STV
+scr_col = STV+1
+gtp     = STV+2                 ; charset builder: glyph table pointer
+stp     = STV+4                 ; self-test: data pointer
+stcount = STV+6
+stlen   = STV+7
+stidx   = STV+8
 HEAP_BASE = *
         .endv
 
