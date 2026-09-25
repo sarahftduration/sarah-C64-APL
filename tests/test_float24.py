@@ -1,0 +1,89 @@
+import os
+import random
+import sys
+
+sys.path.insert(0, os.getcwd())
+import apl64
+from harness import call, load
+
+FA, FB = 0x10, 0x13
+
+
+def to_bytes(p):
+    return [p >> 16, (p >> 8) & 0xFF, p & 0xFF]
+
+
+def from_bytes(bs):
+    return (bs[0] << 16) | (bs[1] << 8) | bs[2]
+
+
+def rand_f(rng, exp_lo=1, exp_hi=255):
+    if rng.random() < 0.05:
+        return 0
+    e = rng.randint(exp_lo, exp_hi)
+    frac = rng.choice([0, 0x7FFF, rng.getrandbits(15), rng.getrandbits(15)])
+    return (e << 16) | (rng.getrandbits(1) << 15) | frac
+
+
+def run(mpu, addr, a, b):
+    mpu.memory[FA:FA + 3] = to_bytes(a)
+    mpu.memory[FB:FB + 3] = to_bytes(b)
+    call(mpu, addr)
+    over = bool(mpu.p & 1)
+    return over, from_bytes(mpu.memory[FA:FA + 3])
+
+
+def expect(fn, a, b):
+    try:
+        return False, fn(a, b)
+    except apl64.AplError:
+        return True, None
+
+
+def check(name, fn, mpu, addr, a, b):
+    want = expect(fn, a, b)
+    got = run(mpu, addr, a, b)
+    if want[0]:
+        ok = got[0]
+    else:
+        ok = (not got[0]) and got[1] == want[1]
+    assert ok, f"{name}({a:06x}, {b:06x}): model {want}, 6502 {got}"
+
+
+def cases(rng, n):
+    for _ in range(n):
+        a = rand_f(rng)
+        mode = rng.random()
+        if mode < 0.3:
+            b = rand_f(rng)
+        elif mode < 0.6 and a:                  # near a: small exponent gap
+            e = min(255, max(1, (a >> 16) + rng.randint(-3, 3)))
+            b = (e << 16) | (rng.getrandbits(1) << 15) | rng.getrandbits(15)
+        elif mode < 0.75 and a:                 # near-cancellation
+            b = apl64.f_neg(a) ^ rng.choice([0, 1, 2, 0x100])
+        elif mode < 0.9:                        # extremes: over/underflow
+            a = rand_f(rng, 250, 255) if rng.random() < .5 else rand_f(rng, 1, 3)
+            b = rand_f(rng, 250, 255) if rng.random() < .5 else rand_f(rng, 1, 3)
+        else:                                   # exponent gaps 8..26: lost bits
+            a = rand_f(rng, 30, 220)
+            e = (a >> 16) - rng.randint(8, 26)
+            frac = rng.choice([0, 1, 0x7FFF, rng.getrandbits(15)])
+            b = (e << 16) | (rng.getrandbits(1) << 15) | frac
+            if rng.random() < .5:
+                a = (a & ~0x7FFF) | rng.choice([0, 0x7FFF, 1])
+        yield a, b
+
+
+def test_f_add_sub():
+    mpu, labels = load("float24")
+    rng = random.Random(24)
+    n = 0
+    for a, b in cases(rng, 60000):
+        check("f_add", apl64.f_add, mpu, labels["f_add"], a, b)
+        check("f_sub", apl64.f_sub, mpu, labels["f_sub"], a, b)
+        n += 1
+    print(f"float24 add/sub: {n} pairs match the model")
+
+
+if __name__ == "__main__":
+    test_f_add_sub()
