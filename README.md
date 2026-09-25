@@ -6,6 +6,14 @@
     python3 apl64.py --test   # self-test
     python3 apl64.py          # REPL (input needs the ¯ ← ⍳ ⍴ × ÷ glyphs)
 
+## Tests
+
+    make test          # the full regression suite
+    make timed-test    # the same, timed; appends the durations to tests/timing.csv
+
+Run the timed one when you run the whole suite, and commit `tests/timing.csv` with the change, so
+the growth of the suite's running time can be followed over time.
+
 ## Toolchain for the 6502 work
 
 - Assembler: 64tass or ca65 (cc65 suite)

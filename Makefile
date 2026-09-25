@@ -4,7 +4,7 @@ SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
 INCS  := asm/pow10.inc asm/glyphs.inc asm/keys.inc $(wildcard asm/*.inc)
 
-.PHONY: all test model-test clean prg
+.PHONY: all test timed-test model-test clean prg
 all: $(BINS)
 
 asm/pow10.inc: tools/gen_pow10.py
@@ -25,6 +25,10 @@ build/%.bin: asm/%.asm
 
 test: model-test $(BINS) build/apl.prg
 	@for t in tests/test_*.py; do PYTHONPATH=tests $(PY) $$t || exit 1; done
+
+# the full suite, timed: prints the duration and appends it to tests/timing.csv
+timed-test:
+	@tools/timed_test.sh
 
 prg: build/apl.prg
 
