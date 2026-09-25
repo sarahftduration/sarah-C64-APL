@@ -4,7 +4,7 @@ SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
 INCS  := asm/pow10.inc $(wildcard asm/*.inc)
 
-.PHONY: all test model-test clean
+.PHONY: all test model-test clean prg
 all: $(BINS)
 
 asm/pow10.inc: tools/gen_pow10.py
@@ -19,6 +19,12 @@ build/%.bin: asm/%.asm
 
 test: model-test $(BINS)
 	@for t in tests/test_*.py; do PYTHONPATH=tests $(PY) $$t || exit 1; done
+
+prg: build/apl.prg
+
+build/apl.prg: $(SRCS) $(INCS)
+	@mkdir -p build
+	$(ASM) -o $@ asm/eval.asm
 
 model-test:
 	python3 apl64.py --test

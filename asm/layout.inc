@@ -32,3 +32,17 @@ ZP_POOL_END = $76
 ; The old zero-page image ($50-$FE) as RAM: the C64's cassette buffer, free because
 ; we never use tape. WS is chosen so that WS+$50 = $033C.
 WS      = $033c-$50
+
+; --- fixed low RAM -----------------------------------------------------------------
+; $0400-$07FF was the KERNAL's screen; we move the screen (VIC bank 3) so it is free.
+; Only transient per-line buffers live here: an accident could not corrupt state.
+INBUF   = $0400                 ; the input line, 256 bytes, page aligned
+TIL     = $0500                 ; token index: address low, address high, code
+TIH     = $0600
+TC      = $0700
+
+; --- the top of the heap -------------------------------------------------------------
+HEAP_LIMIT = $cc00              ; screen RAM ($CC00-$CFFF) sits above it
+
+; test scaffolding, not part of the machine: the echo log
+LOGBUF  = $d000

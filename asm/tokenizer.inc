@@ -13,11 +13,7 @@
 
         .include "int16.inc"
 
-INBUF   = $3000         ; page aligned; indexed by the 8-bit ip
-SBUF    = $3100         ; number strand: 3 bytes per element (mag lo, mag hi, sign)
-OUTBUF  = $3400         ; room for 6 bytes per input byte
-SYMTAB  = $4000         ; entries: length byte + name; must stay below SYMEND_HI
-SYMEND_HI = $50
+SYMEND_HI = >(SYMTAB+SYMTAB_SIZE)-1      ; a name may run into the next page
 
 E_SYNTAX = 1
 E_DOMAIN = 2

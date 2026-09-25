@@ -1,0 +1,28 @@
+; Uninitialised tables, laid out right after the code. Nothing here is in the PRG;
+; the heap begins where the tables end and runs up to HEAP_LIMIT.
+
+BSS0    = (*+$ff) & $ff00
+SYMTAB_SIZE = 2048
+
+        .virtual BSS0
+HTL     .fill 256               ; handle table: address low
+HTH     .fill 256               ; address high (0 = free)
+HM      .fill 256               ; mark bytes
+VARS    .fill 1024              ; 256 variable cells
+VSTACK  .fill 512               ; value stack: 128 cells
+VSTACK_END = *
+FSTK    .fill 512               ; evaluator frames: 4 arrays of 128
+SYMTAB  .fill SYMTAB_SIZE       ; symbol table
+OUTBUF  .fill 1536              ; token stream: 6 bytes per input byte
+SBUF    .fill 512               ; number strand scratch
+SDV     .fill 8                 ; scalar engine vectors
+RV      .fill 64                ; reduce variables
+FACC    .fill 40                ; reduce: 320-bit accumulator
+FMT     .fill 96                ; formatter variables
+DIGS    .fill 40                ; formatter: decimal digits
+FR      .fill 24                ; formatter: binary fraction
+COLW    .fill 256               ; formatter: column widths
+HEAP_BASE = *
+        .endv
+
+        .cerror HEAP_LIMIT - HEAP_BASE < $6000, "less than 24 KB of heap"

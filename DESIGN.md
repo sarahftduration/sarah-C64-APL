@@ -12,13 +12,16 @@ and the model disagree, the model wins and this file has a bug.
 - Cross-developed on a modern machine; it does not need to be *built* on the C64.
 - 6502 assembly runtime, tested differentially against the Python model.
 
-## Memory map (plan; not yet implemented)
+## Memory map
 
-The tests use an ad-hoc layout (code at `$C000`, tables scattered from `$3000`,
-zero page used freely). This section is the layout for the real machine, from
-measurements of the current build.
+The layout for the real machine. Steps 1-3 of the migration below are done: the
+program assembles at `$0801` with the tables and heap placed by the assembler
+(`asm/layout.inc`, `asm/bss.inc`), the pointers live in a zero-page pool, and
+the tests enforce the map (`tests/test_layout.py`, and a guard in the harness that
+fails any routine writing zero page outside the allowed set). What is left is
+the video and start-up code that uses it.
 
-### Measured today
+### Measured before the migration
 
 - **Code and read-only tables: 13,072 bytes.** float24 715, int16 464, tokenizer
   2,164 (+ 516 power-of-ten table), heap 929, primitives 1,387, scalar functions
@@ -31,6 +34,14 @@ measurements of the current build.
 - **Hardware stack: 20 bytes deep** at most (no recursion; measured over the
   tests plus deep nesting).
 - **Tables**: about 7.9 KB, listed below.
+
+### Measured after steps 1-3
+
+Code and read-only tables 14,144 bytes (`$0801`-`$3F40`; absolute addressing costs
+a byte per reference, partly offset by retiring the int16 vector kernel); tables
+7,440 bytes (`$4000`-`$5D0F`); **heap 28,400 bytes** (`$5D10`-`$CBFF`). The
+per-array limit `WS_BYTES` / `wsmax` is now 16,000 bytes. Zero page used: the
+float24 and integer registers plus the 38-byte pointer pool (`$50`-`$75`).
 
 ### Machine configuration
 
@@ -118,14 +129,19 @@ harness will fail any write outside the allowed set.
 
 ### Migration, in order (each step keeps `make test` green)
 
-1. One file each for the zero-page and table addresses; tests read addresses
-   from the label file instead of hard-coding them.
-2. Move the scratch variables out of zero page; add the zero-page write guard to
-   the harness. Retire the vector kernel.
-3. Assemble at `$0810` with the BASIC stub and computed heap base; `wsmax`
-   from the heap size; the harness loads at the real addresses.
+1. **Done.** `eval.asm` is the only top-level source; tests read addresses from
+   the label file; the int16 vector kernel is retired.
+2. **Done.** Scratch variables moved out of zero page (to the tape buffer at
+   `$033C`), pointers into the pool, and the harness guard added. Still to do:
+   put the most-referenced variables back into the spare zero page (about 80
+   bytes free), which should win back most of the 1.3 KB the move cost.
+3. **Done.** Assembled at `$0801` with the BASIC stub, computed heap base, `wsmax`
+   16,000, real addresses in the harness. `make prg` builds `build/apl.prg`.
 4. A VICE smoke test: autostart the PRG, poke a line into the input buffer
-   through the monitor, run it, and compare the screen RAM at `$CC00`.
+   through the monitor, run it, and compare the screen RAM at `$CC00`. **Blocked:**
+   VICE here has no C64 ROM images (kernal, basic, chargen), which are
+   copyrighted and not in the Ubuntu package. They need supplying, in VICE's
+   `C64` data directory; the PRG itself checks out (correct load address and stub).
 5. Then the screen driver, charset (the 8x8 shapes for ASCII copied from the
    character ROM, plus our glyphs), keyboard entry and line editor.
 
@@ -194,7 +210,7 @@ value = (-1)^s * (0x8000 | fraction15) / 2^16 * 2^(exp-128)
   = 1, ≠ 0, < 0, ≤ 1, > 0, ≥ 1). Reduce on a matrix works along the last axis.
 - `⍳n` is INT, origin 1 (⎕IO=1). `⍴` monadic gives an INT shape vector;
   dyadic reshape cycles data and fills an empty right argument with 0 or space.
-- Arrays are limited to `WS_BYTES` (45000 in the model) and 65535 elements:
+- Arrays are limited to `WS_BYTES` (16000 in the model) and 65535 elements:
   WS FULL.
 
 ## Heap array layout (also the literal body in the token stream)
@@ -227,7 +243,7 @@ and one pinned handle (the array just allocated), then slides live blocks down
 and updates one table entry each. Any allocation may therefore move arrays: a
 primitive allocates its result first and re-derives operand data pointers after.
 
-Per-array size is limited to `wsmax` bytes (45000, the model's `WS_BYTES`), and
+Per-array size is limited to `wsmax` bytes (16000, the model's `WS_BYTES`), and
 the heap itself is the real limit; both raise WS FULL.
 
 ## Character encoding

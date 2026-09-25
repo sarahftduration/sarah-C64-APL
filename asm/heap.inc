@@ -12,15 +12,6 @@
 ; Blocks are contiguous from HEAP_BASE to htop. gc() marks from the value
 ; stack, the variables and the pinned handle, then slides live blocks down.
 
-HEAP_BASE  = $6000
-HEAP_LIMIT = $c000              ; exclusive
-VARS       = $5000              ; 256 cells
-VSTACK     = $5400              ; 192 cells
-VSTACK_END = $5700
-HTL        = $5800
-HTH        = $5900
-HM         = $5a00              ; mark bytes
-FSTK       = $5b00              ; evaluator frames
 
 ; zero page (real hardware will need a budget; see DESIGN.md)
 htop    = WS+$b0
@@ -66,9 +57,9 @@ hi1:    sta HTH,x
         sta vsp
         lda #>VSTACK
         sta vsp+1
-        lda #<45000
+        lda #<16000
         sta wsmax
-        lda #>45000
+        lda #>16000
         sta wsmax+1
         lda #<VARS
         sta gp

@@ -12,7 +12,6 @@
 ; Matrices are laid out in columns as wide as their widest entry (at most 256
 ; columns; more is LIMIT ERROR).
 
-FMT     = $5e40
 fbuf    = FMT                   ; 16 bytes: one formatted element
 flen    = FMT+16
 fkx      = FMT+17                ; decimal exponent of the leading digit (2, signed)
@@ -55,9 +54,6 @@ fr_col  = FMT+77
 fr_wd   = FMT+79
 fr_base = FMT+80
 ferrc   = FMT+82
-DIGS    = $5ea0                 ; 40 digits, least significant first
-FR      = $5ee0                 ; 18 bytes: a binary fraction, left aligned
-COLW    = $5f00                 ; column widths
 
 CHNL    = $0a
 NEGC    = $90

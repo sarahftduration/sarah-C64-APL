@@ -8,7 +8,6 @@
 ; int16 the whole operation is redone into a FLOAT result (as the model does).
 ; Monadic - and ÷ are 0-x and 1÷x with a synthetic scalar left operand.
 
-SDV     = $5d00                 ; vectors: load B, load A, kernel, store
 sdop    = WS+$50
 sdta    = WS+$51
 sdtb    = WS+$52

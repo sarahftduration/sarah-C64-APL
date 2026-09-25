@@ -1,7 +1,17 @@
 ; Evaluator. Spec: apl64.py Interp.eval_tokens / run_line.
 
-ORG     = $c000
+ORG     = $0801
         * = ORG
+
+; BASIC stub: 10 SYS 2061
+        .word basic_end, 10
+        .byte $9e
+        .text "2061"
+        .byte 0
+basic_end:
+        .word 0
+start:  rts                     ; entry point: the real start-up comes with the screen driver
+        .cerror start != 2061, "the SYS address in the stub must match start"
 
         .include "layout.inc"
         .include "tokenizer.inc"
@@ -34,14 +44,10 @@ T_SEMI    = 10
 K_INIT    = 0                   ; frame kinds: what to do with a parenthesised value
 K_LEFT    = 1
 
-TIL     = $3c00
-TIH     = $3d00
-TC      = $3e00
-FK      = $5b00                 ; frame stack: kind, saved lo, resume position, function
-FLO     = $5b80
-FRS     = $5c00
-FFN     = $5c80
-LOGBUF  = $0800
+FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
+FLO     = FSTK+128
+FRS     = FSTK+256
+FFN     = FSTK+384
 
 ev_lo   = WS+$ec
 ev_i1   = WS+$ed
@@ -739,3 +745,5 @@ el_data:
         adc bc+1
         sta logp+1
         rts
+
+        .include "bss.inc"

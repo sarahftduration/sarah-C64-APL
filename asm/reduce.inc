@@ -10,7 +10,6 @@
 ; Variables are absolute RAM: the folds run the scalar engine, which uses the
 ; zero page.
 
-RV      = $5d80
 rgl     = RV+0
 rt      = RV+1
 rrank   = RV+2
@@ -44,7 +43,6 @@ fv2     = RV+53
 rtl     = RV+54
 rth     = RV+55
 rte     = RV+56
-FACC    = $5e00
 
 red_ident:
         .byte 2, 0, 0, 0        ; +

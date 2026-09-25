@@ -287,7 +287,7 @@ BOOL, CHAR, INT, FLOAT = 0, 1, 2, 3
 WIDTH = (1, 1, 2, 3)
 LADDER = {BOOL: 0, INT: 1, FLOAT: 2}
 FILL = {BOOL: 0, CHAR: 32, INT: 0, FLOAT: 0}
-WS_BYTES = 45000
+WS_BYTES = 16000
 
 
 def check_size(t, n):
