@@ -12,7 +12,7 @@ ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
        5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
-UNIMPLEMENTED = set('+-×÷=≠<≤>≥/\\¨.∘⍤')
+UNIMPLEMENTED = set('/\\¨.∘⍤')
 
 
 class Session:
@@ -111,6 +111,13 @@ FIXED = [
     "A[1]", "A[1;2]", "→1", "1;2", "[", "]", "1[", "A←1 ⋄ B←A[", "1 ⋄ [",
     "⍳3 ⋄ ⍴⍳3 ⋄ ,⍳3", "A←2 3⍴⍳6 ⋄ ⍴A ⋄ ,A ⋄ (⍴A)⍴0", "A←'hello' ⋄ B←'world' ⋄ A,' ',B",
     "1+2", "+/1 2 3", "1 2 3+4 5 6", "-1", "×2", "÷2", "1=1", "1 2 3=1 2 4", "3-1", "⍴1+2", "1⍴2+3",
+    "1+2×3", "(1+2)×3", "10÷4", "10÷0", "0÷0", "1 2 3-1", "A←1 2 3 ⋄ A×A", "A←⍳5 ⋄ A=3", "2 3⍴⍳6 ⋄ 1+2 3⍴⍳6",
+    "(2 3⍴⍳6)+2 3⍴1", "(2 3⍴⍳6)+3 2⍴1", "1 2+1 2 3", "1 2+(2 3⍴1)", "'a'+1", "'a'='a'", "'a'≠'b'", "'a'<'b'",
+    "1='a'", "'abc'='abd'", "⍬+1", "''='a'", "⍬×⍬", "32767+1", "¯32768-1", "¯32768×¯1", "-¯32768", "-32767",
+    "200×200", "181×181", "182×182", "1e38×10", "1e38+1e38", "1÷3", "2÷3", "1.5×2", "0.1+0.2", "0.1+0.2=0.3",
+    "100000=100001", "1=1.00003", "1=1.0001", "×¯5 0 5", "×¯2.5 0 2.5", "×'a'", "-'a'", "÷'a'", "÷0", "÷4", "÷¯4",
+    "-1 2 3", "-2 3⍴⍳6", "÷2 3⍴⍳6", "×2 3⍴¯1 0 1", "-1.5", "-⍬", "÷⍬", "×⍬", "3-3", "1<2", "2<1", "1≤1", "1≥2", "1>0",
+    "(⍳3)=⍳3", "(⍳3)<3", "1 2 3≠1 5 3", "+/⍳3", "A←5 ⋄ A+A", "B←1 2 3 ⋄ B←B+1 ⋄ B", "(A←2)+A←3",
 ]
 
 
@@ -119,7 +126,8 @@ def gen_line(rng, defined):
 
     def lit():
         return rng.choice(["0", "1", "7", "¯2", "1 2 3", "4 5", "0 1 1", "3", "10", "2", "1 2 3 4 5 6",
-                           "1.5", "2 3.5", "40000", "⍬", "'a'", "'abc'", "''", "'xy'", "'it''s'", "2 3", "3 2"])
+                           "1.5", "2 3.5", "40000", "⍬", "'a'", "'abc'", "''", "'xy'", "'it''s'", "2 3", "3 2",
+                           "32767", "¯32768", "0.1", "1e38", "1.00003", "100001", "1 0 1"])
 
     def operand():
         if rng.random() < .35:
@@ -132,7 +140,7 @@ def gen_line(rng, defined):
         if d <= 0 or r < .2:
             return operand()
         if r < .42:
-            op = rng.choice("⍳⍴,+")
+            op = rng.choice("⍳⍴,+-×÷")
             if op == "⍳" and rng.random() < .8:          # a small scalar is the usual argument
                 return "⍳" + rng.choice(["0", "1", "3", "5", "12", "2.0", "(" + expr(d - 1) + ")"])
             return op + rng.choice(["", " "]) + expr(d - 1)
@@ -140,7 +148,7 @@ def gen_line(rng, defined):
             if rng.random() < .3:                          # dimension list on the left of ⍴
                 return rng.choice(["3", "2 3", "0", "5", "1 4", "6", "2 2"]) + "⍴" + expr(d - 1)
             left = operand() if rng.random() < .6 else "(" + expr(d - 1) + ")"
-            return left + rng.choice("⍴,") + expr(d - 1)
+            return left + rng.choice("⍴,+-×÷=≠<≤>≥") + expr(d - 1)
         if r < .82:
             return "(" + expr(d - 1) + ")"
         return rng.choice(names) + "←" + expr(d - 1)
@@ -168,7 +176,7 @@ def test_fuzz():
     rng = random.Random(21)
     s = Session()
     kinds = {}
-    for n in range(2500):
+    for n in range(4000):
         if n % 6 == 0:
             s.reset()
         defined = [nm for i, nm in enumerate(s.model.names) if i in s.model.vars]

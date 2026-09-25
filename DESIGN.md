@@ -217,11 +217,26 @@ value is the initial value or the left operand of a pending function. A
 dyadic primitive finds its left operand on top of the value stack and its right
 one below.
 
-Implemented so far: literals, names, assignment, parentheses, `⋄`, and the
-structural primitives `⍳`, `⍴` (monadic and dyadic), `,` (monadic and dyadic),
-monadic `+`. Everything else returns NONCE ERROR (in the model that is also the
-answer for `[ ] → ;`, dyadic `⍳`, and any operator other than `f/` on scalar
-dyadics; but the model does compute arithmetic, comparisons and reduce).
+Implemented so far: literals, names, assignment, parentheses, `⋄`, the
+structural primitives `⍳`, `⍴` and `,` (monadic and dyadic), and the scalar
+functions in `asm/scalar.inc`: dyadic `+ - × ÷ = ≠ < ≤ > ≥` and monadic
+`+ - × ÷`. Everything else returns NONCE ERROR: reduce and the other operators
+(the model computes `f/` on scalar dyadics), and `[ ] → ;` and dyadic `⍳`,
+which are NONCE ERROR in the model too.
+
+Scalar functions share one engine. Shapes are conformed first (equal, or one
+side scalar; otherwise RANK ERROR or LENGTH ERROR), then types are checked
+(CHAR is a DOMAIN ERROR except for `=` and `≠`), then a result is allocated and
+each element goes through four routines chosen per operation and operand type:
+load B, load A, kernel, store. Integer arithmetic runs into an INT result; if
+any element overflows int16 the whole operation is redone into a FLOAT result.
+Monadic `-` and `÷` run as `0-x` and `1÷x`. The model computes every element
+before it checks the result size, so when the allocation fails the 6502 does a
+dry run first and a DOMAIN ERROR from any element wins over WS FULL.
+
+The float comparison follows `f_teq` and `_fkey`, including its tolerance
+test. That test subtracts, so comparing values whose difference overflows
+(`1e38=¯1e38`) is a DOMAIN ERROR in the model, and on the 6502.
 
 One deliberate difference: the model returns echoes only when the whole line
 succeeds, so `1 ⋄ A B` prints nothing. The 6502 echoes each statement as it
@@ -267,11 +282,11 @@ catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 Done (6502, differentially tested under py65): float24 add, sub, mul, div;
 int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer;
-handle heap and GC; evaluator core with the structural primitives.
+handle heap and GC; evaluator core with the structural primitives and the
+scalar functions.
 
-1. 6502: scalar dyadic `+ - × ÷` and comparisons with type dispatch (BOOL and
-   INT to INT, redo in FLOAT, float24 tolerant comparison), monadic `- × ÷`,
-   reduce (`f/`, exact `+/`), and the print formatter (`f_format`).
+1. 6502: reduce (`f/` on scalar dyadics, with the exact `+/`) and the print
+   formatter (`f_format`, matrix layout), which the echo hook needs.
    Also budget zero page: the tests use `$10`-`$FF` freely, but the KERNAL owns
    much of `$90`-`$FF`.
 2. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.

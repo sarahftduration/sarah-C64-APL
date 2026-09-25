@@ -10,6 +10,7 @@ E_WSFULL = 8
 
         .include "heap.inc"
         .include "prims.inc"
+        .include "scalar.inc"
 
 ; --- token index ------------------------------------------------------------------
 ; The token stream has variable-length literals, so it cannot be walked right to
@@ -614,6 +615,12 @@ apply_mon:
         beq am_shape
         cmp #12
         beq am_ravel
+        cmp #1
+        beq am_neg
+        cmp #2
+        beq am_sign
+        cmp #3
+        beq am_recip
         lda #E_NONCE
         sec
         rts
@@ -625,17 +632,25 @@ am_shape:
         jmp p_shape
 am_ravel:
         jmp p_ravel
+am_neg: jmp p_neg
+am_sign: jmp p_signum
+am_recip: jmp p_recip
 
 apply_dy:
         sec
         sbc #$80
+        cmp #10
+        bcc ad_sd
+        beq ad_nonce
         cmp #11
         beq ad_reshape
         cmp #12
         beq ad_cat
+ad_nonce:
         lda #E_NONCE
         sec
         rts
+ad_sd:  jmp p_sdyad
 ad_reshape:
         jmp p_reshape
 ad_cat: jmp p_catenate
