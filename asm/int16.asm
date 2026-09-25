@@ -6,7 +6,7 @@
 ;   left int16 (signed overflow).
 ; i_mul   ia = ia * ib    same convention: low 16 bits of the signed product,
 ;   carry set if the true product does not fit int16.
-; i_to_f  fa = float24(ia), exact.
+; i_to_f  fa = float24(ia), exact.   m_to_f: same, from magnitude ia + sign bit in sgn.
 ; vec_add / vec_sub / vec_mul   elementwise INT op over flat data, all-or-nothing:
 ;   In:  pa, pb = element pointers; pr = result pointer (room for 3*cnt bytes);
 ;        cnt = element count; stra, strb = byte strides (2, or 0 to repeat a
@@ -115,17 +115,10 @@ imcmp:  cmp p2
         rts
 
 ; exponent = 128 + bit length of |ia|; mantissa = |ia| shifted to 16 bits
-i_to_f: lda ia
-        ora ia+1
-        bne itnz
-        sta fa
-        sta fa+1
-        sta fa+2
-        rts
-itnz:   lda ia+1
+i_to_f: lda ia+1
         and #$80
         sta sgn
-        bpl itpos
+        bpl m_to_f
         sec
         lda #0
         sbc ia
@@ -133,7 +126,15 @@ itnz:   lda ia+1
         lda #0
         sbc ia+1
         sta ia+1
-itpos:  ldx #144
+; m_to_f: fa = float24 of the unsigned magnitude in ia, sign in bit 7 of sgn
+m_to_f: lda ia
+        ora ia+1
+        bne itnz
+        sta fa
+        sta fa+1
+        sta fa+2
+        rts
+itnz:   ldx #144
 itnl:   lda ia+1
         bmi itdone
         asl ia

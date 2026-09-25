@@ -102,6 +102,24 @@ Fixed **4-byte cells**: a type byte plus 3 payload bytes. A scalar lives
 entirely in the cell, so scalar-heavy code never touches the allocator or GC.
 Arrays put a heap handle in the payload.
 
+## Character encoding
+
+CHAR data and the tokenizer's input use one byte per character: ASCII keeps
+its ASCII code, and the APL glyphs get fixed codes (`GLYPH_CODES` in the
+model). Glyphs that are also tokens use their token code.
+
+| Code | Glyph | Code | Glyph | Code | Glyph |
+|------|-------|------|-------|------|-------|
+| `$82` | `×` | `$8A` | `⍳` | `$91` | `←` |
+| `$83` | `÷` | `$8B` | `⍴` | `$92` | `→` |
+| `$85` | `≠` | `$C2` | `¨`  | `$93` | `⋄` |
+| `$87` | `≤` | `$C4` | `∘`  | `$94` | `⍬` |
+| `$89` | `≥` | `$C5` | `⍤`  | `$95` | `⍝` |
+| `$90` | `¯` | `$96` | `∆`  | `$97` | `⍙` |
+
+A character with no code is a DOMAIN ERROR inside a string and a SYNTAX ERROR
+elsewhere. Input lines are at most 255 bytes and end with `$00`.
+
 ## Token stream
 
 One line ends with `$00`.
@@ -165,6 +183,16 @@ NONCE ERROR (not implemented), LIMIT ERROR, WS FULL`
 - Keyboard: Commodore/Shift-modified keys for common glyphs plus a two-key
   digraph fallback.
 
+## Tokenizer (6502, stage 1)
+
+`asm/tokenizer.asm` matches `Interp.tokenize` byte for byte, including the
+symbol table (names in order of first use, 256 max) and every error kind,
+for everything except number forms that need decimal parsing. Those return
+NONCE ERROR: a decimal point, an exponent, and integers above 65535. Integer
+strands (0 to 65535, with `¯`) are folded into one BOOL, INT or FLOAT literal.
+Buffers: input at `INBUF` (page aligned), strand scratch at `SBUF`, tokens at
+`OUTBUF` (6 bytes per input byte is enough), symbols at `SYMTAB`.
+
 ## Implemented in the model so far
 
 `+ - × ÷` (monadic: identity, negate, signum, reciprocal), `= ≠ < ≤ > ≥`,
@@ -176,10 +204,12 @@ catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## Next steps
 
-1. 6502: float24 unpack / add / pack, diffed against `f_add` under py65.
-2. 6502: `f_mul`, `f_div`, int16 add/sub with overflow redo.
-3. 6502: evaluator loop, handle heap, GC.
-4. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
-5. Charset, keyboard entry, `)SAVE` / `)LOAD`.
-6. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
+Done (6502, differentially tested under py65): float24 add, sub, mul, div;
+int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer stage 1.
+
+1. 6502: tokenizer stage 2: decimal and exponent numbers, integers above 65535.
+2. 6502: evaluator loop, handle heap, GC.
+3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
+4. Charset, keyboard entry, `)SAVE` / `)LOAD`.
+5. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).

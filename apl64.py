@@ -683,6 +683,27 @@ SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
 PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,'
 OP_GLYPHS = '/\\¨.∘⍤'
+# Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
+# The 6502 tokenizer receives lines in this encoding. Glyphs that are also
+# tokens use their token code.
+GLYPH_CODES = {'×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+               '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
+               '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
+               '⍝': 0x95, '∆': 0x96, '⍙': 0x97}
+
+
+def char_code(ch):
+    if ord(ch) < 128:
+        return ord(ch)
+    if ch in GLYPH_CODES:
+        return GLYPH_CODES[ch]
+    raise AplError('DOMAIN ERROR')
+
+
+def encode_line(line):
+    return bytes(char_code(c) for c in line)
+
+
 NAME_RE = re.compile(r'[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*')
 
 
@@ -753,9 +774,7 @@ class Interp:
                     chars.append(line[j])
                     j += 1
                 i = j + 1
-                if any(ord(ch) > 255 for ch in chars):
-                    raise AplError('DOMAIN ERROR')
-                codes = [ord(ch) for ch in chars]
+                codes = [char_code(ch) for ch in chars]
                 v = scalar(CHAR, codes[0]) if len(codes) == 1 else vector(CHAR, codes)
                 out.append(T_LIT)
                 out += v.to_bytes()
