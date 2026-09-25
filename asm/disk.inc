@@ -32,23 +32,38 @@ msg_notws:  .text "NOT A WORKSPACE"
 ; --- opening and closing --------------------------------------------------------------------
 ; FNBUF holds the file name string; fnlen its length. Carry set: could not open.
 open_file:
+        ldy #LFN                ; secondary address = logical file number
+open_sa:
+        sty osa
         lda fnlen
         ldx #<FNBUF
         ldy #>FNBUF
         jsr K_SETNAM
         lda #LFN
         ldx DEVNUM
-        ldy #LFN
+        ldy osa
         jsr K_SETLFS
         jmp K_OPEN
 
 close_file:
         jsr K_CLRCHN
         lda #LFN
+        jsr K_CLOSE
+        lda #15                 ; the error channel too, if disk_peek left it open
         jmp K_CLOSE
 
 ; The drive's error channel: A = the two-digit code (0 = OK), or $ff if it could not be read.
+; disk_status closes channel 15 again, and DOS then closes every file that is open, so it is only for
+; when no file is open. While a file is open, disk_peek leaves the channel open; close_file closes it.
 disk_status:
+        jsr disk_peek
+        pha
+        lda #15
+        jsr K_CLOSE
+        pla
+        rts
+
+disk_peek:
         lda #0
         ldx #<FNBUF
         ldy #>FNBUF
@@ -75,8 +90,6 @@ dst1:   stx kidx
         dex
         bne dst1
 dst2:   jsr K_CLRCHN
-        lda #15
-        jsr K_CLOSE
         lda dsa
         sec
         sbc #'0'
@@ -98,8 +111,6 @@ dst2:   jsr K_CLRCHN
         rts
 dst_close:
         jsr K_CLRCHN
-        lda #15
-        jsr K_CLOSE
 dst_fail:
         lda #$ff
         rts
@@ -468,7 +479,7 @@ cmd_load:
         jsr build_name
         jsr open_file
         bcs ld_fail
-        jsr disk_status         ; a missing file shows only here
+        jsr disk_peek           ; a missing file shows only here
         cmp #0
         bne ld_dfail
         ldx #LFN
@@ -508,7 +519,110 @@ ld_closefail:
 ld_fail:
         jsr disk_status
 ld_dfail:
+        pha
+        jsr close_file          ; the drive still has the file (and channel 15) open
+        pla
         jmp disk_fail
+
+; --- )LIB: the directory of the drive -----------------------------------------------------------------
+; The directory is opened like a LOAD of "$" (secondary address 0) and read as the program the drive
+; makes of it: a load address, then per line a link (zero at the end), the line number (the block
+; count) and text ending in a zero. Each line prints as BASIC's LIST does: the number, a space, the text.
+; Every LIB_PAGE lines, if more follow, it waits for a key (RUN/STOP ends the listing).
+LIB_PAGE = 22
+msg_more: .text "MORE"
+        .byte 0
+
+cmd_lib:
+        lda #'$'
+        sta FNBUF
+        lda #1
+        sta fnlen
+        ldy #0
+        jsr open_sa
+        bcs ld_fail
+        jsr disk_peek
+        cmp #0
+        bne ld_dfail
+        ldx #LFN
+        jsr K_CHKIN
+        bcs ld_closefail
+        lda #0
+        sta eofseen
+        sta lcnt
+        jsr rbyte               ; the load address
+        bcs lib_done
+        jsr rbyte
+        bcs lib_done
+lib_line:
+        jsr rbyte               ; the link to the next line: zero ends the directory
+        bcs lib_done
+        sta ktmp
+        jsr rbyte
+        bcs lib_done
+        ora ktmp
+        beq lib_done
+        lda lcnt
+        cmp #LIB_PAGE
+        bcc lib_go
+        jsr lib_more
+        bcs lib_done
+lib_go: jsr rbyte               ; the block count
+        bcs lib_done
+        sta ftmp
+        jsr rbyte
+        bcs lib_done
+        sta ftmp+1
+        jsr print_dec16
+        lda #' '
+        jsr scr_put
+lib_text:
+        jsr rbyte
+        bcs lib_done
+        beq lib_eol
+        cmp #$20                ; control codes (the header's reverse-on) are dropped
+        bcc lib_text
+        cmp #$60
+        bcc lib_put             ; punctuation, digits, letters
+        cmp #$c1                ; shifted letters become our upper case
+        bcc lib_text
+        cmp #$db
+        bcs lib_text
+        adc #$80                ; carry is clear here: $C1 + $80 = $41
+lib_put:
+        jsr scr_put
+        jmp lib_text
+lib_eol:
+        lda #CHNL
+        jsr scr_put
+        inc lcnt
+        jmp lib_line
+lib_done:
+        jmp close_file
+
+; a full page has been listed: MORE, wait for a key, erase the prompt. Carry set: stop listing
+lib_more:
+        jsr K_CLRCHN            ; keys come from the keyboard, not the drive
+        lda #<msg_more
+        sta mp
+        lda #>msg_more
+        sta mp+1
+        jsr print_z
+        jsr kbd_wait
+        pha
+        ldx #4
+lm1:    jsr scr_back
+        dex
+        bne lm1
+        lda #0
+        sta lcnt
+        pla
+        cmp #3                  ; RUN/STOP
+        beq lm2
+        ldx #LFN
+        jmp K_CHKIN             ; carry set if the drive channel is gone
+lm2:    sec
+        rts
 
 ; read the workspace from the open channel. A = 0 ok, 1 not a workspace, 2 WS FULL, 3 I/O error.
 load_body:

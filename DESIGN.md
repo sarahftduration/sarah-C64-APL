@@ -37,10 +37,10 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **17,259 bytes** (`$0801`-`$4B6B`, including the start-up
+Code and read-only tables **17,480 bytes** (`$0801`-`$4C48`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 24,888 bytes** (`$6AC8` to `$CBFF`; it starts where the tables
-end). **The heap is only 300 bytes above the 24 KB build guard**: code that is only
+7,832 bytes; **heap 24,632 bytes** (`$6BC8` to `$CBFF`; it starts where the tables
+end, on a 256-byte boundary after the code: `)LIB` moved it up one step). **The heap is only 56 bytes above the 24 KB build guard, and the code has about 180 bytes left before the tables step up again and break it**: code that is only
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
@@ -353,6 +353,7 @@ case-insensitive.
 | `)WSID [name]` | show (or `CLEAR WS`) or set the workspace name: 1-16 of `A-Z 0-9 - .`, lower case folded; `BAD NAME` otherwise, leaving the old name alone |
 | `)SAVE [name]` | write the workspace to drive 8; without a name, use the workspace name; prints `SAVED` |
 | `)LOAD [name]` | replace the workspace from a file; prints `LOADED` |
+| `)LIB` | list the disk in drive 8 as the drive reports it: header, one line per file (blocks, name, type), blocks free; 22 lines at a time, `MORE` waits for a key (RUN/STOP stops) |
 | `)OFF` | reset the machine |
 
 Anything else is `BAD COMMAND`. Drive errors print `FILE NOT FOUND` or `FILE ERROR`;
@@ -385,8 +386,28 @@ fit the per-array limit. A failure part-way (truncated file, bad trailer, bad ta
 the variables read so far in place, and reports the error. An empty file is `NOT A
 WORKSPACE`: DOS returns one garbage byte for it, indistinguishable from a bad first byte.
 
-Not yet done: `)LIB` (directory), a way to choose a drive other than 8, and `)OFF` is
-untested (it jumps through the reset vector).
+**The drive's error channel.** Closing channel 15 makes CBM DOS close every open file, so the
+error channel must stay open while a file is being read: `)LOAD` and `)LIB` open the file, read
+the status with `disk_peek` (channel 15 stays open), read the data, and `close_file` closes the file
+and then channel 15. `disk_status` (which closes channel 15 itself) is only for when no file is
+open, as after a `)SAVE`. VICE's host-folder mode has no such channels, so only the real-drive
+test (below) can catch a mistake here.
+
+**`)LIB`** opens `$` like BASIC's `LOAD` (secondary address 0) and reads the program the drive
+makes of the directory: a load address, then per line a link (zero at the end), the line number
+(the block count) and text ending in a zero. Each line prints as BASIC's `LIST` does: the number,
+a space, the text; control codes (the header's reverse-on) are dropped and shifted letters print
+as capitals. After 22 lines, if another line follows, `MORE` is printed and a key awaited (any key
+continues, RUN/STOP ends the listing); the prompt is erased before the listing goes on. VICE's
+host-folder mode lists `.` and `..` and gives 65535 blocks free, a real 1541 lists the disk name
+and ID and its real block counts. Extra words after `)LIB` are ignored.
+
+Tests: `tests/test_disk.py` types sessions on VICE with a host folder as drive 8, and (when the
+1541 ROM is found, in `roms/dos1541.bin` or VICE's own folders, and `c1541` is installed) on a real
+emulated 1541 with a `.d64` image.
+
+Not yet done: a way to choose a drive other than 8, and `)OFF` is untested (it jumps through the
+reset vector).
 
 ## Display and input
 
@@ -557,7 +578,7 @@ handle heap and GC; evaluator core with the structural primitives, the scalar
 functions, reduce and the output formatter.
 
 1. Memory map: implement the plan above (three decisions to confirm first).
-2. `)LIB`, a drive selector, and trimming code (see the heap figure above); then the
+2. Trimming code (see the heap figure above; `)LIB` is done) and a drive selector; then the
    language features the model still lacks (indexing, more operators, user-defined
    functions).
 3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.

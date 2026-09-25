@@ -69,6 +69,8 @@ svi     = STV+57
 sympp   = STV+58                ; (2)
 ldtag   = STV+60
 lw      = STV+61
+osa     = STV+62                ; secondary address for open_sa
+lcnt    = STV+63                ; )LIB: lines listed on this page
 HEAP_BASE = *
         .endv
 

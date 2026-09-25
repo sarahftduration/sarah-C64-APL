@@ -84,6 +84,9 @@ cmdtab: .text "VARS"
         .text "LOAD"
         .byte 0
         .word cmd_load
+        .text "LIB"
+        .byte 0
+        .word cmd_lib
         .text "OFF"
         .byte 0
         .word cmd_off

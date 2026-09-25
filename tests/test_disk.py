@@ -17,11 +17,81 @@ from test_keys import EditorModel, build_keytest, petscii, show
 from test_vice import ROMS
 
 
+LIB_PAGE = 22
+
+
+def dir_lines(disk):
+    """The directory VICE builds for a host folder acting as drive 8, as )LIB prints it.
+
+    Each line is the drive's line number (the block count) and text; )LIB prints the number, a space
+    and the text, as BASIC's LIST does. VICE lists the header (line number 1, no disk name), the
+    entries "." and "..", every file sorted by its upper-cased name with a block count of one per
+    254 bytes rounded up and the type PRG (whatever the name), and 65535 BLOCKS FREE."""
+    def entry(blocks, name, kind):
+        return blocks, " " * (4 - len(str(blocks))) + '"' + name + '"' + " " * (17 - len(name)) + kind
+    lines = [(1, '"' + " " * 16 + '"  #8:0'), entry(1, ".", "DIR"), entry(1, "..", "DIR")]
+    for name in sorted(n.upper() for n in disk):
+        size = len(disk[name.lower()])
+        lines.append(entry(-(-size // 254), name, "PRG"))
+    lines.append((65535, "BLOCKS FREE."))
+    return [f"{n} {text}".rstrip().encode() for n, text in lines]
+
+
+def dos_lines(disk, label="TEST", ident="01"):
+    """The directory a real 1541 reports for a freshly formatted disk holding `disk` (all SEQ files, in
+    the order they were written): the header with the disk name and ID, one line per file with its
+    block count, and the free blocks (664 on an empty disk). The text is laid out as VICE's folder
+    listing above, so only the header, the types and the counts differ."""
+    def entry(blocks, name, kind):
+        return blocks, " " * (4 - len(str(blocks))) + '"' + name + '"' + " " * (17 - len(name)) + kind
+    lines, used = [(0, '"' + label.ljust(16) + '" ' + ident + " 2A")], 0
+    for name, data in disk.items():
+        blocks = -(-len(data) // 254)
+        used += blocks
+        lines.append(entry(blocks, name.upper(), "SEQ"))
+    lines.append((664 - used, "BLOCKS FREE."))
+    return [f"{n} {text}".rstrip().encode() for n, text in lines]
+
+
 class DiskModel(EditorModel):
-    def __init__(self, heap, disk):
+    paused = False                      # )LIB is waiting at MORE for a key (the base class prompts in __init__)
+
+    def __init__(self, heap, disk, dos=False):
         super().__init__(heap)
+        self.dos = dos                  # a real drive's directory rather than VICE's folder listing
         self.disk = dict(disk)          # lower-case file name -> bytes
         self.written = set()
+        self.lib_rest, self.lib_n = [], 0
+
+    def prompt(self):
+        if not self.paused:             # a paused listing ends with the prompt, not before
+            super().prompt()
+
+    def screen(self):
+        return bytes(self.scr.mem) if self.paused else super().screen()     # no cursor block while at MORE
+
+    def lib_go(self):
+        while self.lib_rest:
+            if self.lib_n == LIB_PAGE:
+                self.scr.write(b"MORE")
+                self.paused = True
+                return
+            self.scr.write(self.lib_rest.pop(0) + b"\n")
+            self.lib_n += 1
+        self.paused = False
+
+    def key(self, k):
+        if not self.paused:
+            return super().key(k)
+        for _ in range(4):              # the MORE is erased, then any key goes on and RUN/STOP stops
+            self.scr.back()
+        self.lib_n = 0
+        if k == 3:
+            self.lib_rest = []
+        self.paused = False
+        self.lib_go()
+        if not self.paused:
+            self.prompt()
 
     def name_arg(self, arg):
         """The workspace name a command uses, as get_name: an argument sets it, else the current one."""
@@ -59,6 +129,9 @@ class DiskModel(EditorModel):
             if m is not None:
                 self.model = m
             self.say({"ok": "LOADED", "notws": "NOT A WORKSPACE", "wsfull": "WS FULL", "io": "FILE ERROR"}[status])
+        elif word == "LIB":
+            self.lib_rest, self.lib_n = (dos_lines if self.dos else dir_lines)(self.disk), 0
+            self.lib_go()
         else:
             super().syscmd(t)
 
@@ -74,6 +147,16 @@ def run_vice_disk(prg, initbreak, hostdir, script):
                "-autostart", prg, "-moncommands", mon]
         subprocess.run(cmd, capture_output=True, timeout=400)
         return {n: open(os.path.join(d, n), "rb").read() for n in os.listdir(d) if n != "mon.txt"}
+
+
+def mask_dirs(screen):
+    """Blank the block counts of the "." and ".." rows: VICE takes them from the host folders' sizes, which
+    depend on the filesystem. The number and its padding always fill five columns, so nothing shifts."""
+    rows = [bytearray(screen[r * 40:r * 40 + 40]) for r in range(25)]
+    for row in rows:
+        if bytes(row[5:8]) == b'"."' or bytes(row[5:9]) == b'".."':
+            row[0:5] = b" " * 5
+    return b"".join(rows)
 
 
 def session(text, disk=None):
@@ -92,12 +175,57 @@ def session(text, disk=None):
     for k in keys:
         ed.key(k)
     got, want = files["screen.bin"][2:], ed.screen()
-    if got != want:
+    if mask_dirs(got) != mask_dirs(want):
         show(got, want)
         raise AssertionError(f"screen differs from the model for {text[:200]!r}")
     for n in ed.written:
         assert after.get(n) == ed.disk[n], f"file {n!r}: the machine wrote {after.get(n)!r}, expected {ed.disk[n]!r}"
     return ed, after
+
+
+def dos1541_rom():
+    """The 1541 ROM VICE needs for a real drive: roms/dos1541.bin, or one in VICE's own data folders."""
+    name = "dos1541-325302-01+901229-05.bin"
+    for path in ("roms/dos1541.bin", os.path.expanduser("~/.local/share/vice/DRIVES/" + name),
+                 "/usr/share/vice/DRIVES/" + name):
+        if os.path.exists(path):
+            return os.path.abspath(path)
+
+
+def image_session(text, files=None):
+    """Type `text` on a machine whose drive 8 is a real (emulated) 1541 holding a formatted disk image
+    with `files` (SEQ files, lower-case name -> bytes). Checks the screen against the model, and the
+    files the machine saved by reading them back out of the image."""
+    files = files or {}
+    keys = petscii(text)
+    L = build_keytest(keys)
+    with tempfile.TemporaryDirectory() as d:
+        img = os.path.join(d, "t.d64")
+        cmd = ["c1541", "-format", "test,01", "d64", img]
+        for n, data in files.items():
+            with open(os.path.join(d, "src_" + n), "wb") as f:
+                f.write(data)
+            cmd += ["-write", os.path.join(d, "src_" + n), n + ",s"]
+        subprocess.run(cmd, capture_output=True, check=True)
+        mon = os.path.join(d, "mon.txt")
+        with open(mon, "w") as f:
+            f.write(f'save "{d}/screen.bin" 0 cc00 cfe7\nquit\n')
+        subprocess.run(["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp",
+                        "-kernal", "roms/kernal.bin", "-basic", "roms/basic.bin", "-chargen", "roms/chargen.bin",
+                        "-dos1541", dos1541_rom(), "-autostartprgmode", "1", "-initbreak", hex(L["selftest_done"]),
+                        "-limitcycles", "1500000000", "-drive8type", "1541", "-8", img,
+                        "-autostart", "build/keytest.prg", "-moncommands", mon], capture_output=True, timeout=600)
+        ed = DiskModel((L["HEAP_BASE"], L["HEAP_LIMIT"]), files, dos=True)
+        for k in keys:
+            ed.key(k)
+        got = open(os.path.join(d, "screen.bin"), "rb").read()[2:]
+        if got != ed.screen():
+            show(got, ed.screen())
+            raise AssertionError(f"screen differs from the model for {text[:200]!r} on a real drive")
+        for n in ed.written:
+            out = os.path.join(d, "out_" + n)
+            subprocess.run(["c1541", img, "-read", n + ",s", out], capture_output=True)
+            assert os.path.exists(out) and open(out, "rb").read() == ed.disk[n], f"file {n!r} on the disk image"
 
 
 def ws(lines):
@@ -155,6 +283,46 @@ def test_load():
     print("disk: )LOAD reads what the encoder writes (all types, shapes, empty arrays); missing files; names; round trip")
 
 
+def test_lib():
+    files = {"alpha": bytes(12), "b": bytes(254), "c": bytes(255), "big": bytes(5000), "zz.9": bytes(1)}
+    session(")lib{RET}")                                              # nothing on the drive
+    session(")lib{RET}", files)                                       # block counts round up per 254 bytes
+    session(")LIB{RET})Lib extra words{RET}", files)                  # case and arguments
+    session("a{LA}1{RET})save t1{RET})lib{RET})save t2{RET}a{LA}{P}i9{RET})save t2{RET})lib{RET}", files)   # our own files appear
+    session(")lib{RET}1+1{RET}a{LA}5{RET}a{RET}", files)              # the machine goes on working afterwards
+    session(")lib{RET})lib{RET})lib{RET}")                            # repeated: the channel is closed each time
+    print("disk: )LIB lists the drive as VICE reports it (header, entries, block counts, free blocks)")
+
+
+def test_lib_paging():
+    def many(n):
+        return {f"f{i:02d}": bytes(i + 1) for i in range(n)}
+    for n in (0, 17, 18, 19, 20, 30, 41, 63, 64, 70):           # 22 lines per page; the header, . .. and BLOCKS FREE add four
+        session(")lib{RET}" + "x" * 4, many(n))                 # any key goes on
+    session(")lib{RET}", many(30))                              # the script ends at MORE
+    session(")lib{RET}x", many(30))                             # ... or just after it
+    session(")lib{RET}{$03}1+1{RET}", many(30))                # RUN/STOP ends the listing at the first MORE
+    session(")lib{RET}x{$03}1+1{RET}", many(60))                # ... or a later one
+    session(")lib{RET}{RET}{UP}x{DEL}q", many(30))              # the key that continues is not typed into the line
+    session(")lib{RET}x")                                       # a short listing never asks for a key: x is typed at the prompt
+    print("disk: )LIB pages every 22 lines only when more follow; any key continues, RUN/STOP stops, the prompt returns")
+
+
+def test_real_drive():
+    """A real 1541 (its DOS runs on its own CPU) differs from VICE's folder mode: closing the error channel
+    closes every file, so the status of a file being read must be read without closing channel 15.
+    The folder tests cannot see that; these can."""
+    m, good = ws(VALUES)
+    image_session("a{LA}1 2 3{RET}b{LA}'hi'{RET})save q1{RET})clear{RET})load q1{RET})vars{RET}a{RET}b{RET}")
+    image_session(")load nothere{RET})load t1{RET})vars{RET})load nothere{RET})wsid{RET}", {"t1": good})   # missing, then found, then missing
+    image_session(")lib{RET})lib{RET}", {"t1": good, "small": bytes(3), "n254": bytes(254), "n255": bytes(255)})
+    image_session(")lib{RET}a{LA}1{RET})save w1{RET})lib{RET})load w1{RET})lib{RET})load t1{RET}", {"t1": good})   # LIB does not disturb LOAD
+    image_session(")lib{RET}", {f"f{i:02d}": bytes(i + 1) for i in range(30)})                            # paging, then the end
+    image_session(")lib{RET}x{$03}1+1{RET}", {f"f{i:02d}": bytes(i + 1) for i in range(30)})              # RUN/STOP at MORE
+    image_session("a{LA}1{RET})save t1{RET})save t1{RET})lib{RET})load t1{RET})vars{RET}", {"t1": good})     # replacing keeps working
+    print("disk: on a real 1541 with a disk image, )SAVE, )LOAD (also missing files) and )LIB match the model")
+
+
 def test_corrupt():
     m, good = ws(["a←1 2 3", "bb←'hi'", "c←2 2⍴1.5 2 3 4", "d←5"])
     head = good[:5]
@@ -199,4 +367,10 @@ if __name__ == "__main__":
         test_save()
         test_readonly()
         test_load()
+        test_lib()
+        test_lib_paging()
         test_corrupt()
+        if dos1541_rom() and subprocess.run(["which", "c1541"], capture_output=True).returncode == 0:
+            test_real_drive()
+        else:
+            print("disk: real-drive tests skipped (need the 1541 ROM in roms/dos1541.bin or VICE's folders, and c1541)")
