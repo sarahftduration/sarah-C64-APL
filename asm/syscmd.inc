@@ -78,6 +78,12 @@ cmdtab: .text "VARS"
         .text "WSID"
         .byte 0
         .word cmd_wsid
+        .text "SAVE"
+        .byte 0
+        .word cmd_save
+        .text "LOAD"
+        .byte 0
+        .word cmd_load
         .text "OFF"
         .byte 0
         .word cmd_off
@@ -116,12 +122,12 @@ pd1:    dec fdi
 ws_clear:
         jsr heap_init
         jsr tok_init
-        lda #0
-        sta WSNAME
         rts
 
 cmd_clear:
         jsr ws_clear
+        lda #0
+        sta WSNAME
         lda #<msg_clear
         sta mp
         lda #>msg_clear
@@ -218,13 +224,19 @@ gn2:    cmp #'-'
         bcs gn_bad
 gn3:    cpy #16
         bcs gn_bad
-        sta WSNAME+1,y
+        sta NAMETMP,y
         iny
         inx
         jmp gn1
 gn4:    cpy #0
         beq gn_bad
-        sty WSNAME
+        sty WSNAME              ; valid: copy it over the workspace name
+        ldx #0
+gn5:    lda NAMETMP,x
+        sta WSNAME+1,x
+        inx
+        dey
+        bne gn5
         clc
         rts
 gn_bad: sec

@@ -37,9 +37,12 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **14,659 bytes** (`$0801`-`$4143`, including the start-up
-code, screen driver, charset data and editor: about 1.4 KB); tables 7,712 bytes;
-**heap 27,608 bytes** (`$6028` to `$CBFF`; it starts where the tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+Code and read-only tables **17,259 bytes** (`$0801`-`$4B6B`, including the start-up
+code, screen driver, charset data, editor and system commands: about 4 KB); tables
+7,832 bytes; **heap 24,888 bytes** (`$6AC8` to `$CBFF`; it starts where the tables
+end). **The heap is only 300 bytes above the 24 KB build guard**: code that is only
+needed by the tests (the echo log) and repeated out-of-range branches are the first
+places to save. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -335,6 +338,56 @@ NONCE ERROR (not implemented), LIMIT ERROR, WS FULL`
 4. **VICE** for final integration: custom charset, screen output, `.prg`
    loading, disk I/O.
 
+## System commands and workspace files
+
+A line whose first non-blank character is `)` is a system command (`asm/syscmd.inc`,
+`asm/disk.inc`). It is handled before the tokenizer sees the line, and names are
+case-insensitive.
+
+| Command | Effect |
+|---|---|
+| `)VARS` | the defined variables, sorted by character code, separated by spaces, wrapped at column 40 (a name that would end past column 40 starts a new line) |
+| `)ERASE a b ...` | undefine variables; the argument is tokenized as APL, so it must be names only (`BAD COMMAND` otherwise, unknown names are ignored) |
+| `)CLEAR` | empty the workspace, symbol table and workspace name; prints `CLEAR WS` |
+| `)FREE` | collect, then print the heap bytes free (`n BYTES FREE`) |
+| `)WSID [name]` | show (or `CLEAR WS`) or set the workspace name: 1-16 of `A-Z 0-9 - .`, lower case folded; `BAD NAME` otherwise, leaving the old name alone |
+| `)SAVE [name]` | write the workspace to drive 8; without a name, use the workspace name; prints `SAVED` |
+| `)LOAD [name]` | replace the workspace from a file; prints `LOADED` |
+| `)OFF` | reset the machine |
+
+Anything else is `BAD COMMAND`. Drive errors print `FILE NOT FOUND` or `FILE ERROR`;
+a bad file prints `NOT A WORKSPACE` (or `WS FULL`).
+
+**Workspace file** (`tools/wsfile.py` is the reference encoder and decoder):
+
+```
+"APLW", version 1, number of variables (2 bytes, little endian)
+for each defined variable, in symbol order:
+    name: a length byte, then the characters (our codes)
+    value: the tag byte (type | rank<<2), then
+        rank 0: the 1-3 data bytes
+        rank 1-2: count (2), a length per axis (2 each), the data
+"E"
+```
+
+It is a logical format, not a memory image, so saved workspaces survive rebuilds of the
+program. It is streamed through the KERNAL (`OPEN`, `CHROUT`, `CHRIN`); after each
+operation the drive's error channel is read, because the KERNAL reports nothing for a
+missing file or a full disk. The file name sent to the drive is the upper-cased name
+(`@0:NAME,S,W` to replace, `NAME,S,R` to read). The workspace name is set by a
+successful `)SAVE`, and by `)LOAD` even if it then fails.
+
+`)LOAD` checks the first five bytes before doing anything; only then is the workspace
+cleared. It then reads the variables one at a time, recreating each name by running it
+through the tokenizer (so symbol indexes are rebuilt, and a name must tokenize to
+exactly one name). An array's count must equal its lengths' product and its size must
+fit the per-array limit. A failure part-way (truncated file, bad trailer, bad tag) leaves
+the variables read so far in place, and reports the error. An empty file is `NOT A
+WORKSPACE`: DOS returns one garbage byte for it, indistinguishable from a bad first byte.
+
+Not yet done: `)LIB` (directory), a way to choose a drive other than 8, and `)OFF` is
+untested (it jumps through the reset vector).
+
 ## Display and input
 
 Start-up, the charset, the screen driver, keyboard entry and the line editor are
@@ -504,8 +557,9 @@ handle heap and GC; evaluator core with the structural primitives, the scalar
 functions, reduce and the output formatter.
 
 1. Memory map: implement the plan above (three decisions to confirm first).
-2. System commands (`)SAVE`, `)LOAD`, `)VARS`, ...), then the language features
-   the model still lacks.
+2. `)LIB`, a drive selector, and trimming code (see the heap figure above); then the
+   language features the model still lacks (indexing, more operators, user-defined
+   functions).
 3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).

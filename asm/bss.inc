@@ -22,10 +22,13 @@ FMT     .fill 96                ; formatter variables
 DIGS    .fill 40                ; formatter: decimal digits
 FR      .fill 24                ; formatter: binary fraction
 COLW    .fill 256               ; formatter: column widths
-STV     .fill 48                ; screen, start-up and editor variables
+STV     .fill 96                ; screen, start-up and editor variables
 HIST    .fill 256               ; the last line typed (cursor-up recalls it)
+FNBUF   .fill 32                ; disk file name string
+FNPFX   .fill 4
 CMDBUF  .fill 12                ; system command name
 WSNAME  .fill 20                ; workspace name: length, then up to 16 characters
+NAMETMP .fill 20                ; a name being checked
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer
@@ -51,6 +54,21 @@ svm      = STV+26
 svla      = STV+27
 svlb      = STV+28
 svlm      = STV+29
+DEVNUM  = STV+40                ; disk device number
+fnlen   = STV+41
+fnpre   = STV+42
+fnsuf   = STV+43                ; (4)
+dsa     = STV+47
+dsb     = STV+48
+eofseen = STV+49
+rbst    = STV+50
+wcnt    = STV+51                ; (2)
+vcnt2   = STV+53                ; (2)
+nvars   = STV+55                ; (2)
+svi     = STV+57
+sympp   = STV+58                ; (2)
+ldtag   = STV+60
+lw      = STV+61
 HEAP_BASE = *
         .endv
 

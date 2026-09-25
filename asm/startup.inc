@@ -50,8 +50,10 @@ su2:    sta (cd),y
         inc cd+1
         dex
         bne su1
+        jsr bss_init            ; RAM holds anything at power-up
         jsr tok_init
         jsr eval_init           ; (sets the test log pointer, which the cursor shares)
+        jsr disk_init
         jsr scr_clear
         lda #<scr_put
         sta outv
@@ -83,6 +85,24 @@ nmi_handler:
         lda $dd0d               ; acknowledge, or the NMI line stays low and never fires again
         pla
         rti
+
+; zero the small variable blocks (the big tables are set up by their own init routines)
+bss_init:
+        lda #0
+        ldx #95
+bi1:    sta STV,x
+        dex
+        bpl bi1
+        ldx #19
+bi2:    sta WSNAME,x
+        sta NAMETMP,x
+        dex
+        bpl bi2
+        ldx #11
+bi3:    sta CMDBUF,x
+        dex
+        bpl bi3
+        rts
 
 ; --- the character set -------------------------------------------------------------------------
 ; Interrupts are off and $01 = $33 (character ROM visible at $D000): reads at $D800 give
@@ -453,5 +473,6 @@ selftest_done:
 
         .include "editor.inc"
         .include "syscmd.inc"
+        .include "disk.inc"
         .include "keys.inc"
         .include "glyphs.inc"
