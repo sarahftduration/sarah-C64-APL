@@ -39,8 +39,15 @@ the video and start-up code that uses it.
 
 Code and read-only tables **17,480 bytes** (`$0801`-`$4C48`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 24,632 bytes** (`$6BC8` to `$CBFF`; it starts where the tables
-end, on a 256-byte boundary after the code: `)LIB` moved it up one step). **The heap is only 56 bytes above the 24 KB build guard, and the code has about 180 bytes left before the tables step up again and break it**: code that is only
+7,832 bytes; **heap 24,792 bytes** (`$6B28` to `$CBFF`; it starts where the tables
+end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
+checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
+a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
+now costs heap byte for byte: the tables that need a page (`VARS`, `VSTACK`, `SYMTAB`) start on a
+page boundary, and the tables that do not need one (`RV`, `FMT`, `FACC`, `DIGS`, `FR`) fill the gap
+before it when they fit (`asm/bss.inc`), so there is no cliff where the heap suddenly loses 256
+bytes. The tables are sized by proven worst cases (6 bytes of tokens per input byte, 85 levels of
+nesting, 256 handles and names), so shrinking them means lowering a limit. Code that is only
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
@@ -128,7 +135,8 @@ harness will fail any write outside the allowed set.
 1. **Video: bank 3 with the charset in the RAM under I/O** (recommended) or bank 0
    with a hole. Bank 3 costs some start-up code and needs checking in VICE.
 2. **The per-array limit falls from 45,000 bytes to about 16,000** (`WS_BYTES` in
-   the model, `wsmax` on the 6502), about three quarters of the smallest heap.
+   the model, `wsmax` on the 6502), about three quarters of the old 24 KB minimum heap. With the 16 KB floor the heap itself
+   is the tighter limit on a plain machine, and WS FULL is reported by whichever comes first.
    Arrays as large as the model allows today cannot exist in 22 KB. Larger
    arrays would need more heap, and the only big source left is banking the
    KERNAL out (+8 KB), which means writing our own interrupt, keyboard scan and
@@ -585,6 +593,34 @@ at `SYMTAB`.
 
 NONCE: `\ ¨ . ∘ ⍤`, replicate (`n/x`), indexing `[ ]`, branch `→`, `;`,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
+
+## Plan: optional extra RAM (REU) as a storage tier
+
+Not built yet. The decisions so far (from the design discussion):
+
+- **Never required.** The interpreter runs in plain C64 RAM exactly as today; a plain machine is for
+  small workspaces. With a RAM Expansion Unit (VICE `-reu -reusize N`, or an Ultimate cartridge's
+  emulated one) it uses the extra RAM automatically, detected at start-up.
+- **What it does.** The CPU cannot address an REU; a DMA controller copies blocks between it and main
+  RAM. So it is used to *spill* arrays: each handle is either resident in the heap or held in the REU,
+  and `getval` (the one place an array's data address is derived) makes an array resident before use.
+  When the heap is full, instead of WS FULL, live arrays that are not the operands of the current
+  operation (the top one or two stack cells) or its pinned result are moved out. Marking needs no
+  change, since `gcmark` reads only cells. Without an REU the spill path is off and the behaviour is
+  today's.
+- **Limit.** One operation's operands and result must still fit in main RAM together. Arrays larger
+  than that (streaming through chunks) are a later step.
+- **Cost.** A table saying where each spilled array is: about 512 bytes, allocated at start-up only
+  if an REU is present, so a plain machine pays nothing.
+- **Testing.** Differential: the same sessions with a tiny main heap and a VICE REU must give the
+  results of the model, whether or not arrays spilled. `tests/test_stress.py` already enforces the
+  precondition, that no data address survives an allocation.
+- **Also possible later:** `)SAVE` / `)LOAD` to an REU "drive", workspace snapshots, and code overlays
+  for rarely used parts, kept optional by leaving a resident or disk-loaded copy.
+
+Also planned later: graphics. A hires bitmap can live at `$E000` in VIC bank 3 (the RAM under the
+KERNAL, which the interpreter cannot use), with its colour map under the I/O area, so it costs no
+heap; the cost is drawing code and a way to call it from APL.
 
 ## Next steps
 

@@ -16,20 +16,29 @@ def test_layout():
     # fixed low RAM: transient line buffers in the old screen, variables in the tape buffer
     assert L["INBUF"] == 0x0400 and L["TC"] + 256 <= 0x0800
     assert 0x033C <= L["WS"] + 0x50 and L["WS"] + 0xFF <= 0x03FC, "variable block leaves the tape buffer"
-    # tables follow the code, in order, without overlap; the heap follows the tables
-    order = ["HTL", "HTH", "HM", "VARS", "VSTACK", "FSTK", "SYMTAB", "OUTBUF", "SBUF", "SDV", "RV", "FACC", "FMT",
-             "DIGS", "FR", "COLW", "HEAP_BASE"]
-    assert L["BSS0"] >= code_end and L["BSS0"] % 256 == 0
-    addrs = [L[n] for n in order]
-    assert addrs == sorted(addrs) and len(set(addrs)) == len(addrs), "tables out of order or overlapping"
-    assert L["HTL"] == L["BSS0"]
-    sizes = {n: b - a for n, a, b in zip(order, addrs, addrs[1:])}
+    # the tables lie between the code and the heap and never overlap. Those that need a page start on one; the
+    # rest may sit in the gap before the first page boundary (bss.inc), so the space left over is under a page.
+    sizes = {"HTL": 256, "HTH": 256, "HM": 256, "VARS": 1024, "VSTACK": 512, "FSTK": 512, "SYMTAB": 2048,
+             "OUTBUF": 1536, "SBUF": 512, "SDV": 8, "RV": 64, "FACC": 40, "FMT": 96, "DIGS": 40, "FR": 24,
+             "COLW": 256, "STV": 96, "HIST": 256, "FNBUF": 32, "FNPFX": 4, "CMDBUF": 12, "WSNAME": 20, "NAMETMP": 20}
+    spans = sorted((L[n], L[n] + size, n) for n, size in sizes.items())
+    assert spans[0][0] >= code_end and spans[-1][1] <= L["HEAP_BASE"]
+    wasted = spans[0][0] - code_end + L["HEAP_BASE"] - spans[-1][1]
+    for (a, b, n), (a2, b2, n2) in zip(spans, spans[1:]):
+        assert b <= a2, f"tables overlap: {n} and {n2}"
+        wasted += a2 - b
+    assert wasted < 256, f"{wasted} bytes between the tables are unused"
+    assert L["BSS0"] % 256 == 0 and L["BSS0"] >= code_end and L["HTL"] == L["BSS0"]
+    assert L["VARS"] % 256 == 0 and (L["SDV"] & 0xFF) <= 0xF8, "SDV holds jmp (indirect) vectors: none may straddle a page"
+    assert {n: L[n + "_EARLY"] for n in ("RV", "FACC", "FMT", "DIGS", "FR")}, "gap placement flags"
+    for n in ("RV", "FACC", "FMT", "DIGS", "FR"):
+        assert (L[n] < L["BSS0"]) == bool(L[n + "_EARLY"]), n
     assert sizes["VARS"] == 1024 and sizes["VSTACK"] == 512 and sizes["FSTK"] == 512
     assert L["VSTACK"] % 256 == 0 and L["VSTACK_END"] == L["VSTACK"] + 512
     assert L["SYMTAB"] % 256 == 0 and L["SYMEND_HI"] == (L["SYMTAB"] + 2048 >> 8) - 1
     assert L["FK"] == L["FSTK"] and L["FFN"] + 128 == L["FSTK"] + 512
-    # the heap: at least 24 KB, ending under the screen; the test log lives above the machine's RAM map
-    assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x6000
+    # the heap: at least 16 KB (the floor DESIGN.md sets), ending under the screen; the test log lives above the machine's RAM map
+    assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x4000
     assert L["LOGBUF"] >= 0xD000
     # zero page: every pool pointer is inside the allowed range and none overlap
     ptrs = ["op", "tp", "sp", "ep", "qsrc", "mp", "fp", "sdpa", "sdpb", "hadr", "gsrc", "gp", "cs", "cd", "vsp",
