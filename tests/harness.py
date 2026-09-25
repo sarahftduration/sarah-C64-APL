@@ -1,5 +1,8 @@
 """Load a 64tass binary into py65 and call routines by label."""
+import atexit
+import os
 import re
+import shutil
 from py65.devices.mpu6502 import MPU
 
 RTS_SENTINEL = 0xFFF0
@@ -7,6 +10,22 @@ RTS_SENTINEL = 0xFFF0
 # The zero page we may write (DESIGN.md, memory map): $02-$8F and $FB-$FE. $00/$01 are
 # the CPU port and $90-$FA belong to the KERNAL.
 ZP_ALLOWED = set(range(0x02, 0x90)) | set(range(0xFB, 0xFF))
+
+
+_SCRATCH = None
+
+
+def scratch(name=""):
+    """A path in a directory private to this process (build/scratch/<pid>, removed at exit).
+
+    The tests that build and run images (keytest, selftest) put them here rather than in build/, so
+    test files can run at the same time without overwriting each other's files."""
+    global _SCRATCH
+    if _SCRATCH is None:
+        _SCRATCH = os.path.join("build", "scratch", str(os.getpid()))
+        os.makedirs(_SCRATCH, exist_ok=True)
+        atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
+    return os.path.join(_SCRATCH, name)
 
 
 def load(name):

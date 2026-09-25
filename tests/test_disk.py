@@ -13,6 +13,7 @@ sys.path.insert(0, os.getcwd())
 sys.path.insert(0, "tools")
 import apl64
 import wsfile
+from harness import scratch
 from test_keys import EditorModel, build_keytest, petscii, show
 from test_vice import ROMS
 
@@ -168,7 +169,7 @@ def session(text, disk=None):
         for name, data in disk.items():
             with open(os.path.join(host, name), "wb") as f:
                 f.write(data)
-        files = run_vice_disk("build/keytest.prg", hex(L["selftest_done"]), host,
+        files = run_vice_disk(scratch("keytest.prg"), hex(L["selftest_done"]), host,
                               ['save "{DIR}/screen.bin" 0 cc00 cfe7'])
         after = {n: open(os.path.join(host, n), "rb").read() for n in os.listdir(host)}
     ed = DiskModel((L["HEAP_BASE"], L["HEAP_LIMIT"]), disk)
@@ -214,7 +215,7 @@ def image_session(text, files=None):
                         "-kernal", "roms/kernal.bin", "-basic", "roms/basic.bin", "-chargen", "roms/chargen.bin",
                         "-dos1541", dos1541_rom(), "-autostartprgmode", "1", "-initbreak", hex(L["selftest_done"]),
                         "-limitcycles", "1500000000", "-drive8type", "1541", "-8", img,
-                        "-autostart", "build/keytest.prg", "-moncommands", mon], capture_output=True, timeout=600)
+                        "-autostart", scratch("keytest.prg"), "-moncommands", mon], capture_output=True, timeout=600)
         ed = DiskModel((L["HEAP_BASE"], L["HEAP_LIMIT"]), files, dos=True)
         for k in keys:
             ed.key(k)
@@ -260,7 +261,7 @@ def test_readonly():
     L = build_keytest(keys)
     with tempfile.TemporaryDirectory() as host:
         os.chmod(host, 0o555)
-        files = run_vice_disk("build/keytest.prg", hex(L["selftest_done"]), host,
+        files = run_vice_disk(scratch("keytest.prg"), hex(L["selftest_done"]), host,
                               ['save "{DIR}/screen.bin" 0 cc00 cfe7'])
         os.chmod(host, 0o755)
         assert os.listdir(host) == []

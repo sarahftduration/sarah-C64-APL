@@ -8,11 +8,15 @@
 
 ## Tests
 
-    make test          # the full regression suite
-    make timed-test    # the same, timed; appends the durations to tests/timing.csv
+    make test          # the full regression suite, test files in parallel (tools/run_tests.py)
+    make timed-test    # the same, and appends the durations to tests/timing.csv
+    make test-serial   # one file at a time, stopping at the first failure
 
 Run the timed one when you run the whole suite, and commit `tests/timing.csv` with the change, so
-the growth of the suite's running time can be followed over time.
+the growth of the suite's running time can be followed over time. Test files that build and run
+images use a private scratch directory (`tests/harness.py`, `scratch()`), which is what lets them
+run at the same time; a new file that writes files must do the same. The run time is now set by the
+slowest file (`test_format.py`), so more CPUs will not help until that file is split.
 
 ## Toolchain for the 6502 work
 

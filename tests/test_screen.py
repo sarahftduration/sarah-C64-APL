@@ -12,6 +12,7 @@ sys.path.insert(0, os.getcwd())
 sys.path.insert(0, "tools")
 import apl64
 from glyphs import expected_charset
+from harness import scratch
 from test_vice import ROMS, run_vice
 
 LINES = [
@@ -107,14 +108,14 @@ def build_selftest(lines):
         enc = apl64.encode_line(line)
         assert len(enc) < 256
         data.append(f"        .byte {len(enc)}" + "".join(f", {b}" for b in enc))
-    os.makedirs("build", exist_ok=True)
-    with open("build/selftest_data.inc", "w") as f:
+    with open(scratch("selftest_data.inc"), "w") as f:
         f.write("\n".join(data) + "\n")
-    r = subprocess.run(["64tass", "-D", "SELFTEST=1", "-D", "KEYTEST=0", "-I", "build", "--labels=build/selftest.lbl",
-                        "-o", "build/selftest.prg", "asm/eval.asm"], capture_output=True, text=True)
+    r = subprocess.run(["64tass", "-D", "SELFTEST=1", "-D", "KEYTEST=0", "-I", os.path.dirname(scratch()),
+                        "--labels=" + scratch("selftest.lbl"), "-o", scratch("selftest.prg"), "asm/eval.asm"],
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     labels = {}
-    for line in open("build/selftest.lbl"):
+    for line in open(scratch("selftest.lbl")):
         m = re.match(r"(\S+)\s*=\s*(\$[0-9a-fA-F]+|\d+)\s*$", line)
         if m:
             v = m.group(2)
@@ -176,8 +177,9 @@ def test_session():
           f"{len(LINES)}-line session all match the model on the real machine; charset RAM, VIC bank 3, NMI patch and IRQ verified")
 
 
-def _run_selftest(script, initbreak, prg="build/selftest.prg"):
+def _run_selftest(script, initbreak, prg=None):
     import tempfile
+    prg = prg or scratch("selftest.prg")
     with tempfile.TemporaryDirectory() as d:
         mon = os.path.join(d, "mon.txt")
         with open(mon, "w") as f:

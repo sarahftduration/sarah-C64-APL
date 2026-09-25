@@ -4,7 +4,7 @@ SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
 INCS  := asm/pow10.inc asm/glyphs.inc asm/keys.inc $(wildcard asm/*.inc)
 
-.PHONY: all test timed-test model-test clean prg
+.PHONY: all test test-serial timed-test model-test clean prg
 all: $(BINS)
 
 asm/pow10.inc: tools/gen_pow10.py
@@ -23,12 +23,16 @@ build/%.bin: asm/%.asm
 	@mkdir -p build
 	$(ASM) --nostart --labels=build/$*.lbl --list=build/$*.lst -o $@ $<
 
-test: model-test $(BINS) build/apl.prg
+# the full suite: the test files run in parallel (tools/run_tests.py); test-serial is the plain loop
+test:
+	@$(PY) tools/run_tests.py
+
+test-serial: model-test $(BINS) build/apl.prg
 	@for t in tests/test_*.py; do PYTHONPATH=tests $(PY) $$t || exit 1; done
 
-# the full suite, timed: prints the duration and appends it to tests/timing.csv
+# the full suite as above, and the timings are appended to tests/timing.csv
 timed-test:
-	@tools/timed_test.sh
+	@$(PY) tools/run_tests.py --log
 
 prg: build/apl.prg
 

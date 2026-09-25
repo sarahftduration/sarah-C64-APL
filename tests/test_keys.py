@@ -14,6 +14,7 @@ sys.path.insert(0, os.getcwd())
 sys.path.insert(0, "tools")
 import apl64
 import keys as K
+from harness import scratch
 from test_screen import Screen, _run_selftest, text_bytes
 from test_vice import ROMS
 
@@ -188,13 +189,13 @@ def build_keytest(keys):
     for i in range(0, len(keys), 24):
         data.append("        .byte " + ", ".join(str(k) for k in keys[i:i + 24]))
     data.append("        .byte 0")
-    os.makedirs("build", exist_ok=True)
-    with open("build/keytest_data.inc", "w") as f:
+    with open(scratch("keytest_data.inc"), "w") as f:
         f.write("\n".join(data) + "\n")
-    r = subprocess.run(["64tass", "-D", "SELFTEST=0", "-D", "KEYTEST=1", "-I", "build", "--labels=build/keytest.lbl",
-                        "-o", "build/keytest.prg", "asm/eval.asm"], capture_output=True, text=True)
+    r = subprocess.run(["64tass", "-D", "SELFTEST=0", "-D", "KEYTEST=1", "-I", os.path.dirname(scratch()),
+                        "--labels=" + scratch("keytest.lbl"), "-o", scratch("keytest.prg"), "asm/eval.asm"],
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
-    return labels("build/keytest.lbl")
+    return labels(scratch("keytest.lbl"))
 
 
 def labels(path):
@@ -291,7 +292,7 @@ def test_scripted():
         keys = petscii(text)
         L = build_keytest(keys)
         _, files = _run_selftest(['save "{DIR}/screen.bin" 0 cc00 cfe7'], hex(L["selftest_done"]),
-                                 prg="build/keytest.prg")
+                                 prg=scratch("keytest.prg"))
         got, want = files["screen.bin"][2:], expected(keys, (L["HEAP_BASE"], L["HEAP_LIMIT"]))
         if got != want:
             show(got, want)
@@ -305,7 +306,7 @@ def test_commands():
         keys = petscii(text)
         L = build_keytest(keys)
         _, files = _run_selftest(['save "{DIR}/screen.bin" 0 cc00 cfe7'], hex(L["selftest_done"]),
-                                 prg="build/keytest.prg")
+                                 prg=scratch("keytest.prg"))
         got, want = files["screen.bin"][2:], expected(keys, (L["HEAP_BASE"], L["HEAP_LIMIT"]))
         if got != want:
             show(got, want)
