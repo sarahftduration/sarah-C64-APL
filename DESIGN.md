@@ -218,11 +218,12 @@ dyadic primitive finds its left operand on top of the value stack and its right
 one below.
 
 Implemented so far: literals, names, assignment, parentheses, `⋄`, the
-structural primitives `⍳`, `⍴` and `,` (monadic and dyadic), and the scalar
-functions in `asm/scalar.inc`: dyadic `+ - × ÷ = ≠ < ≤ > ≥` and monadic
-`+ - × ÷`. Everything else returns NONCE ERROR: reduce and the other operators
-(the model computes `f/` on scalar dyadics), and `[ ] → ;` and dyadic `⍳`,
-which are NONCE ERROR in the model too.
+structural primitives `⍳`, `⍴` and `,` (monadic and dyadic), the scalar
+functions in `asm/scalar.inc` (dyadic `+ - × ÷ = ≠ < ≤ > ≥`, monadic `+ - × ÷`),
+and reduce `f/` for those ten functions (`asm/reduce.inc`). Everything else
+returns NONCE ERROR: other operators, and `f/` for other functions, which are
+NONCE ERROR in the model too, and `[ ] → ;` and dyadic `⍳` likewise. `x f/ y`
+evaluates `x` first (so its errors come first) and then gives NONCE ERROR.
 
 Scalar functions share one engine. Shapes are conformed first (equal, or one
 side scalar; otherwise RANK ERROR or LENGTH ERROR), then types are checked
@@ -233,6 +234,17 @@ any element overflows int16 the whole operation is redone into a FLOAT result.
 Monadic `-` and `÷` run as `0-x` and `1÷x`. The model computes every element
 before it checks the result size, so when the allocation fails the 6502 does a
 dry run first and a DOMAIN ERROR from any element wins over WS FULL.
+
+Reduce works along the last axis and gives one scalar per row. A scalar operand
+comes back unchanged. An empty row gives the function's identity, even for CHAR.
+`+` sums exactly: BOOL and INT as integers (INT if the sum fits int16, else
+FLOAT), FLOAT in a 40-byte fixed-point accumulator (bit k weighs 2^(k-143), wide
+enough for the whole float24 range) rounded once. A one-element row has its own
+rules (`÷` of an integer is FLOAT, `-` and `×` of a BOOL is INT, otherwise the
+element). Anything longer folds right to left through the full dyadic
+function, so INT overflow turns the accumulator FLOAT part-way. A matrix gives
+a vector of row results converted to the widest row type. The model raises a
+Python IndexError on a matrix with no rows; the 6502 returns an empty vector.
 
 The float comparison follows `f_teq` and `_fkey`, including its tolerance
 test. That test subtracts, so comparing values whose difference overflows
@@ -282,11 +294,11 @@ catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 Done (6502, differentially tested under py65): float24 add, sub, mul, div;
 int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer;
-handle heap and GC; evaluator core with the structural primitives and the
-scalar functions.
+handle heap and GC; evaluator core with the structural primitives, the scalar
+functions and reduce.
 
-1. 6502: reduce (`f/` on scalar dyadics, with the exact `+/`) and the print
-   formatter (`f_format`, matrix layout), which the echo hook needs.
+1. 6502: the print formatter (`f_format`, matrix layout), which the echo hook
+   needs before there is anything to see on screen.
    Also budget zero page: the tests use `$10`-`$FF` freely, but the KERNAL owns
    much of `$90`-`$FF`.
 2. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.

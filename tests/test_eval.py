@@ -12,7 +12,7 @@ ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
        5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
-UNIMPLEMENTED = set('/\\¨.∘⍤')
+UNIMPLEMENTED = set()
 
 
 class Session:
@@ -117,6 +117,8 @@ FIXED = [
     "200×200", "181×181", "182×182", "1e38×10", "1e38+1e38", "1÷3", "2÷3", "1.5×2", "0.1+0.2", "0.1+0.2=0.3",
     "100000=100001", "1=1.00003", "1=1.0001", "×¯5 0 5", "×¯2.5 0 2.5", "×'a'", "-'a'", "÷'a'", "÷0", "÷4", "÷¯4",
     "-1 2 3", "-2 3⍴⍳6", "÷2 3⍴⍳6", "×2 3⍴¯1 0 1", "-1.5", "-⍬", "÷⍬", "×⍬", "3-3", "1<2", "2<1", "1≤1", "1≥2", "1>0",
+    "+/⍳4", "×/⍳5", "-/⍳4", "÷/1 2 4", "=/1 1 1", "≠/1 2 3", "+\\1 2", "+/2 3⍴⍳6", "×/2 3⍴⍳6", "+/32767 1", "×/⍳10",
+    "+/1e10 1 ¯1e10", "+/1 2,3.5", "+/'ab'", "+/''", "+/5", "+/'a'", "+/2 3⍴1.5", "A←⍳5 ⋄ +/A×A", "+/(⍳3)+⍳3", "1+/2", ",/1 2", "⍴/1 2",
     "(⍳3)=⍳3", "(⍳3)<3", "1 2 3≠1 5 3", "+/⍳3", "A←5 ⋄ A+A", "B←1 2 3 ⋄ B←B+1 ⋄ B", "(A←2)+A←3",
 ]
 
@@ -140,6 +142,8 @@ def gen_line(rng, defined):
         if d <= 0 or r < .2:
             return operand()
         if r < .42:
+            if rng.random() < .18:                          # reduce
+                return rng.choice("+-×÷=≠<≤>≥") + "/" + expr(d - 1)
             op = rng.choice("⍳⍴,+-×÷")
             if op == "⍳" and rng.random() < .8:          # a small scalar is the usual argument
                 return "⍳" + rng.choice(["0", "1", "3", "5", "12", "2.0", "(" + expr(d - 1) + ")"])

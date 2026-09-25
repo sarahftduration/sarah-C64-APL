@@ -11,6 +11,7 @@ E_WSFULL = 8
         .include "heap.inc"
         .include "prims.inc"
         .include "scalar.inc"
+        .include "reduce.inc"
 
 ; --- token index ------------------------------------------------------------------
 ; The token stream has variable-length literals, so it cannot be walked right to
@@ -52,6 +53,7 @@ ev_ix   = $f7
 ev_hb   = $f8
 ev_px   = $f9
 echov   = $fa
+ev_pg   = $fe
 logp    = $fc
 
 eval_init:
@@ -328,7 +330,7 @@ rl_asg: cpx ev_lo
         dec ev_i1
         dec ev_i1
         jmp evloop
-rl_op:  cpx ev_lo               ; operators: only the syntax checks so far
+rl_op:  cpx ev_lo               ; operators: only f/ on a scalar dyadic is implemented
         beq ev_syn
         dex
         lda TC,x
@@ -341,14 +343,27 @@ rl_op:  cpx ev_lo               ; operators: only the syntax checks so far
         cmp #$80
         bcc ev_syn
         cmp #$c0
-        bcc rl_nonce
+        bcc rl_fnok
         jmp ev_syn
+rl_fnok:
+        sec
+        sbc #$80
+        sta ev_pg
+        lda ev_tok
+        cmp #$c0
+        bne rl_nonce
+        lda ev_pg
+        cmp #10
+        bcs rl_nonce
+        dec ev_i1               ; skip the operator and the function
+        dec ev_i1
+        jmp rl_fn2
 rl_nonce:
         lda #E_NONCE
         sec
         rts
 rl_fn:  dec ev_i1
-        lda ev_i1
+rl_fn2: lda ev_i1
         cmp ev_lo
         beq rf_mon
         bcc rf_mon
@@ -362,7 +377,14 @@ rl_fn:  dec ev_i1
         cmp #T_RPAR
         beq rf_par
 rf_mon: lda ev_tok
+        cmp #$c0
+        bcs rf_red
         jsr apply_mon
+        bcc *+3
+        rts
+        jmp evloop
+rf_red: lda ev_pg
+        jsr p_reduce
         bcc *+3
         rts
         jmp evloop
