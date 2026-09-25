@@ -403,7 +403,7 @@ done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
   set (ASCII space to `?`, `@`, `A`-`Z`, `[`, `]`, `a`-`z`), plus hand-drawn glyphs
   for the ASCII the C64 lacks (`\ ^ _ ` { | } ~`), a cursor block at `$7F`, and the
   APL glyphs. The data and the artwork are in `tools/glyphs.py`, which generates
-  `asm/glyphs.inc`. **The glyph artwork is provisional.**
+  `asm/glyphs.inc`. The glyphs are drawn to the ROM's stroke weight (columns 1-6, rows 0-6, two-pixel verticals, operators centred on row 3); the artwork in `tools/glyphs.py` is written as pictures so it is easy to change.
 - **Screen driver** (`scr_put`, installed as the formatter's `outv`): 40x25,
   direct writes to `$CC00`, our codes are the screen codes. `$0a` is a newline; a
   character in column 39 wraps; below row 24 the screen scrolls one row;
