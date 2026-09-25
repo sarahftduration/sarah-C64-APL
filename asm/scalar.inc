@@ -8,10 +8,10 @@
 ; int16 the whole operation is redone into a FLOAT result (as the model does).
 ; Monadic - and ÷ are 0-x and 1÷x with a synthetic scalar left operand.
 
-sdop    = WS+$50
-sdta    = WS+$51
-sdtb    = WS+$52
-sdar    = WS+$53
+sdop    = $41
+sdta    = $3b
+sdtb    = $42
+sdar    = $89
 sdbr    = WS+$54
 sdrr    = WS+$55
 sdrt    = WS+$56
@@ -21,9 +21,9 @@ sdres   = WS+$59
 sdmode  = WS+$5a
 sdstra  = WS+$5b
 sdstrb  = WS+$5c
-ceq     = WS+$5d
-clt     = WS+$60
-cgt     = WS+$61
+ceq     = $29
+clt     = $80
+cgt     = $81
 sdan    = WS+$62
 sdbn    = WS+$64
 ca      = WS+$94

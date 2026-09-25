@@ -14,30 +14,30 @@
 
 
 ; zero page (real hardware will need a budget; see DESIGN.md)
-htop    = WS+$b0
+htop    = $46
 hnew    = WS+$b2
-asz     = WS+$b5
+asz     = $fc
 hpin    = WS+$b7
 hpinf   = WS+$b8
-gdst    = WS+$bb
-gsz     = WS+$bd
+gdst    = $4c
+gsz     = $2d
 gh      = WS+$c5
 gt      = WS+$c6
 gn      = WS+$c7
-t0      = WS+$c9
+t0      = $25
 cv      = WS+$d0
-vt      = WS+$d4
-vrk     = WS+$d5
-vn      = WS+$d6
-vs0     = WS+$d8
-vs1     = WS+$da
-nt      = WS+$e0
-nrk     = WS+$e1
-nn      = WS+$e2
-nd0     = WS+$e4
+vt      = $04
+vrk     = $08
+vn      = $02
+vs0     = $37
+vs1     = $34
+nt      = $05
+nrk     = $28
+nn      = $0c
+nd0     = $3f
 nd1     = WS+$e6
 wsmax   = WS+$e8
-gw      = WS+$ea
+gw      = $87
 vtag    = WS+$eb
 
 WIDTHT: .byte 1, 1, 2, 3

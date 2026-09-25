@@ -39,10 +39,35 @@ def test_layout():
         assert L[n] in ZP_ALLOWED and L[n] + 1 in ZP_ALLOWED and L[n] < 0x76, n
         used += [L[n], L[n] + 1]
     assert len(set(used)) == len(used), "pointer pool overlaps"
-    # no symbol may name a zero-page address outside the allowed set (except constants)
-    for n, v in L.items():
-        if n.isupper() or n.startswith("E_") or n in ("nl",):
-            continue
+    # zero-page variables never overlap (sizes come from how the code uses each name)
+    src = ""
+    for f in sorted(os.listdir("asm")):
+        if f.endswith((".asm", ".inc")) and f != "smoke.asm" and f != "pow10.inc":
+            src += open("asm/" + f).read() + "\n"
+    zp = {}
+    for line in src.split("\n"):
+        m = re.match(r"^([a-z][A-Za-z0-9_]*)\s*=\s*\$([0-9a-f]{2})\b", line)
+        if m:
+            zp[m.group(1)] = int(m.group(2), 16)
+    body = "\n".join(l.split(";")[0] for l in src.split("\n") if not re.match(r"^[A-Za-z_]\w*\s*=", l))
+    spans = []
+    for n, a in zp.items():
+        refs = re.findall(r"(?<![\w.])" + re.escape(n) + r"(?:\s*\+\s*(\d+))?(?![\w])", body)
+        size = max([int(r) if r else 0 for r in refs] or [0]) + 1
+        if n in ("fa", "fb"):
+            size = 3
+        if n == "ptr" or n in ("ep", "op", "tp", "sp", "qsrc", "mp", "fp", "sdpa", "sdpb", "hadr", "gsrc", "gp", "cs", "cd",
+                               "vsp", "cptr", "vp", "dp", "logp"):
+            size = 2
+        spans.append((a, a + size - 1, n))
+    spans.sort()
+    alias_ok = {frozenset(x) for x in [("p0", "rl"), ("p1", "rh"), ("p2", "ql"), ("p3", "qh")]}
+    for i, (a, b, n) in enumerate(spans):
+        assert a in ZP_ALLOWED and b in ZP_ALLOWED, (n, hex(a))
+        for a2, b2, n2 in spans[i + 1:]:
+            if a2 > b:
+                break
+            assert frozenset((n, n2)) in alias_ok, f"zero-page variables overlap: {n} ${a:02X}-${b:02X} and {n2} ${a2:02X}"
     print(f"layout: code ${L['ORG']:04X}-${code_end - 1:04X} ({code_end - L['ORG']} bytes), tables to "
           f"${L['HEAP_BASE'] - 1:04X}, heap {L['HEAP_LIMIT'] - L['HEAP_BASE']} bytes; all invariants hold")
 

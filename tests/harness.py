@@ -4,9 +4,9 @@ from py65.devices.mpu6502 import MPU
 
 RTS_SENTINEL = 0xFFF0
 
-# The zero page we may write (DESIGN.md, memory map): float24 registers, ia/ib/sgn,
-# and the 19-pointer pool. Everything else in $00-$FF belongs to the machine.
-ZP_ALLOWED = (set(range(0x10, 0x25)) | set(range(0x30, 0x34)) | {0x48} | set(range(0x50, 0x76)))
+# The zero page we may write (DESIGN.md, memory map): $02-$8F and $FB-$FE. $00/$01 are
+# the CPU port and $90-$FA belong to the KERNAL.
+ZP_ALLOWED = set(range(0x02, 0x90)) | set(range(0xFB, 0xFF))
 
 
 def load(name):

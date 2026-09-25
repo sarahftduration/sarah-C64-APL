@@ -8,28 +8,28 @@
 ; Scratch overlaps the tokenizer's zero page, which is idle during evaluation
 ; (but not symcnt at $5e).
 
-im      = WS+$6a
+im      = $3c
 ihuge   = WS+$6c
-ineg    = WS+$6d
+ineg    = $fe
 e0      = WS+$6e
 qat     = WS+$6f
-qbt     = WS+$70
+qbt     = $88
 qar     = WS+$71
 qbr     = WS+$72
-qan     = WS+$73
+qan     = $4e
 qbn     = WS+$75
-qd0     = WS+$77
-qd1     = WS+$79
+qd0     = $83
+qd1     = $7e
 qneg0   = WS+$7b
 qneg1   = WS+$7c
 qhuge0  = WS+$7d
 qhuge1  = WS+$7e
 qidx    = WS+$7f
-qw      = WS+$80
-qcnt    = WS+$81
+qw      = $36
+qcnt    = $0a
 qend    = WS+$85
 qbase   = WS+$87
-bc      = WS+$89
+bc      = $39
 qe      = WS+$8b
 
 fillbuf: .byte 0, 0, 0

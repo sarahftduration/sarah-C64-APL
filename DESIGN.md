@@ -35,13 +35,19 @@ the video and start-up code that uses it.
   tests plus deep nesting).
 - **Tables**: about 7.9 KB, listed below.
 
-### Measured after steps 1-3
+### Measured after the migration
 
-Code and read-only tables 14,144 bytes (`$0801`-`$3F40`; absolute addressing costs
-a byte per reference, partly offset by retiring the int16 vector kernel); tables
-7,440 bytes (`$4000`-`$5D0F`); **heap 28,400 bytes** (`$5D10`-`$CBFF`). The
-per-array limit `WS_BYTES` / `wsmax` is now 16,000 bytes. Zero page used: the
-float24 and integer registers plus the 38-byte pointer pool (`$50`-`$75`).
+Code and read-only tables **13,294 bytes** (`$0801`-`$3BEE`); tables 7,440 bytes
+(`$4000`-`$5D0F`); **heap 29,424 bytes** (`$590F` to `$CBFF`; it starts where the
+tables end). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+
+Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
+38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
+by references per byte, filling the spare ranges). The other 75 variables are RAM
+at the cassette buffer. Absolute addressing costs a byte per reference: the
+first pass grew the code by 1.3 KB, and promoting those 54 variables won back
+850 bytes. **New code should use RAM variables unless a variable is genuinely
+hot**, and the harness fails any write outside `$02`-`$8F` and `$FB`-`$FE`.
 
 ### Machine configuration
 
@@ -132,9 +138,9 @@ harness will fail any write outside the allowed set.
 1. **Done.** `eval.asm` is the only top-level source; tests read addresses from
    the label file; the int16 vector kernel is retired.
 2. **Done.** Scratch variables moved out of zero page (to the tape buffer at
-   `$033C`), pointers into the pool, and the harness guard added. Still to do:
-   put the most-referenced variables back into the spare zero page (about 80
-   bytes free), which should win back most of the 1.3 KB the move cost.
+   `$033C`), pointers into the pool, and the harness guard added. The
+   most-referenced variables went back into the spare zero page, winning
+   back 850 of the 1.3 KB the move cost.
 3. **Done.** Assembled at `$0801` with the BASIC stub, computed heap base, `wsmax`
    16,000, real addresses in the harness. `make prg` builds `build/apl.prg`.
 4. A VICE smoke test: autostart the PRG, poke a line into the input buffer

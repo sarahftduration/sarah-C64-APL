@@ -5,7 +5,8 @@
 ; Hot registers stay here: float24 in float24.inc ($10-$24), and ia, ib, sgn in
 ; int16.inc ($30-$33, $48). Every indirect pointer lives in the pool below (indirect
 ; addressing only works in zero page); every other former zero-page variable is an
-; ordinary RAM variable at WS+old address.
+; ordinary RAM variable at WS+old address, except the most-referenced ones (fewest
+; bytes of code saved per zero-page byte), which take the spare zero page.
 
 op      = $50
 tp      = $52
