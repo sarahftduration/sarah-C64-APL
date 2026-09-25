@@ -12,6 +12,7 @@ E_WSFULL = 8
         .include "prims.inc"
         .include "scalar.inc"
         .include "reduce.inc"
+        .include "format.inc"
 
 ; --- token index ------------------------------------------------------------------
 ; The token stream has variable-length literals, so it cannot be walked right to
@@ -36,7 +37,7 @@ FK      = $5b00                 ; frame stack: kind, saved lo, resume position, 
 FLO     = $5b80
 FRS     = $5c00
 FFN     = $5c80
-LOGBUF  = $f000
+LOGBUF  = $f400
 
 ev_lo   = $ec
 ev_i1   = $ed
@@ -62,6 +63,10 @@ eval_init:
         sta echov
         lda #>echo_none
         sta echov+1
+        lda #<fmt_null
+        sta outv
+        lda #>fmt_null
+        sta outv+1
         lda #<LOGBUF
         sta logp
         lda #>LOGBUF

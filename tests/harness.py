@@ -13,9 +13,10 @@ def load(name, origin=0xC000):
     labels = {}
     with open(f"build/{name}.lbl") as f:
         for line in f:
-            m = re.match(r"(\S+)\s*=\s*\$([0-9a-fA-F]+)", line)
+            m = re.match(r"(\S+)\s*=\s*(\$[0-9a-fA-F]+|\d+)\s*$", line)
             if m:
-                labels[m.group(1)] = int(m.group(2), 16)
+                v = m.group(2)
+                labels[m.group(1)] = int(v[1:], 16) if v[0] == "$" else int(v)
     return mpu, labels
 
 

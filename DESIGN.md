@@ -255,6 +255,27 @@ succeeds, so `1 ⋄ A B` prints nothing. The 6502 echoes each statement as it
 finishes, like an APL session, and then reports the error. The tests compare
 echoes only on lines that succeed.
 
+## Output formatting (6502)
+
+`asm/format.inc` matches `format_value` and `f_format` byte for byte. `fmt_value`
+writes the top value's text one byte at a time through `fput` (`jmp (outv)`);
+`echo_print` is `fmt_value` plus a newline, ready to be the echo hook once a
+screen driver exists. Newline is `$0a` and the high minus is `$90`; a screen
+driver will translate.
+
+Numbers print to 4 significant digits, rounded half up on the exact value, and
+integers up to 65536 print in full (`f_format`). The model rounds exact
+rationals, so an exactly representable value like `123450` is a tie and prints
+`1.235E5`; an approximate power-of-ten table would get such ties wrong. Half-up
+rounding only needs the first five significant digits, so those are computed
+exactly: a large integer by doubling a decimal digit array, a fraction by
+repeatedly multiplying its 144-bit binary expansion by 10. Plain notation covers
+exponents -5 to 9, otherwise `d.dddE±k`. Vectors are elements joined by spaces;
+matrices are laid out in columns as wide as their widest entry, right aligned
+(two passes, at most 256 columns, else LIMIT ERROR). The model raises a Python
+`ValueError` on a numeric matrix with no rows and columns; the 6502 prints
+nothing for it.
+
 ## Tokenizer (6502)
 
 `asm/tokenizer.asm` matches `Interp.tokenize` byte for byte: tokens, symbol
@@ -295,13 +316,14 @@ catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 Done (6502, differentially tested under py65): float24 add, sub, mul, div;
 int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer;
 handle heap and GC; evaluator core with the structural primitives, the scalar
-functions and reduce.
+functions, reduce and the output formatter.
 
-1. 6502: the print formatter (`f_format`, matrix layout), which the echo hook
-   needs before there is anything to see on screen.
-   Also budget zero page: the tests use `$10`-`$FF` freely, but the KERNAL owns
-   much of `$90`-`$FF`.
-2. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
-3. Charset, keyboard entry, `)SAVE` / `)LOAD`.
+1. Memory map: the code is now about 13 KB (it runs to `$F30F` in the tests
+   with the heap at `$6000`-`$BFFF`), so the real layout needs planning around
+   the I/O area, the charset, the KERNAL and the heap. Also budget zero page:
+   the tests use `$10`-`$FF` freely, but the KERNAL owns much of `$90`-`$FF`.
+2. Screen driver (the echo hook's real `fput`), keyboard entry and the custom
+   charset; then `)SAVE` / `)LOAD`.
+3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).
