@@ -260,27 +260,7 @@ mnz:    lda fa+1
         and #$7f
         ora #$80
         sta bh
-        lda #0
-        sta p2
-        sta p3
-        ldx #16
-mlp:    clc
-        lda p0
-        and #1
-        beq mskip
-        clc
-        lda p2
-        adc bl
-        sta p2
-        lda p3
-        adc bh
-        sta p3
-mskip:  ror p3
-        ror p2
-        ror p1
-        ror p0
-        dex
-        bne mlp
+        jsr mul16
 
         clc
         lda fa
@@ -437,3 +417,29 @@ dg0:    sta ag
         ora #1
         sta ag
 drnd:   jmp round
+
+; mul16: p3:p2:p1:p0 = (p1:p0) * (bh:bl), unsigned 16x16 -> 32.
+; Shifts the 32-bit register right each step; the multiplier drains out of
+; the low end while the product fills the high end.
+mul16:  lda #0
+        sta p2
+        sta p3
+        ldx #16
+mlp:    clc
+        lda p0
+        and #1
+        beq mskip
+        clc
+        lda p2
+        adc bl
+        sta p2
+        lda p3
+        adc bh
+        sta p3
+mskip:  ror p3
+        ror p2
+        ror p1
+        ror p0
+        dex
+        bne mlp
+        rts

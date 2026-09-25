@@ -48,6 +48,28 @@ def test_i_add_sub():
     print(f"int16 add/sub: {n} pairs match")
 
 
+def test_i_mul():
+    mpu, L = load("int16")
+    random.seed(18)
+    pairs = [(rv(), rv()) for _ in range(6000)]
+    for _ in range(9000):                       # products near the int16 limits
+        x = random.choice([-1, 1]) * random.randint(1, 32768)
+        t = random.choice([32767, 32768, -32768, -32769])
+        y = t // x + random.randint(-1, 1)
+        if -32768 <= y <= 32767:
+            pairs.append((x if x <= 32767 else -32768, y))
+    ovf = 0
+    for x, y in pairs:
+        w16(mpu, IA, x)
+        w16(mpu, IB, y)
+        call(mpu, L["i_mul"])
+        true = x * y
+        assert r16(mpu, IA) == wrap(true), ("i_mul", x, y)
+        assert bool(mpu.p & 1) == (not -32768 <= true <= 32767), ("i_mul", x, y)
+        ovf += mpu.p & 1
+    print(f"int16 multiply: {len(pairs)} pairs match ({ovf} overflow)")
+
+
 def test_i_to_f():
     mpu, L = load("int16")
     for v in range(-32768, 32768):
@@ -80,15 +102,15 @@ def test_vec():
     mpu, L = load("int16")
     random.seed(17)
     counts = {"int": 0, "float": 0}
-    for name, sym in (("vec_add", "+"), ("vec_sub", "-")):
+    for name, sym in (("vec_add", "+"), ("vec_sub", "-"), ("vec_mul", "×")):
         model = apl64._arith(sym)
         for _ in range(3000):
             n = random.choice([0, 1, 1, 2, 3, 5, 8, 20])
             mode = random.choice(["vec", "vec", "sa", "sb"])
             if mode != "vec" and n == 0:
                 n = 1
-            small = random.random() < .6
-            gen = (lambda: random.randint(-100, 100)) if small else rv
+            span = random.choice([100, 100, 400, None])
+            gen = (lambda: random.randint(-span, span)) if span else rv
             xs = [gen() for _ in range(1 if mode == "sa" else n)]
             ys = [gen() for _ in range(1 if mode == "sb" else n)]
             ex = xs * n if mode == "sa" else xs
@@ -102,5 +124,6 @@ def test_vec():
 
 if __name__ == "__main__":
     test_i_add_sub()
+    test_i_mul()
     test_i_to_f()
     test_vec()

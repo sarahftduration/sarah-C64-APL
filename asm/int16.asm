@@ -4,8 +4,10 @@
 ; i_add   ia = ia + ib     i_sub   ia = ia - ib
 ;   Out: ia holds the wrapped 16-bit result; carry set = the true result
 ;   left int16 (signed overflow).
+; i_mul   ia = ia * ib    same convention: low 16 bits of the signed product,
+;   carry set if the true product does not fit int16.
 ; i_to_f  fa = float24(ia), exact.
-; vec_add / vec_sub   elementwise INT op over flat data, all-or-nothing:
+; vec_add / vec_sub / vec_mul   elementwise INT op over flat data, all-or-nothing:
 ;   In:  pa, pb = element pointers; pr = result pointer (room for 3*cnt bytes);
 ;        cnt = element count; stra, strb = byte strides (2, or 0 to repeat a
 ;        scalar).
@@ -48,6 +50,67 @@ i_sub:  sec
         sbc ib+1
         sta ia+1
         bvs iover
+        clc
+        rts
+
+; signed multiply via |ia| * |ib| (unsigned 16x16 -> 32), then negate the
+; 32-bit product if the signs differ; it fits int16 iff p3:p2 is the sign
+; extension of p1 bit 7.
+i_mul:  lda ia+1
+        eor ib+1
+        sta sgn
+        lda ia
+        sta p0
+        lda ia+1
+        sta p1
+        bpl imp1
+        sec
+        lda #0
+        sbc p0
+        sta p0
+        lda #0
+        sbc p1
+        sta p1
+imp1:   lda ib
+        sta bl
+        lda ib+1
+        sta bh
+        bpl imp2
+        sec
+        lda #0
+        sbc bl
+        sta bl
+        lda #0
+        sbc bh
+        sta bh
+imp2:   jsr mul16
+        lda sgn
+        bpl imchk
+        sec
+        lda #0
+        sbc p0
+        sta p0
+        lda #0
+        sbc p1
+        sta p1
+        lda #0
+        sbc p2
+        sta p2
+        lda #0
+        sbc p3
+        sta p3
+imchk:  lda p0
+        sta ia
+        lda p1
+        sta ia+1
+        lda #0
+        ldx p1
+        bpl imcmp
+        lda #$ff
+imcmp:  cmp p2
+        bne iover
+        cmp p3
+        bne iover
         clc
         rts
 
@@ -98,6 +161,8 @@ adv:    clc
 vec_add: lda #0
         beq vgo
 vec_sub: lda #1
+        bne vgo
+vec_mul: lda #2
 vgo:    sta vop
         ldx #7
 vsave:  lda pa,x
@@ -121,8 +186,12 @@ p1loop: lda cnt
         lda (pb),y
         sta ib+1
         lda vop
-        bne p1sub
-        jsr i_add
+        beq p1add
+        cmp #1
+        beq p1sub
+        jsr i_mul
+        jmp p1chk
+p1add:  jsr i_add
         jmp p1chk
 p1sub:  jsr i_sub
 p1chk:  bcs redo
@@ -177,8 +246,12 @@ rcopy:  lda fa,x
         sta ia+1
         jsr i_to_f
         lda vop
-        bne rsub
-        jsr f_add
+        beq radd
+        cmp #1
+        beq rsub
+        jsr f_mul
+        jmp rstore
+radd:   jsr f_add
         jmp rstore
 rsub:   jsr f_sub
 rstore: ldy #0
