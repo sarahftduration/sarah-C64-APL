@@ -12,16 +12,129 @@ and the model disagree, the model wins and this file has a bug.
 - Cross-developed on a modern machine; it does not need to be *built* on the C64.
 - 6502 assembly runtime, tested differentially against the Python model.
 
-## Memory plan (with BASIC ROM banked out via $01)
+## Memory map (plan; not yet implemented)
 
-Roughly $0801-$CFFF (about 50 KB) usable. KERNAL stays enabled for keyboard
-scanning and disk I/O (`)SAVE` / `)LOAD` are KERNAL calls).
+The tests use an ad-hoc layout (code at `$C000`, tables scattered from `$3000`,
+zero page used freely). This section is the layout for the real machine, from
+measurements of the current build.
 
-- Runtime code at the bottom (about 12-16 KB when done)
-- Symbol table and tokenized function bodies above it
-- Array heap grows up, value stack grows down from the top
-- Heap uses a **handle table** (one slot per array, 2 bytes) and a
-  **mark-compact GC**; compaction updates one pointer per array.
+### Measured today
+
+- **Code and read-only tables: 13,072 bytes.** float24 715, int16 464, tokenizer
+  2,164 (+ 516 power-of-ten table), heap 929, primitives 1,387, scalar functions
+  1,723, reduce 1,820, formatter 2,153, evaluator core 1,201.
+- **Zero page: 200 bytes written** across the tokenizer, evaluator and formatter
+  (traced under py65), 106 of them in `$90`-`$FA`, which the KERNAL owns. Only 62
+  of those bytes must be zero page (18 indirect pointers, 36 bytes, plus the 21
+  float24 registers and `ia`/`ib`/`sgn`); the rest is scratch that can be
+  ordinary RAM.
+- **Hardware stack: 20 bytes deep** at most (no recursion; measured over the
+  tests plus deep nesting).
+- **Tables**: about 7.9 KB, listed below.
+
+### Machine configuration
+
+`$01 = $36`: BASIC ROM out, KERNAL and I/O in. RAM is then contiguous from
+`$0800` to `$CFFF`. The KERNAL stays for the keyboard scan, the 60 Hz interrupt
+and disk I/O (`)SAVE` / `)LOAD`). Output is direct writes to screen RAM, never
+CHROUT, because our glyph codes would be taken for PETSCII controls.
+
+**Video (recommended): VIC bank 3.** `$DD00` bits 1-0 = `%00` (read-modify-write,
+the upper bits are the IEC serial lines) and `$D018 = $34`: screen RAM at `$CC00`,
+character set at `$D000`. In bank 3 the VIC reads RAM, not the character ROM, at
+`$D000`-`$DFFF`. That is the RAM under the I/O area, which the CPU cannot see
+while I/O is on, so a 2 KB charset there costs no usable memory. It is written
+once at start-up with interrupts off and `$01 = $34`. (Bank 0 with the charset at
+`$2000` is simpler but leaves a 2 KB hole in the middle of RAM: about 2.5 KB less
+heap.) Consequences:
+
+- The KERNAL still thinks the screen is at `$0400`. Set its cursor-blink flag
+  (`$CC`) so its interrupt never draws there, and point the NMI vector (`$0318`) at
+  an `rti`: RUN/STOP-RESTORE would otherwise reset the video registers and
+  jump through `$A002`, which is our RAM. Call SETMSG with 0 so LOAD/SAVE print
+  nothing.
+- `$0400`-`$07FF` is then free.
+
+### Map
+
+| Address | Use |
+|---|---|
+| `$0002`-`$008F` | zero page, ours (142 bytes); plan below |
+| `$0090`-`$00FA` | KERNAL zero page: never touched |
+| `$00FB`-`$00FE` | spare |
+| `$0100`-`$01FF` | hardware stack (we use about 20 bytes) |
+| `$0200`-`$033B` | KERNAL/BASIC: left alone (`$0318` NMI vector patched) |
+| `$033C`-`$03FB` | tape buffer, free: 192 bytes of non-zero-page variables |
+| `$0400`-`$07FF` | transient per-line buffers: input line (256) and token index (768) |
+| `$0801` | BASIC stub `10 SYS 2064` |
+| `$0810`- | code and read-only tables, loaded from the PRG (13.1 KB now; budget 20 KB) |
+| after the code | uninitialised tables, not in the PRG (below) |
+| after the tables | **heap**, up to `$CBFF` |
+| `$CC00`-`$CFFF` | screen RAM (VIC bank 3) |
+| `$D000`-`$D7FF` | 2 KB character set, RAM under I/O, VIC only |
+| `$D800`-`$DFFF` | colour RAM and I/O |
+| `$E000`-`$FFFF` | KERNAL ROM |
+
+Uninitialised tables (7.9 KB): remaining variables 512; handle table 768; variable
+cells 1,024 (256 names); value stack 512 (128 cells); frame stack 512; symbol table
+2,048; token output 1,536 (6 bytes per input byte, worst case); number-strand
+scratch 512; formatter/reduce buffers 512. Value stack and frame stack are cut
+from today's 192 and 128 entries: nesting depth is at most about 85 in a
+255-byte line, and overflow is LIMIT ERROR anyway.
+
+The heap starts wherever the tables end (the assembler computes it), so the heap
+is whatever the code leaves. **Heap: about 29 KB with today's code, about 22 KB
+at the 20 KB code budget.**
+
+### Zero page
+
+| Range | Use |
+|---|---|
+| `$02`-`$0F` | spare |
+| `$10`-`$24` | float24 registers, as now |
+| `$30`-`$33`, `$48` | `ia`, `ib`, `sgn`, as now |
+| `$34`-`$47` | freed by retiring the int16 vector kernel |
+| `$50`-`$7F` | pointer pool: the 18 indirect pointers (36 bytes) and 12 slots to spare |
+| `$80`-`$8F` | spare, for hot counters |
+| `$FB`-`$FE` | spare |
+
+Every other current zero-page variable becomes an absolute RAM variable (same
+instructions, one cycle slower; the assembler flags the few zero-page-only
+forms). About 80 bytes used, about 66 spare. A guard keeps it that way: the test
+harness will fail any write outside the allowed set.
+
+### Decisions to confirm
+
+1. **Video: bank 3 with the charset in the RAM under I/O** (recommended) or bank 0
+   with a hole. Bank 3 costs some start-up code and needs checking in VICE.
+2. **The per-array limit falls from 45,000 bytes to about 16,000** (`WS_BYTES` in
+   the model, `wsmax` on the 6502), about three quarters of the smallest heap.
+   Arrays as large as the model allows today cannot exist in 22 KB. Larger
+   arrays would need more heap, and the only big source left is banking the
+   KERNAL out (+8 KB), which means writing our own interrupt, keyboard scan and
+   disk code: not recommended.
+3. **Retire the int16 vector kernel** (`vec_add` and friends): the evaluator no
+   longer uses it. Saves about 300 bytes of code and 20 zero-page bytes; its tests go.
+
+### Migration, in order (each step keeps `make test` green)
+
+1. One file each for the zero-page and table addresses; tests read addresses
+   from the label file instead of hard-coding them.
+2. Move the scratch variables out of zero page; add the zero-page write guard to
+   the harness. Retire the vector kernel.
+3. Assemble at `$0810` with the BASIC stub and computed heap base; `wsmax`
+   from the heap size; the harness loads at the real addresses.
+4. A VICE smoke test: autostart the PRG, poke a line into the input buffer
+   through the monitor, run it, and compare the screen RAM at `$CC00`.
+5. Then the screen driver, charset (the 8x8 shapes for ASCII copied from the
+   character ROM, plus our glyphs), keyboard entry and line editor.
+
+### To verify in VICE, not assumed
+
+The VIC seeing the RAM charset at `$D000` in bank 3; the interrupt keyboard scan
+and `GETIN` working with the screen moved and the cursor flag set; RESTORE doing
+nothing after the NMI patch; SAVE/LOAD staying silent and inside their own zero
+page; whether VICE can run headless for an automated check.
 
 ## Element types (homogeneous arrays, no mixing)
 
@@ -318,10 +431,7 @@ int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer;
 handle heap and GC; evaluator core with the structural primitives, the scalar
 functions, reduce and the output formatter.
 
-1. Memory map: the code is now about 13 KB (it runs to `$F30F` in the tests
-   with the heap at `$6000`-`$BFFF`), so the real layout needs planning around
-   the I/O area, the charset, the KERNAL and the heap. Also budget zero page:
-   the tests use `$10`-`$FF` freely, but the KERNAL owns much of `$90`-`$FF`.
+1. Memory map: implement the plan above (three decisions to confirm first).
 2. Screen driver (the echo hook's real `fput`), keyboard entry and the custom
    charset; then `)SAVE` / `)LOAD`.
 3. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
