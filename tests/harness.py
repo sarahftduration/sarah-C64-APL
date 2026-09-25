@@ -4,6 +4,10 @@ from py65.devices.mpu6502 import MPU
 
 RTS_SENTINEL = 0xFFF0
 
+# The zero page we may write (DESIGN.md, memory map): float24 registers, ia/ib/sgn,
+# and the 19-pointer pool. Everything else in $00-$FF belongs to the machine.
+ZP_ALLOWED = (set(range(0x10, 0x25)) | set(range(0x30, 0x34)) | {0x48} | set(range(0x50, 0x76)))
+
 
 def load(name):
     """Load build/<name>.bin at its ORG label and return (mpu, labels)."""
@@ -24,6 +28,7 @@ def load(name):
 
 def call(mpu, addr, max_steps=1_000_000):
     """JSR-style call: run until the routine's RTS pops the sentinel."""
+    zp_before = list(mpu.memory[0:0x100])
     ret = RTS_SENTINEL - 1
     mpu.memory[0x1FF] = ret >> 8
     mpu.memory[0x1FE] = ret & 0xFF
@@ -32,5 +37,7 @@ def call(mpu, addr, max_steps=1_000_000):
     for _ in range(max_steps):
         mpu.step()
         if mpu.pc == RTS_SENTINEL:
+            bad = [a for a in range(0x100) if mpu.memory[a] != zp_before[a] and a not in ZP_ALLOWED]
+            assert not bad, f"zero page written outside the allowed set: {[hex(a) for a in bad]}"
             return
     raise RuntimeError("routine did not return")

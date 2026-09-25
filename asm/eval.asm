@@ -3,6 +3,7 @@
 ORG     = $c000
         * = ORG
 
+        .include "layout.inc"
         .include "tokenizer.inc"
 
 E_NONCE  = 4
@@ -40,25 +41,24 @@ FK      = $5b00                 ; frame stack: kind, saved lo, resume position, 
 FLO     = $5b80
 FRS     = $5c00
 FFN     = $5c80
-LOGBUF  = $f400
+LOGBUF  = $0800
 
-ev_lo   = $ec
-ev_i1   = $ed
-ev_fsp  = $ee
-ev_tok  = $ef
-ev_pkind = $f0
-ev_pfn  = $f1
-ev_jm   = $f2
-ev_dep  = $f3
-ev_ntok = $f4
-ev_slo  = $f5
-ev_shi  = $f6
-ev_ix   = $f7
-ev_hb   = $f8
-ev_px   = $f9
-echov   = $fa
-ev_pg   = $fe
-logp    = $fc
+ev_lo   = WS+$ec
+ev_i1   = WS+$ed
+ev_fsp  = WS+$ee
+ev_tok  = WS+$ef
+ev_pkind = WS+$f0
+ev_pfn  = WS+$f1
+ev_jm   = WS+$f2
+ev_dep  = WS+$f3
+ev_ntok = WS+$f4
+ev_slo  = WS+$f5
+ev_shi  = WS+$f6
+ev_ix   = WS+$f7
+ev_hb   = WS+$f8
+ev_px   = WS+$f9
+echov   = WS+$fa
+ev_pg   = WS+$fe
 
 eval_init:
         jsr heap_init
@@ -349,7 +349,8 @@ rl_op:  cpx ev_lo               ; operators: only f/ on a scalar dyadic is imple
         cmp #T_RPAR
         beq rl_nonce
         cmp #$80
-        bcc ev_syn
+        bcs *+5
+        jmp ev_syn
         cmp #$c0
         bcc rl_fnok
         jmp ev_syn

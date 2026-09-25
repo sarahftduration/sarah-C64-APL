@@ -8,31 +8,29 @@
 ; Scratch overlaps the tokenizer's zero page, which is idle during evaluation
 ; (but not symcnt at $5e).
 
-ep      = $68
-im      = $6a
-ihuge   = $6c
-ineg    = $6d
-e0      = $6e
-qat     = $6f
-qbt     = $70
-qar     = $71
-qbr     = $72
-qan     = $73
-qbn     = $75
-qd0     = $77
-qd1     = $79
-qneg0   = $7b
-qneg1   = $7c
-qhuge0  = $7d
-qhuge1  = $7e
-qidx    = $7f
-qw      = $80
-qcnt    = $81
-qsrc    = $83
-qend    = $85
-qbase   = $87
-bc      = $89
-qe      = $8b
+im      = WS+$6a
+ihuge   = WS+$6c
+ineg    = WS+$6d
+e0      = WS+$6e
+qat     = WS+$6f
+qbt     = WS+$70
+qar     = WS+$71
+qbr     = WS+$72
+qan     = WS+$73
+qbn     = WS+$75
+qd0     = WS+$77
+qd1     = WS+$79
+qneg0   = WS+$7b
+qneg1   = WS+$7c
+qhuge0  = WS+$7d
+qhuge1  = WS+$7e
+qidx    = WS+$7f
+qw      = WS+$80
+qcnt    = WS+$81
+qend    = WS+$85
+qbase   = WS+$87
+bc      = WS+$89
+qe      = WS+$8b
 
 fillbuf: .byte 0, 0, 0
 
@@ -114,7 +112,8 @@ elem_to_int:
         lda vt
         beq eti_b
         cmp #1
-        beq eti_bad
+        bne *+5
+        jmp eti_bad
         cmp #2
         beq eti_i
         lda (ep),y              ; FLOAT: exponent
@@ -346,12 +345,15 @@ psx:    rts
 ; --- monadic ⍳ : index generator -----------------------------------------------------
 p_iota: jsr topcell
         jsr arg_ints
-        bcs pix
+        bcc *+5
+        jmp pix
         lda qan+1
-        bne pi_len
+        beq *+5
+        jmp pi_len
         lda qan
         cmp #1
-        bne pi_len
+        beq *+5
+        jmp pi_len
         lda qneg0
         ora qhuge0
         bne pi_dom
@@ -631,10 +633,12 @@ p_catenate:
         sta qbn+1
         lda qar
         cmp #2
-        bcs pc_nonce
+        bcc *+5
+        jmp pc_nonce
         lda qbr
         cmp #2
-        bcs pc_nonce
+        bcc *+5
+        jmp pc_nonce
         lda qan
         ora qan+1
         bne pcn1

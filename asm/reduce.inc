@@ -45,8 +45,6 @@ rtl     = RV+54
 rth     = RV+55
 rte     = RV+56
 FACC    = $5e00
-mp      = $8c
-fp      = $8e
 
 red_ident:
         .byte 2, 0, 0, 0        ; +

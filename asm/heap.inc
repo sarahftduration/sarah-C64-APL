@@ -23,40 +23,31 @@ HM         = $5a00              ; mark bytes
 FSTK       = $5b00              ; evaluator frames
 
 ; zero page (real hardware will need a budget; see DESIGN.md)
-htop    = $b0
-hnew    = $b2
-hadr    = $b3
-asz     = $b5
-hpin    = $b7
-hpinf   = $b8
-gsrc    = $b9
-gdst    = $bb
-gsz     = $bd
-gp      = $bf
-cs      = $c1
-cd      = $c3
-gh      = $c5
-gt      = $c6
-gn      = $c7
-t0      = $c9
-vsp     = $cc
-cptr    = $ce
-cv      = $d0
-vt      = $d4
-vrk     = $d5
-vn      = $d6
-vs0     = $d8
-vs1     = $da
-vp      = $dc
-dp      = $de
-nt      = $e0
-nrk     = $e1
-nn      = $e2
-nd0     = $e4
-nd1     = $e6
-wsmax   = $e8
-gw      = $ea
-vtag    = $eb
+htop    = WS+$b0
+hnew    = WS+$b2
+asz     = WS+$b5
+hpin    = WS+$b7
+hpinf   = WS+$b8
+gdst    = WS+$bb
+gsz     = WS+$bd
+gh      = WS+$c5
+gt      = WS+$c6
+gn      = WS+$c7
+t0      = WS+$c9
+cv      = WS+$d0
+vt      = WS+$d4
+vrk     = WS+$d5
+vn      = WS+$d6
+vs0     = WS+$d8
+vs1     = WS+$da
+nt      = WS+$e0
+nrk     = WS+$e1
+nn      = WS+$e2
+nd0     = WS+$e4
+nd1     = WS+$e6
+wsmax   = WS+$e8
+gw      = WS+$ea
+vtag    = WS+$eb
 
 WIDTHT: .byte 1, 1, 2, 3
 
@@ -510,12 +501,14 @@ newarr: ldx nt
         adc #0
         sta t0+2
 na1:    lda t0+2
-        bne nafull
+        beq *+5
+        jmp nafull
         lda wsmax
         cmp t0
         lda wsmax+1
         sbc t0+1
-        bcc nafull
+        bcs *+5
+        jmp nafull
         lda nrk
         asl
         clc

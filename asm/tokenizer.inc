@@ -27,41 +27,38 @@ T_END   = 0
 T_LIT   = 1
 T_NAME  = 2
 
-ip      = $50           ; input index
-op      = $51           ; output pointer (2)
-tp      = $53           ; strand pointer (2)
-ncount  = $55           ; elements in the strand
-t2      = $59           ; scratch (2)
-dgt     = $5b
-scnt    = $5c           ; string length
-cls     = $5d           ; strand element class: 0 BOOL, 2 INT, 3 FLOAT
-symcnt  = $5e           ; names defined (2)
-sp      = $60           ; symbol table pointer (2)
-ki      = $62           ; symbol index (2)
-nlen      = $64           ; name length
-ns0     = $65           ; name start in INBUF
-cc      = $66           ; loop counter
-chr     = $67
-dv      = $68           ; decimal digits read so far, up to 9 (4 bytes)
-dvt     = $6c           ; scratch copy of dv (4)
-nsig    = $70           ; digits kept in dv
-e10     = $71           ; decimal exponent of dv (2, signed)
-inex    = $73           ; a nonzero digit was dropped
-dot     = $74           ; decimal point seen
-xv      = $75           ; explicit exponent magnitude, saturating (2)
-xneg    = $77
-nm      = $78           ; parsed element, 4 bytes: nm (2), ns, nf
-ns      = $7a           ; nf=0: nm = magnitude, ns bit 7 = sign (never set for 0)
-nf      = $7b           ; nf=1: nm, nm+1, ns = float24 bytes
-ovfl    = $7c           ; a float in this strand overflowed
-psg     = $7d           ; sign of the number being parsed
-ee      = $7e           ; total decimal exponent (2, signed)
-ec      = $80           ; counter (2)
-pp      = $90           ; 64-bit product
-tm      = $98           ; table mantissa (4)
-tb      = $9c           ; table binary exponent (2)
-acnt    = $9e           ; left shifts used to normalize dv
-dql     = $a0           ; quotient (2)
+ip      = WS+$50           ; input index
+ncount  = WS+$55           ; elements in the strand
+t2      = WS+$59           ; scratch (2)
+dgt     = WS+$5b
+scnt    = WS+$5c           ; string length
+cls     = WS+$5d           ; strand element class: 0 BOOL, 2 INT, 3 FLOAT
+symcnt  = WS+$5e           ; names defined (2)
+ki      = WS+$62           ; symbol index (2)
+nlen      = WS+$64           ; name length
+ns0     = WS+$65           ; name start in INBUF
+cc      = WS+$66           ; loop counter
+chr     = WS+$67
+dv      = WS+$68           ; decimal digits read so far, up to 9 (4 bytes)
+dvt     = WS+$6c           ; scratch copy of dv (4)
+nsig    = WS+$70           ; digits kept in dv
+e10     = WS+$71           ; decimal exponent of dv (2, signed)
+inex    = WS+$73           ; a nonzero digit was dropped
+dot     = WS+$74           ; decimal point seen
+xv      = WS+$75           ; explicit exponent magnitude, saturating (2)
+xneg    = WS+$77
+nm      = WS+$78           ; parsed element, 4 bytes: nm (2), ns, nf
+ns      = WS+$7a           ; nf=0: nm = magnitude, ns bit 7 = sign (never set for 0)
+nf      = WS+$7b           ; nf=1: nm, nm+1, ns = float24 bytes
+ovfl    = WS+$7c           ; a float in this strand overflowed
+psg     = WS+$7d           ; sign of the number being parsed
+ee      = WS+$7e           ; total decimal exponent (2, signed)
+ec      = WS+$80           ; counter (2)
+pp      = WS+$90           ; 64-bit product
+tm      = WS+$98           ; table mantissa (4)
+tb      = WS+$9c           ; table binary exponent (2)
+acnt    = WS+$9e           ; left shifts used to normalize dv
+dql     = WS+$a0           ; quotient (2)
 
 tok_init:
         lda #0

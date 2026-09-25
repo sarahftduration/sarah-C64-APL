@@ -9,41 +9,39 @@
 ; Monadic - and ÷ are 0-x and 1÷x with a synthetic scalar left operand.
 
 SDV     = $5d00                 ; vectors: load B, load A, kernel, store
-sdop    = $50
-sdta    = $51
-sdtb    = $52
-sdar    = $53
-sdbr    = $54
-sdrr    = $55
-sdrt    = $56
-sdov    = $57
-sdw     = $58
-sdres   = $59
-sdmode  = $5a
-sdstra  = $5b
-sdstrb  = $5c
-ceq     = $5d
-clt     = $60
-cgt     = $61
-sdan    = $62
-sdbn    = $64
-sdpa    = $90
-sdpb    = $92
-ca      = $94
-cb      = $97
-cdx     = $9a
-kna     = $9b
-knb     = $9c
-ms      = $9d
-mt      = $9e
-sdav0   = $a0
-sdav1   = $a2
-sdbv0   = $a4
-sdbv1   = $a6
-sdrd0   = $a8
-sdrd1   = $aa
-sdn     = $ac
-sdcnt   = $ae
+sdop    = WS+$50
+sdta    = WS+$51
+sdtb    = WS+$52
+sdar    = WS+$53
+sdbr    = WS+$54
+sdrr    = WS+$55
+sdrt    = WS+$56
+sdov    = WS+$57
+sdw     = WS+$58
+sdres   = WS+$59
+sdmode  = WS+$5a
+sdstra  = WS+$5b
+sdstrb  = WS+$5c
+ceq     = WS+$5d
+clt     = WS+$60
+cgt     = WS+$61
+sdan    = WS+$62
+sdbn    = WS+$64
+ca      = WS+$94
+cb      = WS+$97
+cdx     = WS+$9a
+kna     = WS+$9b
+knb     = WS+$9c
+ms      = WS+$9d
+mt      = WS+$9e
+sdav0   = WS+$a0
+sdav1   = WS+$a2
+sdbv0   = WS+$a4
+sdbv1   = WS+$a6
+sdrd0   = WS+$a8
+sdrd1   = WS+$aa
+sdn     = WS+$ac
+sdcnt   = WS+$ae
 
 sd_lb:  jmp (SDV)
 sd_la:  jmp (SDV+2)
@@ -543,9 +541,9 @@ sd_alloc:
         sta cv+1
         sta cv+2
         sta cv+3
-        lda #cv+1
+        lda #<(cv+1)
         sta dp
-        lda #0
+        lda #>(cv+1)
         sta dp+1
         clc
         rts
@@ -840,9 +838,9 @@ sg1:    lda vrk
         sta cv+1
         sta cv+2
         sta cv+3
-        lda #cv+1
+        lda #<(cv+1)
         sta dp
-        lda #0
+        lda #>(cv+1)
         sta dp+1
         jmp sg_fill
 sg_arr: lda #2
