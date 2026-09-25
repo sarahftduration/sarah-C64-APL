@@ -452,5 +452,6 @@ selftest_done:
         .endif
 
         .include "editor.inc"
+        .include "syscmd.inc"
         .include "keys.inc"
         .include "glyphs.inc"

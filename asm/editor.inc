@@ -200,7 +200,17 @@ rp_h:   lda INBUF,x
         bne rp_h
 rp_run: lda #CHNL
         jsr scr_put
-        jsr tokenize
+        ldx #0                  ; a system command?
+rp_s1:  lda INBUF,x
+        cmp #' '
+        bne rp_s2
+        inx
+        jmp rp_s1
+rp_s2:  cmp #')'
+        bne rp_tok
+        jsr syscmd
+        jmp repl
+rp_tok: jsr tokenize
         bcs rp_err
         jsr eval_line
         bcc repl_again

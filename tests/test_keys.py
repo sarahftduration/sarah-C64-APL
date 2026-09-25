@@ -46,10 +46,63 @@ def petscii(text):
 class EditorModel:
     """The editor's behaviour: what the screen shows after a series of keys."""
 
-    def __init__(self):
+    def __init__(self, heap=None):
         self.scr, self.model = Screen(), apl64.Interp()
         self.line, self.hist, self.prefix = [], [], False
+        self.heap = heap                      # (HEAP_BASE, HEAP_LIMIT), for )FREE
+        self.wsname = ""
         self.prompt()
+
+    def say(self, text):
+        self.scr.write(text.encode() + b"\n")
+
+    def syscmd(self, t):
+        """The system commands (DESIGN.md, System commands): t is the text after the ')'."""
+        i = 0
+        while i < len(t) and t[i] != " ":
+            i += 1
+        word, arg = t[:i].upper(), t[i:].lstrip(" ")
+        m = self.model
+        if word == "VARS":
+            names = sorted((n for k, n in enumerate(m.names) if k in m.vars), key=apl64.encode_line)
+            for n in names:
+                b = apl64.encode_line(n)
+                if self.scr.col != 0:
+                    self.scr.put(10 if len(b) >= 40 or self.scr.col + len(b) + 1 > 40 else 32)
+                self.scr.write(b)
+            if names:
+                self.scr.put(10)
+        elif word == "ERASE":
+            try:
+                toks = m.decode(m.tokenize(arg))
+            except apl64.AplError as e:
+                self.say(e.kind)
+                return
+            if any(c != 2 for c, _ in toks):
+                self.say("BAD COMMAND")
+                return
+            for _, k in toks:
+                m.vars.pop(k, None)
+        elif word == "CLEAR":
+            self.model = apl64.Interp()
+            self.wsname = ""
+            self.say("CLEAR WS")
+        elif word == "FREE":
+            base, limit = self.heap
+            seen = {id(v): v for v in m.vars.values() if v.rank > 0}
+            live = sum(1 + len(v.to_bytes()) for v in seen.values())
+            self.say(f"{limit - base - live} BYTES FREE")
+        elif word == "WSID":
+            if not arg:
+                self.say(self.wsname or "CLEAR WS")
+            else:
+                name = arg.split(" ")[0].upper()
+                if 1 <= len(name) <= 16 and all(c.isalnum() and c.isascii() or c in "-." for c in name):
+                    self.wsname = name
+                else:
+                    self.say("BAD NAME")
+        else:
+            self.say("BAD COMMAND")
 
     def prompt(self):
         self.scr.write(b" " * 6)
@@ -87,6 +140,10 @@ class EditorModel:
             s.put(10)
             text = "".join(INV.get(c, chr(c)) for c in self.line)
             self.line = []
+            if text.lstrip(" ").startswith(")"):
+                self.syscmd(text.lstrip(" ")[1:])
+                self.prompt()
+                return
             try:
                 for v in self.model.run_values(text):
                     s.write(text_bytes(v) + b"\n")
@@ -119,8 +176,8 @@ class EditorModel:
         return bytes(mem)
 
 
-def expected(keys):
-    ed = EditorModel()
+def expected(keys, heap=None):
+    ed = EditorModel(heap)
     for k in keys:
         ed.key(k)
     return ed.screen()
@@ -192,6 +249,39 @@ SESSIONS = [
     "a{LA}{P}i3{RET}{P}i3{RET}a{P}-a{RET}",
 ]
 
+CMD_SESSIONS = [
+    ")vars{RET}",                                                      # nothing defined: nothing printed
+    "b{LA}1{RET}a{LA}2 3{RET}zz{LA}'x'{RET}Ab{LA}5{RET})vars{RET}",    # sorted: Ab a b zz
+    "b{LA}1{RET}a{LA}2{RET})VARS{RET}  )Vars extra words{RET}",         # case, spaces, extra words
+    "abcdefghijk{LA}1{RET}bcdefghijkl{LA}2{RET}cdefghijklm{LA}3{RET}defghijklmn{LA}4{RET})vars{RET}",  # wrapping at 40
+    "a{LA}1{RET}b{LA}1{RET}c{LA}1{RET}d{LA}1{RET}e{LA}1{RET}f{LA}1{RET}g{LA}1{RET}h{LA}1{RET}i{LA}1{RET}j{LA}1{RET}k{LA}1{RET})vars{RET}",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa{LA}1{RET}bbb{LA}2{RET})vars{RET}",   # a name of exactly 40 characters
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa{LA}1{RET}b{LA}2{RET})vars{RET}",   # longer than the screen
+    "a{LA}1{RET}b{LA}2{RET}c{LA}3{RET})erase a c{RET})vars{RET}a{RET}b{RET}",     # erase, then VALUE ERROR
+    ")erase ghost{RET}g{LA}1{RET})erase g ghost{RET})vars{RET}",       # unknown names are ignored
+    "a{LA}1{RET})erase 1{RET})erase a 2{RET})erase {P}i{RET})vars{RET}",   # only names: BAD COMMAND
+    ")erase 'abc{RET}a{LA}1{RET})erase{RET})vars{RET}",                # a tokenizer error, an empty argument
+    "a{LA}1 2 3{RET}b{LA}a{RET})clear{RET})vars{RET}a{RET}c{LA}5{RET})vars{RET}",   # clear, VALUE ERROR, start again
+    ")wsid{RET})wsid Test{RET})wsid{RET})wsid other-1.x extra{RET})wsid{RET})clear{RET})wsid{RET}",
+    ")wsid ABCDEFGHIJKLMNOPQ{RET})wsid bad{P}name{RET})wsid 1234567890123456{RET})wsid{RET}",   # 17 characters, a bad character
+    ")bogus{RET}){RET})abcdefghijklm{RET}) vars{RET}   ){RET}",
+    ")free{RET}a{LA}{P}i100{RET})free{RET}b{LA}a{RET})free{RET}c{LA}a,a{RET})free{RET})erase a b c{RET})free{RET}",
+    "a{LA}5{RET}b{LA}1.5{RET}c{LA}'hello'{RET})free{RET}d{LA}2 3{P}r{P}i6{RET})free{RET}",
+    "a{LA}{P}i10{RET}a{LA}1{RET})free{RET}",                             # the array is garbage after reassigning
+    ")vars{RET}1+1{RET})free{RET}",
+    "ab{LA}1{RET}a{LA}1{RET}abc{LA}1{RET}b{LA}1{RET}aB{LA}1{RET}Z{LA}1{RET}z{LA}1{RET}_x{LA}1{RET})vars{RET}",   # prefixes, cases
+    # words that end one column past the edge, exactly on it, and a name too long for a byte of arithmetic
+    "aaaaaaaaaaa{LA}1{RET}bbbbbbbbbbb{LA}1{RET}ccccccccccc{LA}1{RET}ddddd{LA}1{RET})vars{RET}",
+    "aaaaaaaaaaa{LA}1{RET}bbbbbbbbbbb{LA}1{RET}ccccccccccc{LA}1{RET}dddd{LA}1{RET})vars{RET}",
+    "aaaaaaaaaaa{LA}1{RET}bbbbbbbbbbb{LA}1{RET}ccccccccccc{LA}1{RET}dddd{LA}1{RET}e{LA}1{RET})vars{RET}",
+    "a{LA}1{RET}" + "b" * 250 + "{LA}1{RET})vars{RET}",
+    "a{LA}1{RET}" + "b" * 215 + "{LA}1{RET}c{LA}1{RET})vars{RET}",
+    "abcdefghij{LA}1{RET}" + "b" * 245 + "{LA}1{RET})vars{RET}",          # length + column + 1 = 256: a byte overflows
+    ")wsid a{P}{LA}b{RET})wsid a*b{RET})wsid a,b{RET})wsid a:b{RET})wsid a@b{RET})wsid a?b{RET})wsid a$b{RET})wsid{RET}",
+    # the symbol table is emptied by )CLEAR: 200 names, clear, 200 more (400 would not fit)
+    "".join(f"n{i}{{LA}}1{{RET}}" for i in range(200)) + ")clear{RET}" + "".join(f"m{i}{{LA}}1{{RET}}" for i in range(200)) + ")vars{RET}",
+]
+
 
 def test_scripted():
     for text in SESSIONS:
@@ -199,12 +289,26 @@ def test_scripted():
         L = build_keytest(keys)
         _, files = _run_selftest(['save "{DIR}/screen.bin" 0 cc00 cfe7'], hex(L["selftest_done"]),
                                  prg="build/keytest.prg")
-        got, want = files["screen.bin"][2:], expected(keys)
+        got, want = files["screen.bin"][2:], expected(keys, (L["HEAP_BASE"], L["HEAP_LIMIT"]))
         if got != want:
             show(got, want)
             raise AssertionError(f"screen differs from the model for keys {text!r}")
     print(f"keys: {len(SESSIONS)} scripted sessions (digraphs, backspace, recall, clear, wrapping, scrolling, "
           f"errors) match the editor model on the real machine")
+
+
+def test_commands():
+    for text in CMD_SESSIONS:
+        keys = petscii(text)
+        L = build_keytest(keys)
+        _, files = _run_selftest(['save "{DIR}/screen.bin" 0 cc00 cfe7'], hex(L["selftest_done"]),
+                                 prg="build/keytest.prg")
+        got, want = files["screen.bin"][2:], expected(keys, (L["HEAP_BASE"], L["HEAP_LIMIT"]))
+        if got != want:
+            show(got, want)
+            raise AssertionError(f"screen differs from the model for keys {text!r}")
+    print(f"keys: {len(CMD_SESSIONS)} system command sessions ()VARS, )ERASE, )CLEAR, )FREE, )WSID, errors) match the "
+          f"model on the real machine")
 
 
 def test_real_keyboard():
@@ -233,3 +337,4 @@ if __name__ == "__main__":
     else:
         test_real_keyboard()
         test_scripted()
+        test_commands()

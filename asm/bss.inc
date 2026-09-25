@@ -22,8 +22,10 @@ FMT     .fill 96                ; formatter variables
 DIGS    .fill 40                ; formatter: decimal digits
 FR      .fill 24                ; formatter: binary fraction
 COLW    .fill 256               ; formatter: column widths
-STV     .fill 24                ; screen, start-up and editor variables
+STV     .fill 48                ; screen, start-up and editor variables
 HIST    .fill 256               ; the last line typed (cursor-up recalls it)
+CMDBUF  .fill 12                ; system command name
+WSNAME  .fill 20                ; workspace name: length, then up to 16 characters
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer
@@ -38,7 +40,20 @@ kidx    = STV+12
 ktmp    = STV+13
 ksp     = STV+14                ; key script pointer (test builds)
 getkey_vec = STV+16             ; where keys come from
+argx    = STV+18                ; system commands: index of the argument in INBUF
+svcnt    = STV+19                ; (2)
+svnv      = STV+21
+svj      = STV+22
+svk      = STV+23
+svkey    = STV+24
+svl      = STV+25
+svm      = STV+26
+svla      = STV+27
+svlb      = STV+28
+svlm      = STV+29
 HEAP_BASE = *
         .endv
 
+        .if !SELFTEST && !KEYTEST     ; test builds embed their scripts
         .cerror HEAP_LIMIT - HEAP_BASE < $6000, "less than 24 KB of heap"
+        .endif
