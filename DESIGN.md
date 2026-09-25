@@ -96,11 +96,26 @@ then the data, element width from the type
 INT is two's complement little-endian. FLOAT is the three bytes above in
 order (exp, sign|hi7, lo8).
 
-## Value stack cells (planned; not in the Python model)
+## Value cells and the heap (6502)
 
-Fixed **4-byte cells**: a type byte plus 3 payload bytes. A scalar lives
-entirely in the cell, so scalar-heavy code never touches the allocator or GC.
-Arrays put a heap handle in the payload.
+A value is a fixed **4-byte cell**: `tag, b1, b2, b3`. The tag is
+`type | rank<<2`, the same byte as an array header. Rank 0 is a scalar with its
+data in `b1..b3`, so scalar code never touches the allocator. Rank 1 or 2 is an
+array with its heap handle in `b1`. Tag `$80` marks an undefined variable.
+Arrays are immutable and shared: assignment copies the cell, not the array.
+
+The heap is `[handle][array header + data]` blocks laid end to end, each block
+holding exactly the array layout below, so a token literal, a heap block and
+`Value.to_bytes()` are the same bytes. There are **256 handles** (a 1-byte
+handle indexes a table of 2-byte addresses; a 257th live array is LIMIT ERROR).
+Nothing is freed explicitly. When an allocation does not fit, or no handle is
+free, `gc` marks everything reachable from the value stack, the variable table
+and one pinned handle (the array just allocated), then slides live blocks down
+and updates one table entry each. Any allocation may therefore move arrays: a
+primitive allocates its result first and re-derives operand data pointers after.
+
+Per-array size is limited to `wsmax` bytes (45000, the model's `WS_BYTES`), and
+the heap itself is the real limit; both raise WS FULL.
 
 ## Character encoding
 
@@ -183,6 +198,36 @@ NONCE ERROR (not implemented), LIMIT ERROR, WS FULL`
 - Keyboard: Commodore/Shift-modified keys for common glyphs plus a two-key
   digraph fallback.
 
+## Evaluator (6502)
+
+`asm/eval.asm` (with `heap.inc` and `prims.inc`) follows `Interp.eval_tokens`
+step for step, including the order of checks and errors. `eval_line` evaluates a
+tokenized line: parentheses must balance across the whole line (SYNTAX ERROR
+before anything is evaluated), statements split at diamonds outside
+parentheses, and each value is passed to an echo hook unless the statement
+starts with `name ←`. Variables persist across lines and errors; the value
+stack is reset.
+
+The token stream has variable-length literals, so it cannot be scanned right to
+left. A forward pass builds an index (address and code per token), and the
+evaluator runs over index ranges. Parenthesised groups do not recurse: a frame
+(kind, saved bound, resume position, pending function) goes on a 128-entry
+frame stack, and when the inner range is exhausted the frame says whether the
+value is the initial value or the left operand of a pending function. A
+dyadic primitive finds its left operand on top of the value stack and its right
+one below.
+
+Implemented so far: literals, names, assignment, parentheses, `⋄`, and the
+structural primitives `⍳`, `⍴` (monadic and dyadic), `,` (monadic and dyadic),
+monadic `+`. Everything else returns NONCE ERROR (in the model that is also the
+answer for `[ ] → ;`, dyadic `⍳`, and any operator other than `f/` on scalar
+dyadics; but the model does compute arithmetic, comparisons and reduce).
+
+One deliberate difference: the model returns echoes only when the whole line
+succeeds, so `1 ⋄ A B` prints nothing. The 6502 echoes each statement as it
+finishes, like an APL session, and then reports the error. The tests compare
+echoes only on lines that succeed.
+
 ## Tokenizer (6502)
 
 `asm/tokenizer.asm` matches `Interp.tokenize` byte for byte: tokens, symbol
@@ -221,10 +266,14 @@ catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 ## Next steps
 
 Done (6502, differentially tested under py65): float24 add, sub, mul, div;
-int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer.
+int16 add, sub, mul with the all-or-nothing redo in float24; tokenizer;
+handle heap and GC; evaluator core with the structural primitives.
 
-1. 6502: evaluator loop, handle heap, GC. Also budget zero page: the tests use
-   `$10`-`$A1` freely, but the KERNAL owns much of `$90`-`$FF`.
+1. 6502: scalar dyadic `+ - × ÷` and comparisons with type dispatch (BOOL and
+   INT to INT, redo in FLOAT, float24 tolerant comparison), monadic `- × ÷`,
+   reduce (`f/`, exact `+/`), and the print formatter (`f_format`).
+   Also budget zero page: the tests use `$10`-`$FF` freely, but the KERNAL owns
+   much of `$90`-`$FF`.
 2. Model: matrix catenate, indexing, `∘.`, `\`, user functions, control flow.
 3. Charset, keyboard entry, `)SAVE` / `)LOAD`.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of

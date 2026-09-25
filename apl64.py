@@ -912,6 +912,10 @@ class Interp:
         return fn[0](right)
 
     def run_line(self, line):
+        return [format_value(v) for v in self.run_values(line)]
+
+    def run_values(self, line):
+        """Evaluate a line; return the values that would be echoed."""
         toks = self.decode(self.tokenize(line))
         stmts, cur, depth = [], [], 0
         for tk in toks:
@@ -935,7 +939,7 @@ class Interp:
                 continue
             val = self.eval_tokens(st)
             if not (len(st) >= 2 and st[0][0] == T_NAME and st[1][0] == T_ASSIGN):
-                outs.append(format_value(val))
+                outs.append(val)
         return outs
 
 

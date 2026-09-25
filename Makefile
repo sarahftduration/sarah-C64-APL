@@ -2,7 +2,7 @@ PY    := .venv/bin/python
 ASM   := 64tass
 SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
-INCS  := asm/pow10.inc
+INCS  := asm/pow10.inc $(wildcard asm/*.inc)
 
 .PHONY: all test model-test clean
 all: $(BINS)
