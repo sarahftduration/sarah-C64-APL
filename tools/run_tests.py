@@ -11,9 +11,10 @@ from the last logged run. The files do not share writable state: the ones that b
 private scratch directory (tests/harness.py), and the rest only read build/. Every file is run to the
 end even if another fails, so one run shows all the failures.
 
-tests/timing.csv rows: timestamp,commit,jobs,dirty,item,seconds,result
+tests/timing.csv rows: timestamp,commit,jobs,dirty,item,seconds,result,host
   item is "build+model", each test file, "SUM" (the files' times added: what a serial run costs,
   overstated a little when files compete for CPUs), or "TOTAL" (the wall-clock time of the whole run).
+  host is the machine's name: timings from different machines are not comparable.
   Commit the CSV with the change being tested.
 """
 import argparse
@@ -22,19 +23,23 @@ import csv
 import datetime
 import glob
 import os
+import socket
 import subprocess
 import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = "tests/timing.csv"
-HEADER = ["timestamp", "commit", "jobs", "dirty", "item", "seconds", "result"]
+HEADER = ["timestamp", "commit", "jobs", "dirty", "item", "seconds", "result", "host"]
 
 
 # the test files need py65, which lives in the project's virtualenv
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python")
 if not os.path.exists(PYTHON):
     PYTHON = sys.executable
+
+
+HOST = socket.gethostname().split(".")[0]
 
 
 def sh(cmd, **kw):
@@ -66,16 +71,19 @@ def run_file(path):
 
 
 def append_log(rows):
-    """Append rows, first converting an old log that has no jobs column (those runs were serial)."""
+    """Append rows. An older log is converted first: no jobs column meant serial runs, and no host column
+    meant the runs were made on this machine."""
     path = os.path.join(ROOT, LOG)
     old = []
     if os.path.exists(path):
         with open(path) as f:
             old = list(csv.reader(f))
-    if old and "jobs" not in old[0]:
-        old = [HEADER] + [[r[0], r[1], "1", r[2]] + r[3:] for r in old[1:]]
-    elif not old:
+    if not old:
         old = [HEADER]
+    if "jobs" not in old[0]:
+        old = [old[0][:2] + ["jobs"] + old[0][2:]] + [r[:2] + ["1"] + r[2:] for r in old[1:]]
+    if "host" not in old[0]:
+        old = [old[0] + ["host"]] + [r + [HOST] for r in old[1:]]
     with open(path, "w", newline="") as f:
         csv.writer(f, lineterminator="\n").writerows(old + rows)
 
@@ -129,10 +137,10 @@ def main():
     print(f"\nregression suite: {status} in {fmt(total)}, {jobs} at a time "
           f"(files add up to {fmt(file_secs)}; commit {commit}{', uncommitted changes' if dirty else ''})")
     if args.log:
-        rows = [[stamp, commit, jobs, dirty, n, f"{s:.1f}", "ok" if g else "FAIL"] for n, s, g in
+        rows = [[stamp, commit, jobs, dirty, n, f"{s:.1f}", "ok" if g else "FAIL", HOST] for n, s, g in
                 sorted(results, key=lambda r: (r[0] != "build+model", r[0]))]
-        rows.append([stamp, commit, jobs, dirty, "SUM", f"{file_secs:.1f}", status])
-        rows.append([stamp, commit, jobs, dirty, "TOTAL", f"{total:.1f}", status])
+        rows.append([stamp, commit, jobs, dirty, "SUM", f"{file_secs:.1f}", status, HOST])
+        rows.append([stamp, commit, jobs, dirty, "TOTAL", f"{total:.1f}", status, HOST])
         append_log(rows)
         print(f"logged to {LOG}")
     return 0 if status == "ok" else 1
