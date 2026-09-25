@@ -5,11 +5,11 @@ from py65.devices.mpu6502 import MPU
 RTS_SENTINEL = 0xFFF0
 
 
-def load(name, origin=0xC000):
+def load(name):
+    """Load build/<name>.bin at its ORG label and return (mpu, labels)."""
     mpu = MPU()
     with open(f"build/{name}.bin", "rb") as f:
         data = f.read()
-    mpu.memory[origin:origin + len(data)] = list(data)
     labels = {}
     with open(f"build/{name}.lbl") as f:
         for line in f:
@@ -17,6 +17,8 @@ def load(name, origin=0xC000):
             if m:
                 v = m.group(2)
                 labels[m.group(1)] = int(v[1:], 16) if v[0] == "$" else int(v)
+    origin = labels.get("ORG", 0xC000)
+    mpu.memory[origin:origin + len(data)] = list(data)
     return mpu, labels
 
 

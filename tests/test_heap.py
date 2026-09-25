@@ -5,8 +5,6 @@ import sys
 sys.path.insert(0, os.getcwd())
 from harness import call, load
 
-HEAP_BASE, HEAP_LIMIT = 0x6000, 0xC000
-VARS, VSTACK = 0x5000, 0x5400
 WIDTH = (1, 1, 2, 3)
 E_LIMIT, E_WSFULL = 3, 8
 
@@ -15,6 +13,8 @@ class Heap:
     def __init__(self):
         self.m, self.L = load("eval")
         call(self.m, self.L["heap_init"])
+        self.HEAP_BASE, self.HEAP_LIMIT = self.L["HEAP_BASE"], self.L["HEAP_LIMIT"]
+        self.VARS = self.L["VARS"]
         self.shadow = {}                    # handle -> bytes of header + data
         self.vars = {}                      # slot -> handle
         self.stack = []                     # handles on the value stack
@@ -54,7 +54,7 @@ class Heap:
         call(self.m, self.L["gc"], max_steps=5_000_000)
 
     def set_var(self, slot, handle, tag=None):
-        a = VARS + 4 * slot
+        a = self.VARS + 4 * slot
         if handle is None:
             self.m.memory[a:a + 4] = [0x80, 0, 0, 0]
             self.vars.pop(slot, None)
@@ -78,9 +78,9 @@ class Heap:
     def check(self, after_gc=False):
         m, L = self.m, self.L
         top = self.rd("htop", 2)
-        assert HEAP_BASE <= top <= HEAP_LIMIT
+        assert self.HEAP_BASE <= top <= self.HEAP_LIMIT
         # walk the heap: blocks must tile it exactly and agree with the handle table
-        p, live = HEAP_BASE, set()
+        p, live = self.HEAP_BASE, set()
         while p < top:
             h = m.memory[p]
             tag = m.memory[p + 1]

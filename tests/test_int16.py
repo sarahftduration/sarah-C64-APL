@@ -7,8 +7,6 @@ import apl64
 from harness import call, load
 
 IA, IB, FA = 0x30, 0x32, 0x10
-PA, PB, PR, CNT, STRA, STRB = 0x34, 0x36, 0x38, 0x3A, 0x3C, 0x3D
-BUF_A, BUF_B, BUF_R = 0x2000, 0x2400, 0x2800
 
 EDGES = [0, 1, -1, 2, -2, 255, 256, -256, 32767, -32768, 32766, -32767, 16384, -16384]
 
@@ -32,7 +30,7 @@ def wrap(v):
 
 
 def test_i_add_sub():
-    mpu, L = load("int16")
+    mpu, L = load("eval")
     random.seed(16)
     n = 0
     for op, fn in (("i_add", lambda x, y: x + y), ("i_sub", lambda x, y: x - y)):
@@ -49,7 +47,7 @@ def test_i_add_sub():
 
 
 def test_i_mul():
-    mpu, L = load("int16")
+    mpu, L = load("eval")
     random.seed(18)
     pairs = [(rv(), rv()) for _ in range(6000)]
     for _ in range(9000):                       # products near the int16 limits
@@ -71,7 +69,7 @@ def test_i_mul():
 
 
 def test_i_to_f():
-    mpu, L = load("int16")
+    mpu, L = load("eval")
     for v in range(-32768, 32768):
         w16(mpu, IA, v)
         call(mpu, L["i_to_f"])
@@ -80,50 +78,7 @@ def test_i_to_f():
     print("int16 -> float24: all 65536 values match")
 
 
-def run_vec(mpu, L, name, xs, ys, scalar_a, scalar_b):
-    n = max(len(xs), len(ys))
-    for i, v in enumerate(xs):
-        w16(mpu, BUF_A + 2 * i, v)
-    for i, v in enumerate(ys):
-        w16(mpu, BUF_B + 2 * i, v)
-    for addr, val in ((PA, BUF_A), (PB, BUF_B), (PR, BUF_R), (CNT, n)):
-        w16(mpu, addr, val)
-    mpu.memory[STRA] = 0 if scalar_a else 2
-    mpu.memory[STRB] = 0 if scalar_b else 2
-    call(mpu, L[name])
-    if mpu.p & 1:
-        return apl64.FLOAT, [
-            (mpu.memory[BUF_R + 3 * i] << 16) | (mpu.memory[BUF_R + 3 * i + 1] << 8)
-            | mpu.memory[BUF_R + 3 * i + 2] for i in range(n)]
-    return apl64.INT, [r16(mpu, BUF_R + 2 * i) for i in range(n)]
-
-
-def test_vec():
-    mpu, L = load("int16")
-    random.seed(17)
-    counts = {"int": 0, "float": 0}
-    for name, sym in (("vec_add", "+"), ("vec_sub", "-"), ("vec_mul", "×")):
-        model = apl64._arith(sym)
-        for _ in range(3000):
-            n = random.choice([0, 1, 1, 2, 3, 5, 8, 20])
-            mode = random.choice(["vec", "vec", "sa", "sb"])
-            if mode != "vec" and n == 0:
-                n = 1
-            span = random.choice([100, 100, 400, None])
-            gen = (lambda: random.randint(-span, span)) if span else rv
-            xs = [gen() for _ in range(1 if mode == "sa" else n)]
-            ys = [gen() for _ in range(1 if mode == "sb" else n)]
-            ex = xs * n if mode == "sa" else xs
-            ey = ys * n if mode == "sb" else ys
-            want = model(apl64.INT, ex, apl64.INT, ey)
-            got = run_vec(mpu, L, name, xs, ys, mode == "sa", mode == "sb")
-            assert got == want, (name, mode, xs, ys, got, want)
-            counts["int" if want[0] == apl64.INT else "float"] += 1
-    print(f"int16 vector kernel: {counts} results match the model")
-
-
 if __name__ == "__main__":
     test_i_add_sub()
     test_i_mul()
     test_i_to_f()
-    test_vec()

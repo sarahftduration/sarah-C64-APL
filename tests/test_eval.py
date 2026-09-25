@@ -7,7 +7,6 @@ sys.path.insert(0, os.getcwd())
 import apl64
 from harness import call, load
 
-INBUF, VARS = 0x3000, 0x5000
 ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
        5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL'}
 WIDTH = (1, 1, 2, 3)
@@ -37,6 +36,7 @@ class Session:
         m, L = self.m, self.L
         data = apl64.encode_line(line)
         assert len(data) <= 255
+        INBUF = L["INBUF"]
         m.memory[INBUF:INBUF + len(data) + 1] = list(data) + [0]
         call(m, L["tokenize"], max_steps=2_000_000)
         if m.p & 1:
@@ -63,7 +63,7 @@ class Session:
 
     def vars6502(self):
         n = self.m.memory[self.L["symcnt"]] | self.m.memory[self.L["symcnt"] + 1] << 8
-        return [self.cell_bytes(VARS + 4 * i) for i in range(n)]
+        return [self.cell_bytes(self.L["VARS"] + 4 * i) for i in range(n)]
 
     def run_model(self, line):
         try:
@@ -204,7 +204,7 @@ def test_gc_pressure():
                            f"{a}←(⍳{n}),⍳{n}", f"⍴{a}", f"{a}←⍴{b}", f"{a}←2 3⍴{b}"])
         check(s, line)
         lines += 1
-    assert s.m.memory[s.L["htop"]] | s.m.memory[s.L["htop"] + 1] << 8 <= 0xC000
+    assert s.m.memory[s.L["htop"]] | s.m.memory[s.L["htop"] + 1] << 8 <= s.L["HEAP_LIMIT"]
     print(f"evaluator GC pressure: {lines} allocating lines match the model")
 
 

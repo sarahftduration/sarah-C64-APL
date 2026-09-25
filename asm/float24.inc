@@ -8,8 +8,6 @@
 ;      f_div also sets carry for a zero divisor.
 ;      fb is clobbered.
 
-        * = $C000
-
 fa      = $10           ; operand A / result (3 bytes)
 fb      = $13           ; operand B (3 bytes)
 

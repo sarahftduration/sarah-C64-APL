@@ -11,7 +11,7 @@
 ; Decimal values keep 9 significant digits and are scaled by a table power of
 ; ten, so they are within 1 ulp of the model (exact for 0 <= exponent <= 13).
 
-        .include "int16.asm"
+        .include "int16.inc"
 
 INBUF   = $3000         ; page aligned; indexed by the 8-bit ip
 SBUF    = $3100         ; number strand: 3 bytes per element (mag lo, mag hi, sign)

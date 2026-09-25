@@ -1,6 +1,9 @@
 ; Evaluator. Spec: apl64.py Interp.eval_tokens / run_line.
 
-        .include "tokenizer.asm"
+ORG     = $c000
+        * = ORG
+
+        .include "tokenizer.inc"
 
 E_NONCE  = 4
 E_VALUE  = 5

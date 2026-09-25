@@ -7,7 +7,6 @@ sys.path.insert(0, os.getcwd())
 import apl64
 from harness import call, load
 
-INBUF, OUTBUF, SYMTAB = 0x3000, 0x3400, 0x4000
 ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR'}
 
 
@@ -15,7 +14,7 @@ class Session:
     """One 6502 tokenizer and one model interpreter, kept in step."""
 
     def __init__(self):
-        self.mpu, self.L = load("tokenizer")
+        self.mpu, self.L = load("eval")
         self.reset()
 
     def reset(self):
@@ -26,17 +25,18 @@ class Session:
         data = apl64.encode_line(line)
         assert len(data) <= 255
         m = self.mpu
+        INBUF = self.L["INBUF"]
         m.memory[INBUF:INBUF + len(data) + 1] = list(data) + [0]
         call(m, self.L["tokenize"], max_steps=2_000_000)
         if m.p & 1:
             return ('err', ERR[m.a])
         end = m.memory[self.L["op"]] | m.memory[self.L["op"] + 1] << 8
-        return ('ok', bytes(m.memory[OUTBUF:end]))
+        return ('ok', bytes(m.memory[self.L["OUTBUF"]:end]))
 
     def names6502(self):
         m = self.mpu
         n = m.memory[self.L["symcnt"]] | m.memory[self.L["symcnt"] + 1] << 8
-        names, p = [], SYMTAB
+        names, p = [], self.L["SYMTAB"]
         for _ in range(n):
             ln = m.memory[p]
             raw = bytes(m.memory[p + 1:p + 1 + ln])

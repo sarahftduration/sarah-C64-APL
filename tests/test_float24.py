@@ -117,7 +117,7 @@ def mul_div_cases(rng, n):
 
 
 def test_f_mul_div():
-    mpu, labels = load("float24")
+    mpu, labels = load("eval")
     rng = random.Random(64)
     n = 0
     for a, b in mul_div_cases(rng, 60000):
@@ -128,7 +128,7 @@ def test_f_mul_div():
 
 
 def test_f_add_sub():
-    mpu, labels = load("float24")
+    mpu, labels = load("eval")
     rng = random.Random(24)
     n = 0
     for a, b in cases(rng, 60000):
