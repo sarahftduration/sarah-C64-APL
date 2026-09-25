@@ -20,7 +20,7 @@ def run_vice(monitor_lines, initbreak, cycles=60_000_000):
         script = os.path.join(d, "mon.txt")
         with open(script, "w") as f:
             f.write("\n".join(l.replace("{DIR}", d) for l in monitor_lines) + "\nquit\n")
-        cmd = ["x64sc", "-console", "-silent", "+sound", "-warp",
+        cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp",
                "-kernal", "roms/kernal.bin", "-basic", "roms/basic.bin", "-chargen", "roms/chargen.bin",
                "-autostartprgmode", "1", "-initbreak", initbreak, "-limitcycles", str(cycles),
                "-autostart", "build/apl.prg", "-moncommands", script]

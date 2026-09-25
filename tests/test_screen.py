@@ -182,7 +182,7 @@ def _run_selftest(script, initbreak, prg="build/selftest.prg"):
         mon = os.path.join(d, "mon.txt")
         with open(mon, "w") as f:
             f.write("\n".join(l.replace("{DIR}", d) for l in script) + "\nquit\n")
-        cmd = ["x64sc", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
+        cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
                "roms/basic.bin", "-chargen", "roms/chargen.bin", "-autostartprgmode", "1", "-initbreak", initbreak,
                "-limitcycles", "400000000", "-autostart", prg, "-moncommands", mon]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)

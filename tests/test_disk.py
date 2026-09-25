@@ -68,7 +68,7 @@ def run_vice_disk(prg, initbreak, hostdir, script):
         mon = os.path.join(d, "mon.txt")
         with open(mon, "w") as f:
             f.write("\n".join(l.replace("{DIR}", d) for l in script) + "\nquit\n")
-        cmd = ["x64sc", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
+        cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
                "roms/basic.bin", "-chargen", "roms/chargen.bin", "-autostartprgmode", "1", "-initbreak", initbreak,
                "-limitcycles", "800000000", "+drive8truedrive", "-iecdevice8", "-fs8", hostdir,
                "-autostart", prg, "-moncommands", mon]
