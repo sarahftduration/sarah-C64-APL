@@ -234,6 +234,9 @@ SESSIONS = [
     "12{CLR}3{RET}",                                    # clear with text typed
     "{P}{P}{RET}",                                      # prefix twice: a backslash -> syntax? (typed \ )
     "{P}z{RET}",                                        # an unmapped digraph is ignored
+    "a{P}[5{RET}a{RET}",                                # ← through the bracket digraph: a←5, then a
+    "{P}]{RET}",                                        # → through the bracket digraph
+    "1{$5b}2{$5d}3{$5e}4{RET}",                         # [ ] ^ typed bare (PETSCII $5B $5D $5E)
     "{P}{RET}1{RET}",                                   # RETURN cancels the prefix
     "Ab{LA}3{RET}Ab{RET}",                              # shifted letters: a variable named Ab
     "n{P}{LA}1{LA}2{RET}",                              # underscore digraph: n_1←2?

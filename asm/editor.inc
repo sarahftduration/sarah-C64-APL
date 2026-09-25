@@ -49,7 +49,8 @@ key_translate:
         bcs kt_none
         sec
         sbc #$80                ; shifted: our upper case
-kt_same: rts
+kt_same: ora #0                 ; Z must reflect A: $5B/$5D/$5E arrive here from a cmp with Z set
+        rts
 kt_lower:
         ora #$20
         rts
