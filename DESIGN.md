@@ -261,6 +261,22 @@ and one pinned handle (the array just allocated), then slides live blocks down
 and updates one table entry each. Any allocation may therefore move arrays: a
 primitive allocates its result first and re-derives operand data pointers after.
 
+**Rules the code follows** (audited, and enforced by `tests/test_stress.py`, which reverses the order
+of every block on the heap at each call to `alloc` and reruns the evaluator tests):
+
+1. An array's data address comes only from `getval` (an existing cell) or `newarr` (a new result).
+   The handle table is read in `heap.inc` alone.
+2. No data address survives an allocation. Primitives allocate the result first and call `getval`
+   again on their operands (`p_reduce` keeps the operand cell's address and re-derives it per row).
+3. The collector never reads array contents: `gcmark` looks only at cells, and the arrays hold no
+   handles, so marking does not care where an array is.
+4. A primitive's operands are the top one or two cells of the value stack, and its result is the
+   pinned handle. Everything else is only reachable, not in use.
+
+These are what a second storage tier (extra RAM to spill arrays into) needs: residency could be
+guaranteed inside `getval`, and eviction could take any live array that is not an operand or the
+pinned result. The one place that is not stress-tested is `)LOAD`, which runs on VICE only.
+
 Per-array size is limited to `wsmax` bytes (16000, the model's `WS_BYTES`), and
 the heap itself is the real limit; both raise WS FULL.
 

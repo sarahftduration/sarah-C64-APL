@@ -34,7 +34,10 @@ def call(mpu, addr, max_steps=1_000_000):
     mpu.memory[0x1FE] = ret & 0xFF
     mpu.sp = 0xFD
     mpu.pc = addr
+    hooks = getattr(mpu, "hooks", None)     # {address: function(mpu)}, run just before that instruction
     for _ in range(max_steps):
+        if hooks and mpu.pc in hooks:
+            hooks[mpu.pc](mpu)
         mpu.step()
         if mpu.pc == RTS_SENTINEL:
             bad = [a for a in range(0x100) if mpu.memory[a] != zp_before[a] and a not in ZP_ALLOWED]
