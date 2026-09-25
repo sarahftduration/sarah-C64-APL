@@ -142,7 +142,7 @@ def check_session(lines, full):
     assert files["charset.bin"][2:] == expected_charset(chargen), "the charset RAM is not what the start-up code should build"
     vic, cia2, zp, low = files["vic.bin"][2:], files["cia2.bin"][2:], files["zp.bin"][2:], files["low.bin"][2:]
     assert vic[0x18] & 0xFE == 0x34, f"VIC $D018 = {vic[0x18]:02x}: screen at $CC00, charset at $D000 expected"   # bit 0 reads as 1
-    assert vic[0x20] & 0x0F == 0x0E and vic[0x21] & 0x0F == 0x06, "VIC border/background colours"
+    assert vic[0x20] & 0x0F == L["COLOR_BORDER"] and vic[0x21] & 0x0F == L["COLOR_BG"], "VIC border/background colours"
     assert cia2[0] & 3 == 0, "CIA2: VIC bank is not 3"
     assert zp[1] & 7 == 6, f"CPU port {zp[1]:02x}: BASIC should be out, KERNAL and I/O in"
     assert zp[0xCC] == 1 and low[0x0291 - 0x0280] == 0x80, "KERNAL cursor blink / charset switching not disabled"

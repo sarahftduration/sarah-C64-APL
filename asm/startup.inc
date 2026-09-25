@@ -5,9 +5,9 @@
 SCREEN    = $cc00               ; screen RAM, VIC bank 3
 COLORRAM  = $d800
 CHARSET   = $d000               ; RAM under the I/O area; only the VIC reads it
-COLOR_BORDER = $0e
-COLOR_BG  = $06
-COLOR_FG  = $0e
+COLOR_BORDER = $00               ; black border, black paper, white ink: the C64's highest-contrast pair
+COLOR_BG  = $00
+COLOR_FG  = $01
 
 ; --- start-up -----------------------------------------------------------------------------
 startup:
