@@ -7,8 +7,9 @@
 ;                 points just past it).
 ;                 carry set: A = error code (E_*).
 ;
-; Not yet implemented (returns E_NONCE): numbers with a decimal point or an
-; exponent, and integers above 65535.
+; Numbers: integers become BOOL/INT when they fit int16, everything else FLOAT.
+; Decimal values keep 9 significant digits and are scaled by a table power of
+; ten, so they are within 1 ulp of the model (exact for 0 <= exponent <= 13).
 
         .include "int16.asm"
 
@@ -21,7 +22,6 @@ SYMEND_HI = $50
 E_SYNTAX = 1
 E_DOMAIN = 2
 E_LIMIT  = 3
-E_NONCE  = 4
 
 T_END   = 0
 T_LIT   = 1
@@ -31,8 +31,6 @@ ip      = $50           ; input index
 op      = $51           ; output pointer (2)
 tp      = $53           ; strand pointer (2)
 ncount  = $55           ; elements in the strand
-nm      = $56           ; parsed magnitude (2)
-ns      = $58           ; parsed sign, bit 7 (never set for zero)
 t2      = $59           ; scratch (2)
 dgt     = $5b
 scnt    = $5c           ; string length
@@ -44,6 +42,26 @@ nlen      = $64           ; name length
 ns0     = $65           ; name start in INBUF
 cc      = $66           ; loop counter
 chr     = $67
+dv      = $68           ; decimal digits read so far, up to 9 (4 bytes)
+dvt     = $6c           ; scratch copy of dv (4)
+nsig    = $70           ; digits kept in dv
+e10     = $71           ; decimal exponent of dv (2, signed)
+inex    = $73           ; a nonzero digit was dropped
+dot     = $74           ; decimal point seen
+xv      = $75           ; explicit exponent magnitude, saturating (2)
+xneg    = $77
+nm      = $78           ; parsed element, 4 bytes: nm (2), ns, nf
+ns      = $7a           ; nf=0: nm = magnitude, ns bit 7 = sign (never set for 0)
+nf      = $7b           ; nf=1: nm, nm+1, ns = float24 bytes
+ovfl    = $7c           ; a float in this strand overflowed
+psg     = $7d           ; sign of the number being parsed
+ee      = $7e           ; total decimal exponent (2, signed)
+ec      = $80           ; counter (2)
+pp      = $90           ; 64-bit product
+tm      = $98           ; table mantissa (4)
+tb      = $9c           ; table binary exponent (2)
+acnt    = $9e           ; left shifts used to normalize dv
+dql     = $a0           ; quotient (2)
 
 tok_init:
         lda #0
@@ -108,10 +126,6 @@ err_syn:  lda #E_SYNTAX
         rts
 err_dom:
         lda #E_DOMAIN
-        sec
-        rts
-err_nonce:
-        lda #E_NONCE
         sec
         rts
 
@@ -292,6 +306,9 @@ skn:    inx
 sdom:   jmp err_dom
 
 ; --- numbers ---------------------------------------------------------------
+; A strand element is 4 bytes: nm (2), ns, nf.
+;   nf = 0: integer, magnitude nm, sign in bit 7 of ns (never set for zero)
+;   nf = 1: float24, bytes nm, nm+1, ns
 
 number: lda #<SBUF
         sta tp
@@ -299,6 +316,7 @@ number: lda #<SBUF
         sta tp+1
         lda #0
         sta ncount
+        sta ovfl
 nloop:  jsr parsenum
         bcc nok
         rts
@@ -310,6 +328,9 @@ nok:    ldy #0
         sta (tp),y
         iny
         lda ns
+        sta (tp),y
+        iny
+        lda nf
         sta (tp),y
         jsr tpadv
         inc ncount
@@ -332,69 +353,602 @@ ndom:   jmp err_dom
 
 tpadv:  clc
         lda tp
-        adc #3
+        adc #4
         sta tp
         bcc tpa1
         inc tp+1
 tpa1:   rts
 
-; Parse one number at ip into nm/ns; ip moves past it.
+; Parse one number at ip into nm/ns/nf; ip moves past it.
+; Grammar (as the model): [¯] digits [. digits] [e [¯] digits] or [¯] . digits [e ...]
+; The mantissa keeps 9 significant digits in dv with decimal exponent e10;
+; a nonzero digit beyond that sets inex.
 parsenum:
         lda #0
-        sta ns
-        sta nm
-        sta nm+1
+        sta psg
+        sta dv
+        sta dv+1
+        sta dv+2
+        sta dv+3
+        sta nsig
+        sta e10
+        sta e10+1
+        sta inex
+        sta dot
+        sta xv
+        sta xv+1
+        sta xneg
         ldx ip
         lda INBUF,x
         cmp #$90
         bne pn1
         lda #$80
-        sta ns
+        sta psg
         inx
         lda INBUF,x
 pn1:    cmp #'.'
         bne pn2
-        lda INBUF+1,x           ; .5 style: recognised but not implemented
-        sec
-        sbc #'0'
-        cmp #10
-        bcs pnsyn
-        jmp err_nonce
+        lda INBUF+1,x
 pn2:    sec
         sbc #'0'
         cmp #10
-        bcs pnsyn
-pdig:   jsr accdig
-        bcs pnovf
+        bcc pl
+        jmp err_syn
+pl:     lda INBUF,x
+        cmp #'.'
+        bne pl1
+        lda dot
+        bne pend
+        lda #1
+        sta dot
         inx
-        lda INBUF,x
-        sec
+        jmp pl
+pl1:    sec
         sbc #'0'
         cmp #10
-        bcc pdig
-        lda INBUF,x
-        cmp #'.'
-        beq pnovf
+        bcs pend
+        jsr digit
+        inx
+        jmp pl
+
+pend:   lda INBUF,x             ; an exponent needs a digit, or high-minus digit
         ora #$20
         cmp #'e'
-        bne pnend
-        lda INBUF+1,x           ; an exponent needs a digit, or high-minus digit
+        bne pfin
+        lda INBUF+1,x
         cmp #$90
         bne pe1
         lda INBUF+2,x
 pe1:    sec
         sbc #'0'
         cmp #10
-        bcs pnend
-pnovf:  jmp err_nonce
-pnend:  stx ip
-        lda nm
-        ora nm+1
-        bne pn3
-        sta ns                  ; high-minus zero is zero
-pn3:    clc
+        bcs pfin
+        inx
+        lda INBUF,x
+        cmp #$90
+        bne pe2
+        lda #1
+        sta xneg
+        inx
+pe2:    lda INBUF,x
+        sec
+        sbc #'0'
+        cmp #10
+        bcs pfin
+        jsr xacc
+        inx
+        jmp pe2
+
+pfin:   stx ip
+        lda nsig
+        bne pnz
+pzero:  lda #0                  ; all digits were zero
+        sta nm
+        sta nm+1
+        sta ns
+        sta nf
+        clc
         rts
-pnsyn:  jmp err_syn
+pnz:    lda xv+1                ; the model: |explicit exponent| > 400 is
+        cmp #2                  ; DOMAIN ERROR if positive, zero if negative
+        bcs pbig
+        cmp #1
+        bcc pxok
+        lda xv
+        cmp #145
+        bcc pxok
+pbig:   lda xneg
+        bne pzero
+        jmp err_dom
+pxok:   lda xneg
+        bne pxn
+        clc
+        lda e10
+        adc xv
+        sta ee
+        lda e10+1
+        adc xv+1
+        sta ee+1
+        jmp pe3
+pxn:    sec
+        lda e10
+        sbc xv
+        sta ee
+        lda e10+1
+        sbc xv+1
+        sta ee+1
+
+; integer valued and <= 65535? then it is an integer element, exactly.
+; Strip trailing zeros while the exponent is negative, then scale up.
+pe3:    lda inex
+        bne pflt
+pstrip: lda ee+1
+        bpl pint
+        ldx #3
+psv:    lda dv,x
+        sta dvt,x
+        dex
+        bpl psv
+        jsr divmod10
+        cmp #0
+        bne prest
+        inc ee
+        bne pstrip
+        inc ee+1
+        jmp pstrip
+prest:  ldx #3
+prl:    lda dvt,x
+        sta dv,x
+        dex
+        bpl prl
+        jmp pflt
+pint:   lda dv+3
+        ora dv+2
+        bne pflt
+        lda dv
+        sta nm
+        lda dv+1
+        sta nm+1
+        lda ee
+        sta ec
+        lda ee+1
+        sta ec+1
+pil:    lda ec
+        ora ec+1
+        beq pidone
+        lda #0
+        jsr accdig              ; nm = nm * 10
+        bcs pflt
+        lda ec
+        bne pid1
+        dec ec+1
+pid1:   dec ec
+        jmp pil
+pidone: lda psg
+        sta ns
+        lda #0
+        sta nf
+        clc
+        rts
+
+; float: value = dv * 10^ee. Normalize dv to 32 bits, multiply by the table
+; entry (32x32 -> 64), then round and pack like f_mul.
+pflt:   lda ee+1
+        bmi pfneg
+        bne pfo
+        lda ee
+        cmp #39
+        bcs pfo
+        clc
+        adc #47
+        tax
+        jmp pftab
+pfo:    jmp pfover
+pfu:    jmp pfunder
+pdv:    jmp pdiv
+pfneg:  cmp #$ff
+        bne pfu
+        lda ee
+        cmp #209                ; -47
+        bcc pfu
+        cmp #243                ; -13..-1 divide exactly by 10^-ee
+        bcs pdv
+        clc
+        adc #47
+        tax
+pftab:  jsr pnorm
+        lda p10m0,x
+        sta tm
+        lda p10m1,x
+        sta tm+1
+        lda p10m2,x
+        sta tm+2
+        lda p10m3,x
+        sta tm+3
+        lda p10bl,x
+        sta tb
+        lda p10bh,x
+        sta tb+1
+        jsr mul32
+        clc                     ; exponent = 192 + tb - acnt (+ shifts below)
+        lda tb
+        adc #192
+        sta ex
+        lda tb+1
+        adc #0
+        sta ex+1
+        sec
+        lda ex
+        sbc acnt
+        sta ex
+        lda ex+1
+        sbc #0
+        sta ex+1
+        lda pp+7
+        bmi pn3
+        asl pp
+        rol pp+1
+        rol pp+2
+        rol pp+3
+        rol pp+4
+        rol pp+5
+        rol pp+6
+        rol pp+7
+        lda ex
+        bne pn4
+        dec ex+1
+pn4:    dec ex
+pn3:    lda pp+7
+        sta ah
+        lda pp+6
+        sta al
+        lda pp+5
+        sta ag
+        lda pp+4                ; everything below the guard byte: sticky
+        ora pp+3
+        ora pp+2
+        ora pp+1
+        ora pp
+        ora inex
+        beq pn5
+        lda ag
+        ora #1
+        sta ag
+pn5:    lda psg
+        sta sa
+        jsr round
+        bcs pfover
+        lda fa
+        sta nm
+        lda fa+1
+        sta nm+1
+        lda fa+2
+        sta ns
+        lda #1
+        sta nf
+        clc
+        rts
+pfover: lda #1                  ; reported when the strand ends
+        sta ovfl
+pfunder:
+        lda #0                  ; underflow: float zero
+        sta nm
+        sta nm+1
+        sta ns
+        lda #1
+        sta nf
+        clc
+        rts
+
+; normalize dv into pp (32 bits, top bit set); acnt = shifts used
+pnorm:  lda dv
+        sta pp
+        lda dv+1
+        sta pp+1
+        lda dv+2
+        sta pp+2
+        lda dv+3
+        sta pp+3
+        lda #0
+        sta acnt
+pnl:    lda pp+3
+        bmi pnd
+        asl pp
+        rol pp+1
+        rol pp+2
+        rol pp+3
+        inc acnt
+        jmp pnl
+pnd:    rts
+
+; Exact division by 10^k (k = 1..13; the table mantissa is exact): a 17-bit
+; quotient by restoring division, remainder as the sticky bit. Same scheme as
+; f_div: exponent = 128 - tb - acnt, plus 1 when the dividend is >= the divisor.
+pdiv:   eor #$ff                ; A = ee low byte; k = -ee
+        clc
+        adc #1
+        clc
+        adc #47
+        tax
+        jsr pnorm
+        lda p10m0,x
+        sta tm
+        lda p10m1,x
+        sta tm+1
+        lda p10m2,x
+        sta tm+2
+        lda p10m3,x
+        sta tm+3
+        lda p10bl,x
+        sta tb
+        lda p10bh,x
+        sta tb+1
+        sec
+        lda #128
+        sbc tb
+        sta ex
+        lda #0
+        sbc tb+1
+        sta ex+1
+        sec
+        lda ex
+        sbc acnt
+        sta ex
+        lda ex+1
+        sbc #0
+        sta ex+1
+        jsr cmp32
+        bcc pdsm
+        inc ex
+        bne pdg1
+        inc ex+1
+pdg1:   jsr sub32
+        jmp pdgo
+pdsm:   asl pp
+        rol pp+1
+        rol pp+2
+        rol pp+3
+        jsr sub32
+pdgo:   lda #0
+        sta dql
+        sta dql+1
+        lda #16
+        sta cc
+pdl:    asl pp
+        rol pp+1
+        rol pp+2
+        rol pp+3
+        bcs pdsub
+        jsr cmp32
+        bcc pdno
+pdsub:  jsr sub32
+        sec
+        bcs pdins
+pdno:   clc
+pdins:  rol dql
+        rol dql+1
+        dec cc
+        bne pdl
+        sec                     ; the implicit leading quotient bit
+        ror dql+1
+        ror dql
+        lda #0
+        bcc pdg2
+        lda #$80                ; guard bit
+pdg2:   sta ag
+        lda dql+1
+        sta ah
+        lda dql
+        sta al
+        lda pp
+        ora pp+1
+        ora pp+2
+        ora pp+3
+        ora inex
+        beq pdrnd
+        lda ag
+        ora #1
+        sta ag
+pdrnd:  jmp pn5
+
+; carry set if pp >= tm (32 bits)
+cmp32:  lda pp+3
+        cmp tm+3
+        bne c32r
+        lda pp+2
+        cmp tm+2
+        bne c32r
+        lda pp+1
+        cmp tm+1
+        bne c32r
+        lda pp
+        cmp tm
+c32r:   rts
+
+sub32:  sec
+        lda pp
+        sbc tm
+        sta pp
+        lda pp+1
+        sbc tm+1
+        sta pp+1
+        lda pp+2
+        sbc tm+2
+        sta pp+2
+        lda pp+3
+        sbc tm+3
+        sta pp+3
+        rts
+
+; digit A joins the mantissa
+digit:  sta dgt
+        lda dot
+        bne dfrac
+        lda nsig
+        cmp #9
+        bcs dintdrop
+        lda nsig
+        bne dkeep
+        lda dgt
+        beq dret                ; leading zero
+dkeep:  jsr dvmul10add
+        inc nsig
+dret:   rts
+dintdrop:
+        inc e10
+        bne dret
+        inc e10+1
+        rts
+dfrac:  lda nsig
+        cmp #9
+        bcs dfdrop
+        lda nsig
+        bne dfkeep
+        lda dgt
+        bne dfkeep
+        jmp dfdec               ; leading zero after the point
+dfkeep: jsr dvmul10add
+        inc nsig
+dfdec:  lda e10
+        bne dfd1
+        dec e10+1
+dfd1:   dec e10
+        rts
+dfdrop: lda dgt
+        beq dret
+        lda #1
+        sta inex
+        rts
+
+; dv = dv*10 + dgt
+dvmul10add:
+        asl dv
+        rol dv+1
+        rol dv+2
+        rol dv+3
+        lda dv                  ; (X holds the input index here)
+        sta dvt
+        lda dv+1
+        sta dvt+1
+        lda dv+2
+        sta dvt+2
+        lda dv+3
+        sta dvt+3
+        asl dv
+        rol dv+1
+        rol dv+2
+        rol dv+3
+        asl dv
+        rol dv+1
+        rol dv+2
+        rol dv+3
+        clc
+        lda dv
+        adc dvt
+        sta dv
+        lda dv+1
+        adc dvt+1
+        sta dv+1
+        lda dv+2
+        adc dvt+2
+        sta dv+2
+        lda dv+3
+        adc dvt+3
+        sta dv+3
+        clc
+        lda dv
+        adc dgt
+        sta dv
+        bcc dm3
+        inc dv+1
+        bne dm3
+        inc dv+2
+        bne dm3
+        inc dv+3
+dm3:    rts
+
+; dv = dv / 10, remainder in A
+divmod10:
+        lda #0
+        ldx #32
+dq1:    asl dv
+        rol dv+1
+        rol dv+2
+        rol dv+3
+        rol
+        cmp #10
+        bcc dq2
+        sbc #10
+        inc dv
+dq2:    dex
+        bne dq1
+        rts
+
+; xv = xv*10 + A, saturating once it is well past 400
+xacc:   sta dgt
+        lda xv+1
+        cmp #3
+        bcs xdone
+        asl xv
+        rol xv+1
+        lda xv
+        sta t2
+        lda xv+1
+        sta t2+1
+        asl xv
+        rol xv+1
+        asl xv
+        rol xv+1
+        clc
+        lda xv
+        adc t2
+        sta xv
+        lda xv+1
+        adc t2+1
+        sta xv+1
+        clc
+        lda xv
+        adc dgt
+        sta xv
+        bcc xdone
+        inc xv+1
+xdone:  rts
+
+; pp = pp(32 bits) * tm(32 bits), 64-bit result
+mul32:  lda #0
+        sta pp+4
+        sta pp+5
+        sta pp+6
+        sta pp+7
+        ldx #32
+m32:    clc
+        lda pp
+        and #1
+        beq m32s
+        clc
+        lda pp+4
+        adc tm
+        sta pp+4
+        lda pp+5
+        adc tm+1
+        sta pp+5
+        lda pp+6
+        adc tm+2
+        sta pp+6
+        lda pp+7
+        adc tm+3
+        sta pp+7
+m32s:   ror pp+7
+        ror pp+6
+        ror pp+5
+        ror pp+4
+        ror pp+3
+        ror pp+2
+        ror pp+1
+        ror pp
+        dex
+        bne m32
+        rts
 
 ; nm = nm*10 + A; carry set if it no longer fits 16 bits
 accdig: sta dgt
@@ -431,8 +985,10 @@ adok:   clc
 adovf:  sec
         rts
 
-; class of the element in nm/ns: 0 BOOL, 2 INT, 3 FLOAT
+; class of the element in nm/ns/nf: 0 BOOL, 2 INT, 3 FLOAT
 elemclass:
+        lda nf
+        bne ec_flt
         lda nm+1
         bne ec_hi
         lda ns
@@ -456,7 +1012,7 @@ ec_hi:  cmp #$80
 ec_flt: lda #3
         rts
 
-; load the element at tp into nm/ns
+; load the element at tp into nm/ns/nf
 ldelem: ldy #0
         lda (tp),y
         sta nm
@@ -466,11 +1022,17 @@ ldelem: ldy #0
         iny
         lda (tp),y
         sta ns
+        iny
+        lda (tp),y
+        sta nf
         rts
 
 ; Emit the strand as one literal: narrowest type, scalar if one element.
 emitlit:
-        lda #<SBUF
+        lda ovfl
+        beq el0
+        jmp err_dom             ; a value was too large for float24
+el0:    lda #<SBUF
         sta tp
         lda #>SBUF
         sta tp+1
@@ -511,11 +1073,13 @@ hd2:    lda #<SBUF
         sta tp+1
         lda ncount
         sta cc
-tdl:     jsr ldelem
+tdl:    jsr ldelem
         lda cls
         beq dbool
         cmp #2
         beq dint
+        lda nf
+        bne dfl
         lda nm
         sta ia
         lda nm+1
@@ -528,6 +1092,13 @@ tdl:     jsr ldelem
         lda fa+1
         jsr emit
         lda fa+2
+        jsr emit
+        jmp dnext
+dfl:    lda nm
+        jsr emit
+        lda nm+1
+        jsr emit
+        lda ns
         jsr emit
         jmp dnext
 dint:   lda ns
@@ -634,3 +1205,5 @@ lklimit:
         lda #E_LIMIT
         sec
         rts
+
+        .include "pow10.inc"

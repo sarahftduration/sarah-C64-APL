@@ -2,9 +2,16 @@ PY    := .venv/bin/python
 ASM   := 64tass
 SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
+INCS  := asm/pow10.inc
 
 .PHONY: all test model-test clean
 all: $(BINS)
+
+asm/pow10.inc: tools/gen_pow10.py
+	python3 tools/gen_pow10.py > $@
+
+# every binary depends on every source: the .asm files include each other
+$(BINS): $(SRCS) $(INCS)
 
 build/%.bin: asm/%.asm
 	@mkdir -p build
