@@ -112,8 +112,7 @@ elem_to_int:
         lda vt
         beq eti_b
         cmp #1
-        bne *+5
-        jmp eti_bad
+        beq eti_bad
         cmp #2
         beq eti_i
         lda (ep),y              ; FLOAT: exponent
@@ -345,15 +344,12 @@ psx:    rts
 ; --- monadic ⍳ : index generator -----------------------------------------------------
 p_iota: jsr topcell
         jsr arg_ints
-        bcc *+5
-        jmp pix
+        bcs pix
         lda qan+1
-        beq *+5
-        jmp pi_len
+        bne pi_len
         lda qan
         cmp #1
-        beq *+5
-        jmp pi_len
+        bne pi_len
         lda qneg0
         ora qhuge0
         bne pi_dom
@@ -633,12 +629,10 @@ p_catenate:
         sta qbn+1
         lda qar
         cmp #2
-        bcc *+5
-        jmp pc_nonce
+        bcs pc_nonce
         lda qbr
         cmp #2
-        bcc *+5
-        jmp pc_nonce
+        bcs pc_nonce
         lda qan
         ora qan+1
         bne pcn1

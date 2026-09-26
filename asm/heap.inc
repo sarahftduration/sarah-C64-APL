@@ -501,8 +501,7 @@ na1:    lda t0+2
         cmp t0
         lda wsmax+1
         sbc t0+1
-        bcs *+5
-        jmp nafull
+        bcc nafull
         lda nrk
         asl
         clc

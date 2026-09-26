@@ -226,8 +226,7 @@ rp_h:   lda INBUF,x
         sta HIST,x
         inx
         cpx hlen
-        beq *+5
-        jmp rp_h
+        bne rp_h
 rp_run: lda #CHNL
         jsr scr_put
         lda defmode             ; in a function definition every line is a body line

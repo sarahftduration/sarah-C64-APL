@@ -661,41 +661,39 @@ load_body:
         ldx #0
 lb1:    stx kidx
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         ldx kidx
         cmp wshead,x
-        beq *+5
-        jmp lb_notws
+        bne lbn1
         inx
         cpx #5
         bne lb1
         jsr ws_clear            ; only a real workspace file replaces the workspace
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         sta nvars
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         sta nvars+1
 lb2:    lda nvars
         ora nvars+1
         bne lb3
         jsr rbyte               ; the trailer
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         cmp #'E'
-        beq *+5
-        jmp lb_notws
+        bne lbn1
         lda #0
         rts
+lbi1:  lda #3                  ; (the errors of load_body, near their branches)
+        rts
+lbn1:  lda #1
+        rts
+lbf1:  lda #2
+        rts
 lb3:    jsr rbyte               ; a name: length, characters
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         sta svl
-        bne *+5
-        jmp lb_notws
+        beq lbn1
         lda #<INBUF
         sta ep
         lda #>INBUF
@@ -705,26 +703,21 @@ lb3:    jsr rbyte               ; a name: length, characters
         lda #0
         sta wcnt+1
         jsr rblock
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         ldx svl
         lda #0
         sta INBUF,x
         jsr tokenize            ; the tokenizer makes the symbol; it must be exactly one name
-        bcc *+5
-        jmp lb_notws
+        bcs lbn1
         lda OUTBUF
         cmp #T_NAME
-        beq *+5
-        jmp lb_notws
+        bne lbn1
         lda OUTBUF+2
-        beq *+5
-        jmp lb_notws
+        bne lbn1
         lda OUTBUF+1
         sta svi
         jsr rbyte               ; the value: tag
-        bcc *+5
-        jmp lb_io
+        bcs lbi1
         sta ldtag
         and #3
         sta nt
@@ -744,8 +737,7 @@ lb_t1:  cmp #TAG_FN|5           ; a function is a CHAR vector with one more bit
         jmp lb_notws
 lb_t2:  lda nrk
         cmp #3
-        bcc *+5
-        jmp lb_notws
+        bcs lbn2
         lda nrk
         bne lb_arr
         ldx nt                  ; a scalar: its bytes go into a cell
@@ -764,24 +756,25 @@ lb_t2:  lda nrk
         lda #>(cv+1)
         sta ep+1
         jsr rblock
-        bcc *+5
-        jmp lb_io
+        bcs lbi2
         jmp lb_store
+lbi2:  lda #3                  ; (the errors of load_body, near their branches)
+        rts
+lbn2:  lda #1
+        rts
+lbf2:  lda #2
+        rts
 lb_arr: jsr rbyte               ; count, lengths
-        bcc *+5
-        jmp lb_io
+        bcs lbi2
         sta nn
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi2
         sta nn+1
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi2
         sta nd0
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi2
         sta nd0+1
         lda #0
         sta nd1
@@ -790,25 +783,27 @@ lb_arr: jsr rbyte               ; count, lengths
         cmp #2
         bne lb_a2
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi3
         sta nd1
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lbi3
         sta nd1+1
 lb_a2:  lda nrk                 ; the count must agree with the lengths
         cmp #2
         beq lb_chk2
         lda nn
         cmp nd0
-        beq *+5
-        jmp lb_bad
+        bne lbn3
         lda nn+1
         cmp nd0+1
-        beq *+5
-        jmp lb_bad
+        bne lbn3
         jmp lb_chk3
+lbi3:  lda #3                  ; (the errors of load_body, near their branches)
+        rts
+lbn3:  lda #1
+        rts
+lbf3:  lda #2
+        rts
 lb_chk2:
         lda nd0
         sta p0
@@ -821,20 +816,16 @@ lb_chk2:
         jsr mul16
         lda p2
         ora p3
-        beq *+5
-        jmp lb_bad
+        bne lbn3
         lda p0
         cmp nn
-        beq *+5
-        jmp lb_bad
+        bne lbn3
         lda p1
         cmp nn+1
-        beq *+5
-        jmp lb_bad
+        bne lbn3
 lb_chk3:
         jsr newarr
-        bcc *+5
-        jmp lb_full
+        bcs lbf3
         lda dp
         sta ep
         lda dp+1
@@ -885,17 +876,13 @@ lb_a3:  jsr rblock
         sta wcnt+1
         jsr blk_sum
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lb_io
         cmp ck
-        beq *+5
-        jmp lb_notws
+        bne lb_notws
         jsr rbyte
-        bcc *+5
-        jmp lb_io
+        bcs lb_io
         cmp ck+1
-        beq *+5
-        jmp lb_notws
+        bne lb_notws
 lb_store:
         lda ldtag
         and #TAG_FN
