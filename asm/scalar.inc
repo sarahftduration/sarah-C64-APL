@@ -42,13 +42,24 @@ sdrd1   = WS+$aa
 sdn     = WS+$ac
 sdcnt   = WS+$ae
 
+; Outer product a∘.f b (spec: apl64.py make_outer): p_outer runs the same engine with owa set to
+; the width of a's elements. When both operands are vectors the result is a matrix with a row
+; per element of a; each row is a pass over b (a's pointer stands still, sdstra = 0).
+; With a scalar operand it is the ordinary scalar extension, and owa goes back to 0.
+owa     = RV+64                 ; 0, or the element width of a in an outer product
+om      = RV+65                 ; (2) elements of b: the length of a pass
+otot    = RV+67                 ; (2) elements still to do
+opbb    = RV+69                 ; (2) the start of b
+
 sd_lb:  jmp (SDV)
 sd_la:  jmp (SDV+2)
 sd_k:   jmp (SDV+4)
 sd_st:  jmp (SDV+6)
 
 ; --- the element loop ------------------------------------------------------------
-sd_run: lda sdcnt
+sd_run: lda owa
+        bne so_go
+sd_run0: lda sdcnt
         ora sdcnt+1
         beq sr_done
         jsr sd_lb
@@ -78,9 +89,45 @@ sr3:    lda sdcnt
         bne sr4
         dec sdcnt+1
 sr4:    dec sdcnt
-        jmp sd_run
+        jmp sd_run0
 sr_done: clc
 sr_err: rts
+
+so_go:  lda sdcnt
+        sta otot
+        lda sdcnt+1
+        sta otot+1
+        lda sdpb
+        sta opbb
+        lda sdpb+1
+        sta opbb+1
+so_row: lda otot
+        ora otot+1
+        beq sr_done
+        lda om
+        sta sdcnt
+        lda om+1
+        sta sdcnt+1
+        lda opbb
+        sta sdpb
+        lda opbb+1
+        sta sdpb+1
+        jsr sd_run0
+        bcs sr_err
+        clc
+        lda sdpa
+        adc owa
+        sta sdpa
+        bcc so_1
+        inc sdpa+1
+so_1:   sec
+        lda otot
+        sbc om
+        sta otot
+        lda otot+1
+        sbc om+1
+        sta otot+1
+        jmp so_row
 
 ; --- loaders -------------------------------------------------------------------------
 sd_nop: rts
@@ -911,8 +958,14 @@ sd_prep:
         rts
 
 ; --- the dyadic scalar function; A = operation index 0..9 ---------------------------------------
+p_outer:
+        sta sdop
+        lda #1
+        bne sd_ent
 p_sdyad:
         sta sdop
+        lda #0
+sd_ent: sta owa
         jsr topcell             ; left operand
         jsr getval
         lda vt
@@ -949,6 +1002,67 @@ p_sdyad:
         sta sdbv1
         lda vs1+1
         sta sdbv1+1
+        lda owa
+        bne so_chk
+        jmp sc_std
+so_chk: lda sdar
+        beq so_off              ; a scalar operand: plain scalar extension
+        lda sdbr
+        bne so_two
+so_off: lda #0
+        sta owa
+        jmp sc_std
+so_two: clc                     ; both are arrays: LIMIT ERROR unless both are vectors
+        lda sdar
+        adc sdbr
+        cmp #3
+        bcc so_3
+        lda #E_LIMIT
+        sec
+        rts
+so_3:   lda sdan
+        sta p0
+        lda sdan+1
+        sta p1
+        lda sdbn
+        sta bl
+        lda sdbn+1
+        sta bh
+        jsr mul16
+        lda p2
+        ora p3
+        beq so_4
+        lda #E_WSFULL           ; over 65535 elements: no need to look at them
+        sec
+        rts
+so_4:   lda p0
+        sta sdn
+        lda p1
+        sta sdn+1
+        lda sdbn
+        sta om
+        lda sdbn+1
+        sta om+1
+        lda sdan
+        sta sdrd0
+        lda sdan+1
+        sta sdrd0+1
+        lda sdbn
+        sta sdrd1
+        lda sdbn+1
+        sta sdrd1+1
+        lda #2
+        sta sdrr
+        ldx sdta
+        lda WIDTHT,x
+        sta owa
+        lda #0
+        sta sdstra
+        ldx sdtb
+        lda WIDTHT,x
+        sta sdstrb
+        jmp sc_types
+sc_std:
         ; conform: equal shapes, or one scalar
         lda sdar
         cmp sdbr

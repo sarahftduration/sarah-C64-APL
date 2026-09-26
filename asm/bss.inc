@@ -10,8 +10,8 @@ SYMTAB_SIZE = 2048
 ; the gap before it would be wasted. These tables have no alignment needs: each goes into the gap if it
 ; still fits, else after the others. (SDV holds jmp (indirect) vectors, which must not straddle a page.)
         .virtual CODE_END
-        .if * + 64 <= BSS0
-RV      .fill 64                ; reduce variables
+        .if * + 76 <= BSS0
+RV      .fill 76                ; reduce variables
 RV_EARLY = 1
         .else
 RV_EARLY = 0
@@ -55,7 +55,7 @@ OUTBUF  .fill 1024              ; token stream: at most 3.5 bytes per input byte
 SBUF    .fill 512               ; number strand scratch
 SDV     .fill 8                 ; scalar engine vectors
         .if !RV_EARLY
-RV      .fill 64                ; reduce variables
+RV      .fill 76                ; reduce variables
         .endif
         .if !FACC_EARLY
 FACC    .fill 40                ; reduce: 320-bit accumulator

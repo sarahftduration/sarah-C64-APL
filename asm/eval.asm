@@ -531,9 +531,11 @@ rl_fnok:
         sbc #$80
         sta ev_pg
         lda ev_tok
-        cmp #$c0
+        cmp #$c0                ; / reduce, \ scan
+        beq rl_o0
+        cmp #$c1
         bne rl_nonce
-        lda ev_pg
+rl_o0:  lda ev_pg
         cmp #10
         bcc rl_ok               ; + - × ÷ = ≠ < ≤ > ≥ are 0-9, ⌈ ⌊ | are 13-15: reduce knows them as 10-12
         cmp #13
@@ -564,6 +566,37 @@ rl_nonce:
         sec
         rts
 rl_fn:  dec ev_i1
+        lda ev_tok
+        bpl rl_fn2              ; a user-defined function
+        lda ev_i1               ; a∘.f b: the function is followed by . and ∘ on its left
+        sec
+        sbc ev_lo
+        cmp #2
+        bcc rl_fn2
+        ldx ev_i1
+        lda TC-1,x
+        cmp #$c3
+        bne rl_fn2
+        lda TC-2,x
+        cmp #$c4
+        bne rl_fn2
+        lda ev_tok
+        sec
+        sbc #$80
+        cmp #10
+        bcc ro_ok               ; only the scalar dyadic functions
+        cmp #13
+        bcc ro_no
+        cmp #18
+        bcs ro_no
+ro_ok:  dec ev_i1
+        dec ev_i1
+        lda ev_tok
+        clc
+        adc #$60                ; the function code of an outer product: token + $60
+        sta ev_tok
+        jmp rl_fn2
+ro_no:  jmp rl_nonce
 rl_fn2: lda ev_i1
         cmp ev_lo
         beq rf_mon
@@ -589,11 +622,22 @@ rf_m1:  cmp #$c0
         bcc *+3
         rts
         jmp evloop
-rf_red: lda ev_pg
+rf_red: lda ev_tok
+        cmp #$e0
+        bcs rf_syn              ; ∘.f with no left argument
+        cmp #$c1
+        beq rf_scan
+        lda ev_pg
         jsr p_reduce
         bcc *+3
         rts
         jmp evloop
+rf_scan: lda ev_pg
+        jsr p_scan
+        bcc *+3
+        rts
+        jmp evloop
+rf_syn: jmp ev_syn
 rf_opnd:
         lda ev_tok
         cmp #T_FN
@@ -1048,7 +1092,21 @@ am_sign: jmp p_signum
 am_recip: jmp p_recip
 
 apply_dy:
+        cmp #$e0
+        bcc ad_std
+        sec                     ; an outer product: A = the token + $60
+        sbc #$e0
+        cmp #10
+        bcc ad_o1
+        cmp #16                 ; ⌈ ⌊ | are the engine's operations 10 to 12, ∧ ∨ 14 and 15
+        bcs ad_o2
         sec
+        sbc #3
+        bne ad_o1
+ad_o2:  sec
+        sbc #2
+ad_o1:  jmp p_outer
+ad_std: sec
         sbc #$80
         cmp #10
         bcc ad_sd

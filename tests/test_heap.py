@@ -176,7 +176,7 @@ def test_exhaustion():
         if n > 195:
             break
     top = h.check()[1]
-    assert n > 7
+    assert n >= (h.HEAP_LIMIT - h.HEAP_BASE) // 2100      # (a 2,000-byte array costs a little more with its header)
     # drop everything: the next big allocation must succeed by collecting
     for slot in list(h.vars):
         h.set_var(slot, None)

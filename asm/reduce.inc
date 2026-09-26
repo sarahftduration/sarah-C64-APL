@@ -43,6 +43,10 @@ fv2     = RV+53
 rtl     = RV+54
 rth     = RV+55
 rte     = RV+56
+rscan   = RV+57                 ; 1 for a scan: every prefix of every row is reduced
+rnfull  = RV+58                 ; (2) a scan's row length (rn is the prefix length)
+rsgn    = RV+71                 ; the sign of the FLOAT sum being rounded
+rssum   = RV+72                 ; (4) a + scan's running INT sum: each prefix adds one element
 
 red_ident:
         .byte 2, 0, 0, 0        ; +
@@ -62,8 +66,16 @@ red_ident:
         .byte 0, 1, 0, 0        ; ∧
         .byte 0, 0, 0, 0        ; ∨
 
+; Scan f\v (spec: apl64.py make_scan) goes through the same code: the "rows" are the prefixes of
+; each row, taken in order, so the results come out in the operand's layout; rn is the current
+; prefix length, rnfull the row length. An empty operand is returned as it is.
+
 ; A = function index 0..9 (the operand is the top cell)
+p_scan: ldx #1
+        bne pr_x
 p_reduce:
+        ldx #0
+pr_x:   stx rscan
         sta rgl
         jsr topcell
         lda cptr
@@ -75,7 +87,14 @@ p_reduce:
         bne pr_go
         clc
         rts
-pr_go:  lda vt
+pr_go:  lda rscan
+        beq pr_g1
+        lda vn
+        ora vn+1
+        bne pr_g1
+        clc
+        rts
+pr_g1:  lda vt
         sta rt
         lda vrk
         sta rrank
@@ -126,7 +145,18 @@ pr_b:   lda rn
         lda rbytes+1
         adc rn+1
         sta rbytes+1
-pr_b2:  lda rrank
+pr_b2:  lda rscan
+        beq pr_b3
+        lda rn
+        sta rnfull
+        lda rn+1
+        sta rnfull+1
+        lda #1
+        sta rn
+        lda #0
+        sta rn+1
+        jmp pr_mat
+pr_b3:  lda rrank
         cmp #2
         beq pr_mat
         lda #0                  ; a vector: one row, a scalar result
@@ -153,9 +183,7 @@ pr_mat: lda rlead
         sta rdest
         jmp pm_alloc
 pm_first:
-        lda #0
-        sta rrow
-        sta rrow+1
+        jsr rreset
         jsr red_row
         bcc pm_f1
         rts
@@ -172,14 +200,33 @@ pm_alloc:
         lda rlead+1
         sta nn+1
         sta nd0+1
-        jsr newarr
+        lda rscan
+        beq pa_go
+        lda rcell               ; a scan's result has the operand's shape
+        sta cptr
+        lda rcell+1
+        sta cptr+1
+        jsr getval
+        lda vrk
+        sta nrk
+        lda vn
+        sta nn
+        lda vn+1
+        sta nn+1
+        lda vs0
+        sta nd0
+        lda vs0+1
+        sta nd0+1
+        lda vs1
+        sta nd1
+        lda vs1+1
+        sta nd1+1
+pa_go:  jsr newarr
         bcc pm_ok
         cmp #E_WSFULL           ; the model computes every row before it checks the size
         beq pm_dry
         rts
-pm_dry: lda #0
-        sta rrow
-        sta rrow+1
+pm_dry: jsr rreset
 pm_d1:  lda rrow
         cmp rlead
         bne pm_d2
@@ -189,9 +236,7 @@ pm_d1:  lda rrow
 pm_d2:  jsr red_row
         bcc pm_d4
         rts
-pm_d4:  inc rrow
-        bne pm_d1
-        inc rrow+1
+pm_d4:  jsr rnext
         jmp pm_d1
 pm_d3:  lda #E_WSFULL
         sec
@@ -205,9 +250,7 @@ pm_s1:  lda cv,y
         sta rdp
         lda dp+1
         sta rdp+1
-        lda #0
-        sta rrow
-        sta rrow+1
+        jsr rreset
 pm_row: lda rrow
         cmp rlead
         bne pm_r1
@@ -255,9 +298,7 @@ pm_store:
         sta rdp
         lda dp+1
         sta rdp+1
-        inc rrow
-        bne pm_row
-        inc rrow+1
+        jsr rnext
         jmp pm_row
 pm_done:
         ldy #3
@@ -266,6 +307,40 @@ pm_e1:  lda rcv,y
         dey
         bpl pm_e1
         jmp setmon
+
+; start over at the first row (a scan: its first prefix)
+rreset: lda #0
+        sta rrow
+        sta rrow+1
+        lda rscan
+        beq rz_r
+        lda #1
+        sta rn
+        lda #0
+        sta rn+1
+rz_r:   rts
+
+; on to the next row (a scan: the next prefix, or the first one of the next row)
+rnext:  lda rscan
+        beq rx_r
+        lda rn
+        cmp rnfull
+        bne rx_i
+        lda rn+1
+        cmp rnfull+1
+        beq rx_w
+rx_i:   inc rn
+        bne rx_ret
+        inc rn+1
+rx_ret: rts
+rx_w:   lda #1
+        sta rn
+        lda #0
+        sta rn+1
+rx_r:   inc rrow
+        bne rx_ret
+        inc rrow+1
+        rts
 
 ; --- one row: rrow -> rres (a cell) -------------------------------------------------------
 red_row:
@@ -418,15 +493,61 @@ rs_ia:  ldy #0
         sta ia+1
 rs_ia2: rts
 
-; the fold, right to left through the dyadic scalar function
-rr_fold:
-        clc
+; rptr = the end of the elements, rbase + rn * rw (a scan's prefix is short)
+rend:   clc
         lda rbase
-        adc rbytes
+        adc rn
         sta rptr
         lda rbase+1
-        adc rbytes+1
+        adc rn+1
         sta rptr+1
+        lda rw
+        cmp #2
+        bcc re_r
+        clc
+        lda rptr
+        adc rn
+        sta rptr
+        lda rptr+1
+        adc rn+1
+        sta rptr+1
+        lda rw
+        cmp #3
+        bcc re_r
+        clc
+        lda rptr
+        adc rn
+        sta rptr
+        lda rptr+1
+        adc rn+1
+        sta rptr+1
+re_r:   rts
+
+; the newest element of a prefix: rptr at it, rk = 1 (a + scan adds only that one)
+rlast:  jsr rend
+        sec
+        lda rptr
+        sbc rw
+        sta rptr
+        lda rptr+1
+        sbc #0
+        sta rptr+1
+        lda #1
+        sta rk
+        lda #0
+        sta rk+1
+        rts
+
+; is this the first prefix of a row? (Z set if so)
+rfirst: lda rn+1
+        bne rfi_r
+        lda rn
+        eor #1
+rfi_r:  rts
+
+; the fold, right to left through the dyadic scalar function
+rr_fold:
+        jsr rend
         lda rn
         sta rk
         lda rn+1
@@ -502,7 +623,23 @@ rp2:    lda (ep),y
 
 ; + over BOOL or INT: a 32-bit sum
 rr_isum:
+        lda rscan
+        beq ri_go
+        jsr rlast               ; a scan: the running sum plus the newest element
+        jsr rfirst
+        bne ri_s1
         lda #0
+        ldx #3
+ri_s0:  sta rssum,x
+        dex
+        bpl ri_s0
+ri_s1:  ldx #3
+ri_s2:  lda rssum,x
+        sta risum,x
+        dex
+        bpl ri_s2
+        jmp ri_l
+ri_go:  lda #0
         sta risum
         sta risum+1
         sta risum+2
@@ -561,7 +698,14 @@ ri_n1:  lda rk
 ri_n2:  dec rk
         jmp ri_l
 ri_done:
-        lda risum+2             ; INT if it fits int16
+        lda rscan
+        beq ri_d0
+        ldx #3                  ; (the rounding below spoils risum)
+ri_sv:  lda risum,x
+        sta rssum,x
+        dex
+        bpl ri_sv
+ri_d0:  lda risum+2             ; INT if it fits int16
         cmp risum+3
         bne ri_big
         cmp #0
@@ -619,11 +763,14 @@ ri_b2:  lda #<risum
 
 ; + over FLOAT: exact fixed-point sum, bit k of FACC weighs 2^(k-143)
 rr_fsum:
-        ldx #39
-        lda #0
-rfs0:   sta FACC,x
-        dex
-        bpl rfs0
+        lda rscan
+        beq rfs_z
+        jsr rfirst              ; a scan: FACC keeps the sum so far, add only the newest element
+        bne rfs_s
+        jsr facc0
+rfs_s:  jsr rlast
+        jmp rfs_l
+rfs_z:  jsr facc0
         lda rbase
         sta rptr
         lda rbase+1
@@ -751,20 +898,10 @@ rfs_done:
         bpl rfs_pos
         lda #$80
         sta sa
-        ldx #0
-rfs_c:  lda FACC,x
-        eor #$ff
-        sta FACC,x
-        inx
-        cpx #40
-        bne rfs_c
-        ldx #0
-rfs_i:  inc FACC,x
-        bne rfs_pos
-        inx
-        cpx #40
-        bne rfs_i
+        jsr facc_neg
 rfs_pos:
+        lda sa
+        sta rsgn
         lda #<FACC
         sta mp
         lda #>FACC
@@ -776,6 +913,13 @@ rfs_pos:
         lda #>(-15)
         sta mk+1
         jsr mag_round
+        php
+        lda rscan               ; a scan goes on with the sum: put it back as it was
+        beq rfs_r0
+        lda rsgn
+        bpl rfs_r0
+        jsr facc_neg
+rfs_r0: plp
         bcs rf_dom2
 rf_fl:  lda #3
         sta rres
@@ -790,6 +934,30 @@ rf_fl:  lda #3
 rf_dom2: lda #E_DOMAIN
         sec
         rts
+
+facc0:  ldx #39
+        lda #0
+fa0_l:  sta FACC,x
+        dex
+        bpl fa0_l
+        rts
+
+; FACC = -FACC (two's complement)
+facc_neg:
+        ldx #0
+fn_c:   lda FACC,x
+        eor #$ff
+        sta FACC,x
+        inx
+        cpx #40
+        bne fn_c
+        ldx #0
+fn_i:   inc FACC,x
+        bne fn_r
+        inx
+        cpx #40
+        bne fn_i
+fn_r:   rts
 
 ; Round a magnitude (mn little-endian bytes at mp, sign in sa) to float24 in fa.
 ; Its exponent field is 8*hb + 8 - s + mk, hb the top nonzero byte, s the leading

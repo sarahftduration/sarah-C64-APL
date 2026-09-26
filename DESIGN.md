@@ -429,6 +429,26 @@ matrix `b` is NONCE ERROR (no axis or last-axis version yet), WS FULL if the res
 result is a vector with `b`'s type. A count of a single element applied to an empty `b` is not
 looked at. `x f/ y` and the other operators after a value are still NONCE ERROR.
 
+## Scan and outer product
+
+`f\v` (scan, `p_scan` in `asm/reduce.inc`): element k along the last axis is `f/` of the first k
+elements, each prefix reduced right to left, so `-\1 2 3 4` is `1 ¯1 2 ¯2`. The result has the operand's
+shape and the widest type of the prefix results (`+\32767 1` turns FLOAT at the second element and
+the result is restarted wider, as for a matrix reduce). It reuses the reduce code: the "rows" are the
+prefixes, taken in order, so the results arrive in the layout of the result. A scalar or an empty operand
+comes back unchanged. Only `+` is fast: BOOL and INT keep a running 32-bit sum and FLOAT keeps the exact
+fixed-point accumulator, so each prefix costs one addition (the accumulator is negated for rounding and
+negated back). Every other function folds each prefix from scratch, which costs n² element operations.
+`x f\y` is NONCE ERROR, and so is expand `a\b`.
+
+`a∘.f b` (outer product, `p_outer` in `asm/scalar.inc`): `f` between every element of `a` and every
+element of `b`, for the scalar dyadic functions; the result has the shape of `a` followed by the shape of
+`b`. It is the scalar engine with `owa` (the width of `a`'s elements) set: with a scalar operand it is the
+ordinary scalar extension, with two vectors the engine makes one pass over `b` per element of `a`, and a
+higher rank is LIMIT ERROR (checked first), then more than 65535 elements WS FULL, then the types (DOMAIN)
+and the size, in the order of the other scalar functions. Monadic `∘.f` is SYNTAX ERROR; any other `f` is
+NONCE ERROR. The evaluator marks the function as an outer product by adding `$60` to its token.
+
 ## User-defined functions
 
 `∇` (typed as pound `g`) starts a definition when it is the first non-blank character of a
@@ -755,9 +775,9 @@ at `SYMTAB`.
 
 `+ - × ÷` (monadic: identity, negate, signum, reciprocal), `= ≠ < ≤ > ≥`,
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
-`f/` for scalar dyadic `f` (including `⌈ ⌊ |`), replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
+`f/` and `f\` for scalar dyadic `f` (including `⌈ ⌊ |`), `a∘.f b`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
-NONCE: `\ ¨ . ∘ ⍤`, axis brackets, `→` outside a function,
+NONCE: `¨ ⍤`, expand `a\b`, `∘.` with a function that is not scalar dyadic, axis brackets, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## Plan: optional extra RAM (REU) as a storage tier
