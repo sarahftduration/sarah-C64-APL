@@ -790,45 +790,60 @@ def drop(a, b):
 def replicate(a, b):
     """a/b: each element of the vector (or scalar) b repeated as many times as the matching
     element of a says.  a is non-negative whole numbers, one per element of b, or one for all,
-    or (a one-element b) many for it; compress is the case of 0s and 1s.  Checks: a (RANK,
-    DOMAIN), b's rank (NONCE), the lengths (LENGTH), negative counts (DOMAIN), size (WS FULL)."""
+    or (a one-element b) many for it; compress is the case of 0s and 1s.  A matrix b is done row by
+    row (its columns are repeated).  Checks: a (RANK, DOMAIN), the lengths (LENGTH), negative counts
+    (DOMAIN), size (WS FULL)."""
     xs = to_ints(a)
-    if b.rank > 1:
-        raise AplError('NONCE ERROR')
-    k, m = len(xs), b.count
-    data = b.data
-    if k != m:
+    n = b.shape[-1] if b.rank else 1
+    m = b.shape[0] if b.rank == 2 else 1
+    rows = [b.data[r * n:(r + 1) * n] for r in range(m)] if b.rank == 2 else [b.data]
+    k = len(xs)
+    if k != n:
         if k == 1:
-            xs = xs * m
-        elif m == 1:
-            data = data * k
+            xs = xs * n
+        elif n == 1:
+            rows = [row * k for row in rows]
         else:
             raise AplError('LENGTH ERROR')
     if any(x < 0 for x in xs):
         raise AplError('DOMAIN ERROR')
-    n = sum(xs)
-    check_size(b.t, n)
-    return vector(b.t, [d for d, x in zip(data, xs) for _ in range(x)])
+    total = sum(xs)
+    if total > 65535:
+        raise AplError('WS FULL')
+    check_size(b.t, m * total)
+    out = [[d for d, x in zip(row, xs) for _ in range(x)] for row in rows]
+    if b.rank == 2:
+        return Value(b.t, (m, total), [x for row in out for x in row])
+    return vector(b.t, out[0])
 
 
 def expand(a, b):
     """a\\b: a vector of 0s and 1s (a) says where the elements of b go: each 1 takes the next element of b
     and each 0 has a fill (0 or a blank) instead.  b is a vector with one element per 1, or a scalar (used for
-    all of them).  Checks: a (RANK, DOMAIN), b's rank (NONCE), a's values (DOMAIN), lengths, size."""
+    all of them); a matrix b is expanded row by row (each row needs one element per 1).  Checks: a (RANK,
+    DOMAIN), a's values (DOMAIN), lengths, size."""
     xs = to_ints(a)
-    if b.rank > 1:
-        raise AplError('NONCE ERROR')
     if any(x not in (0, 1) for x in xs):
         raise AplError('DOMAIN ERROR')
     ones = sum(xs)
-    data = b.data
+    m = b.shape[0] if b.rank == 2 else 1
+    n = b.shape[-1] if b.rank else 1
     if b.rank == 0:
-        data = data * ones
-    elif len(data) != ones:
-        raise AplError('LENGTH ERROR')
-    check_size(b.t, len(xs))
-    it = iter(data)
-    return vector(b.t, [next(it) if x else FILL[b.t] for x in xs])
+        rows = [b.data * ones]
+    else:
+        if n != ones:
+            raise AplError('LENGTH ERROR')
+        rows = [b.data[r * n:(r + 1) * n] for r in range(m)] if b.rank == 2 else [b.data]
+    if len(xs) > 65535:
+        raise AplError('WS FULL')
+    check_size(b.t, m * len(xs))
+    out = []
+    for row in rows:
+        it = iter(row)
+        out.append([next(it) if x else FILL[b.t] for x in xs])
+    if b.rank == 2:
+        return Value(b.t, (m, len(xs)), [x for row in out for x in row])
+    return vector(b.t, out[0])
 
 
 def without(a, b):
@@ -861,9 +876,40 @@ def ravel(v):
     return vector(v.t, v.data)
 
 
+def _catenate_rows(a, b):
+    """a,b with a matrix among them: the columns of b follow those of a; a vector (one element per row) or
+    a scalar (repeated) is a single column."""
+    m = a.shape[0] if a.rank == 2 else b.shape[0]
+
+    def cols(v):
+        if v.rank == 2:
+            if v.shape[0] != m:
+                raise AplError('LENGTH ERROR')
+            return v.shape[1], [v.data[r * v.shape[1]:(r + 1) * v.shape[1]] for r in range(m)]
+        if v.rank == 1:
+            if v.count != m:
+                raise AplError('LENGTH ERROR')
+            return 1, [[x] for x in v.data]
+        return 1, [[v.data[0]] for _ in range(m)]
+    (ka, ra), (kb, rb) = cols(a), cols(b)
+    if a.count == 0:
+        t = b.t
+    elif b.count == 0:
+        t = a.t
+    else:
+        t = join_type(a.t, b.t)
+    if ka + kb > 65535:
+        raise AplError('WS FULL')
+    data = []
+    for r in range(m):
+        data += [convert(a.t, t, x) for x in ra[r]] + [convert(b.t, t, x) for x in rb[r]]
+    check_size(t, m * (ka + kb))
+    return Value(t, (m, ka + kb), data)
+
+
 def catenate(a, b):
-    if a.rank > 1 or b.rank > 1:
-        raise AplError('NONCE ERROR')
+    if a.rank == 2 or b.rank == 2:
+        return _catenate_rows(a, b)
     if a.count == 0:
         t = b.t
     elif b.count == 0:
@@ -1033,17 +1079,24 @@ def make_outer(glyph):
     return outer
 
 
-def axis_fn(fn, flip):
-    """The (monadic, dyadic) pair fn applied along axis 1 of a matrix: these functions work along the last
-    axis, so the matrix is transposed before and, if the result is a matrix, after.  Without flip (axis 2 of
-    a matrix, axis 1 of a vector) fn is used as it is."""
-    if not flip:
-        return fn
+def axis_fn(fn, k, cat=False):
+    """The (monadic, dyadic) pair fn applied along axis k of a matrix: these functions work along the last
+    axis, so for axis 1 the matrices among the arguments are transposed before and, if the result is a
+    matrix, after.  For axis 2 (of a matrix) and axis 1 of a vector fn is used as it is.  cat: for
+    catenation the axis must exist in one of the two arguments (INDEX ERROR)."""
     mon, dy = fn
 
     def fix(r):
-        return transpose(r) if r.rank == 2 else r
-    return (lambda v: fix(mon(transpose(v))), lambda a, v: fix(dy(a, transpose(v))))
+        return transpose(r) if k == 1 and r.rank == 2 else r
+
+    def tr(v):
+        return transpose(v) if k == 1 else v
+
+    def d(a, v):
+        if cat and max(a.rank, v.rank) < k:
+            raise AplError('INDEX ERROR')
+        return fix(dy(tr(a), tr(v)))
+    return (lambda v: fix(mon(tr(v))), d)
 
 
 def make_inner(fglyph, gglyph):
@@ -1548,30 +1601,40 @@ class Interp:
         return j > 0 and toks[j - 1][0] >= 0x80
 
     def _axis(self, toks, j, i, val):
-        """f/[k]v, f\\[k]v, ⌽[k]v and a⌽[k]v: the brackets at j..i follow a function; val is the right
-        argument.  k is a scalar whole number from 1 to the rank of val (RANK, DOMAIN and INDEX
-        ERROR); then the function must be one that takes an axis (NONCE ERROR otherwise)."""
+        """f/[k]v, f\\[k]v, ⌽[k]v, a⌽[k]v, a/[k]v, a\\[k]v and a,[k]v: the brackets at j..i follow a
+        function; val is the right argument.  k is a scalar (RANK ERROR) whole number (DOMAIN ERROR),
+        1 or 2, and not above the rank of val (INDEX ERROR; for catenation the axis may be one
+        of the left argument, which is checked when it is applied); then the function must be one
+        that takes an axis (NONCE ERROR otherwise)."""
         kv = self.eval_tokens(toks[j + 1:i])
         if kv.rank != 0:
             raise AplError('RANK ERROR')
         k = to_ints(kv)[0]
-        if not 1 <= k <= val.rank:
-            raise AplError('INDEX ERROR')
         tk = toks[j - 1][0]
-        if tk >= 0xC0:                                          # an operator: it needs its function
-            if j < 2 or not (0x80 <= toks[j - 2][0] < 0xC0 or self._isv(toks[j - 2])):
+        cat = tk < 0xC0 and PRIM_GLYPHS[tk - 0x80] == ','
+        if k not in (1, 2) or (val.rank < k and not cat):
+            raise AplError('INDEX ERROR')
+        if tk >= 0xC0:                                          # an operator: f/ f\ (its function) or a/ a\ (a value)
+            if j < 2:
                 raise AplError('SYNTAX ERROR')
-            if not 0x80 <= toks[j - 2][0] < 0xC0:
-                raise AplError('NONCE ERROR')                   # a/[k]b, a\\[k]b
-            g, pg = OP_GLYPHS[tk - 0xC0], PRIM_GLYPHS[toks[j - 2][0] - 0x80]
-            if g not in '/\\' or pg not in SCALAR_DYADIC:
-                raise AplError('NONCE ERROR')
-            fn, pos = ((make_reduce if g == '/' else make_scan)(pg), _nonce), j - 2
+            g = OP_GLYPHS[tk - 0xC0]
+            if 0x80 <= toks[j - 2][0] < 0xC0:
+                pg = PRIM_GLYPHS[toks[j - 2][0] - 0x80]
+                if g not in '/\\' or pg not in SCALAR_DYADIC:
+                    raise AplError('NONCE ERROR')
+                fn, pos = ((make_reduce if g == '/' else make_scan)(pg), _nonce), j - 2
+            elif self._isv(toks[j - 2]):
+                if g not in '/\\':
+                    raise AplError('NONCE ERROR')
+                fn, pos = (_nonce, replicate if g == '/' else expand), j - 1
+            else:
+                raise AplError('SYNTAX ERROR')
         else:
-            if PRIM_GLYPHS[tk - 0x80] != '⌽':
+            pg = PRIM_GLYPHS[tk - 0x80]
+            if pg not in ('⌽', ','):
                 raise AplError('NONCE ERROR')
-            fn, pos = PRIMS['⌽'], j - 1
-        val = self._apply(axis_fn(fn, k == 1 and val.rank == 2), toks, pos - 1, val)
+            fn, pos = PRIMS[pg], j - 1
+        val = self._apply(axis_fn(fn, k, cat), toks, pos - 1, val)
         return val, self._pos
 
     def _apply(self, fn, toks, i, right):
@@ -1950,7 +2013,10 @@ def selftest():
         ('1.5/5', '!DOMAIN ERROR'),
         ("'a'/5", '!DOMAIN ERROR'),
         ('(2 2⍴1)/5', '!RANK ERROR'),
-        ('1/2 2⍴1', '!NONCE ERROR'),
+        ('1/2 2⍴1', '1 1|1 1'), ('1 0 1/2 3⍴⍳6', '1 3|4 6'), ('2/2 3⍴⍳6', '1 1 2 2 3 3|4 4 5 5 6 6'), ('1 0 1/[1]3 2⍴⍳6', '1 2|5 6'), ('0 0 0/2 3⍴⍳6', '|'),
+        ('(2 3⍴⍳6),(2 2⍴7 8 9 10)', '1 2 3 7  8|4 5 6 9 10'), ('(2 3⍴⍳6),1 2', '1 2 3 1|4 5 6 2'), ('1 2,2 3⍴⍳6', '1 1 2 3|2 4 5 6'), ('(2 3⍴⍳6),5', '1 2 3 5|4 5 6 5'),
+        ('(2 2⍴1 2 3 4),[1]5 6', '1 2|3 4|5 6'), ('1 2,[1]2 2⍴3 4 5 6', '1 2|3 4|5 6'), ('(2 2⍴1),[2]1 2', '1 1 1|1 1 2'), ('1 2,[2]3 4', '!INDEX ERROR'),
+        ('(2 3⍴⍳6),1 2 3', '!LENGTH ERROR'), ("(2 2⍴1),'a'", '!DOMAIN ERROR'), ('(2 2⍴1),(3 2⍴1)', '!LENGTH ERROR'),
         ('1 0 1\\1 2 3', '!LENGTH ERROR'),
         ('(1 0 1=1 2 1)/⍳3', '1 3'),
         ('+/2/1 2', '6'),
@@ -2037,12 +2103,12 @@ def selftest():
         ('+/[1]A', '95'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
-        ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '!NONCE ERROR'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),
+        ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '1 2 3'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),
         ('⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('⍉⍳3', '1 2 3'), ('⍉5', '5'), ('2 1⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('1 2⍉2 3⍴⍳6', '1 2 3|4 5 6'),
         ('1 1⍉2 2⍴⍳4', '!DOMAIN ERROR'), ('2 1⍉⍳3', '!LENGTH ERROR'), ('⍬⍉5', '5'), ("⍉'ab'", 'ab'), ('⍉⍉2 3⍴⍳6', '1 2 3|4 5 6'),
         ('(⍳5)~2 4', '1 3 5'), ("'hello'~'l'", 'heo'), ('3~1 2 3', ''), ('1 2 3~⍬', '1 2 3'), ('(2 2⍴1)~1', '!RANK ERROR'), ('1 2 3~2.0', '1 3'),
         ('1 0 1\\7 8', '7 0 8'), ('1 0 1 1\\1 2 3', '1 0 2 3'), ("1 0 1\\'ab'", 'a b'), ('1 0 1\\5', '5 0 5'), ('0 0\\⍬', '0 0'),
-        ('1 2\\3 4', '!DOMAIN ERROR'), ('1 0 1\\2 2⍴1', '!NONCE ERROR'), ('(2 2⍴1)\\1 2', '!RANK ERROR'),
+        ('1 2\\3 4', '!DOMAIN ERROR'), ('1 0 1\\2 2⍴1', '1 0 1|1 0 1'), ('1 0 1\\2 3⍴1', '!LENGTH ERROR'), ('(2 2⍴1)\\1 2', '!RANK ERROR'),
         ('+\\1 2 3 4', '1 3 6 10'), ('-\\1 2 3 4', '1 ¯1 2 ¯2'), ('×\\⍳5', '1 2 6 24 120'), ('+\\2 3⍴⍳6', '1 3  6|4 9 15'),
         ('⌈\\3 1 4 1 5', '3 3 4 4 5'), ('+\\⍬', ''), ('+\\5', '5'), ('+\\32767 1 1', '32767 32768 32769'),
         ("+\\'ab'", '!DOMAIN ERROR'), ('1 2+\\3', '!NONCE ERROR'), ('1 2\\3', '!DOMAIN ERROR'),
