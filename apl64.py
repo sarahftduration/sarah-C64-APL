@@ -786,6 +786,21 @@ class Func:
         self.lines = []
         self.syms = [x for x in (res, larg, rarg) if x is not None] + locs
 
+    def to_bytes(self):
+        """The function as the 6502 keeps it: nargs, hasres, nsyms, nlines, the symbols,
+        then each line's size (2 bytes) and its token stream."""
+        data = bytes([self.nargs, 0 if self.res is None else 1, len(self.syms),
+                      len(self.lines)] + self.syms)
+        for ln in self.lines:
+            data += len(ln).to_bytes(2, 'little') + ln
+        return data
+
+    def block_bytes(self):
+        """...and its heap block: a CHAR vector holding those bytes."""
+        d = self.to_bytes()
+        n = len(d).to_bytes(2, 'little')
+        return bytes([5]) + n + n + d
+
 
 def _skip_ws(line, i):
     while i < len(line) and line[i] in ' \t':

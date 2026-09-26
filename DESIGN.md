@@ -304,6 +304,7 @@ model). Glyphs that are also tokens use their token code.
 | `$87` | `≤` | `$C4` | `∘`  | `$94` | `⍬` |
 | `$89` | `≥` | `$C5` | `⍤`  | `$95` | `⍝` |
 | `$90` | `¯` | `$96` | `∆`  | `$97` | `⍙` |
+| `$98` | `∇` | | | | |
 
 A character with no code is a DOMAIN ERROR inside a string and a SYNTAX ERROR
 elsewhere. Input lines are at most 255 bytes and end with `$00`.
@@ -487,6 +488,7 @@ done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
   | `1` | `¨` | `0` | `⍤` | `'` | `⍬` |
   | `[` | `←` | `]` | `→` | `.` | `⋄` |
   | `,` | `⍝` | `h` | `∆` | shifted `h` | `⍙` |
+  | `g` | `∇` | | | | |
   | `←` key | `_` | `£` | `\` | anything else | nothing |
 
 - **Line editor** (`edit_key`, `repl`): the line is built in the tokenizer's input

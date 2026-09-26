@@ -400,13 +400,7 @@ st_go:  lda stp
         ldy #0
         lda (mp),y
         sta stlen
-        ldx #6                  ; the prompt: six spaces
-st_p:   lda #' '
-        stx stidx
-        jsr scr_put
-        ldx stidx
-        dex
-        bne st_p
+        jsr prompt
         lda #0
         sta stidx
 st_c:   lda stidx
@@ -440,9 +434,7 @@ st_a1:  inc stp
         bne st_a2
         inc stp+1
 st_a2:  dec stcount
-        jsr tokenize
-        bcs st_err
-        jsr eval_line
+        jsr do_line
         bcs st_err
         jmp st_next
 st_err: jsr print_error

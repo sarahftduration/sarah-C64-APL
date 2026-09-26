@@ -53,6 +53,7 @@ hi1:    sta HTH,x
         inx
         bne hi1
         sta hpinf
+        sta defmode
         lda #<VSTACK
         sta vsp
         lda #>VSTACK

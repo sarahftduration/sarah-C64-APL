@@ -38,11 +38,8 @@ class Session:
         assert len(data) <= 255
         INBUF = L["INBUF"]
         m.memory[INBUF:INBUF + len(data) + 1] = list(data) + [0]
-        call(m, L["tokenize"], max_steps=2_000_000)
-        if m.p & 1:
-            return ('err', ERR[m.a])
         self.word("logp", L["LOGBUF"])
-        call(m, L["eval_line"], max_steps=20_000_000)
+        call(m, L["do_line"], max_steps=20_000_000)
         if m.p & 1:
             return ('err', ERR[m.a])
         end = m.memory[L["logp"]] | m.memory[L["logp"] + 1] << 8
@@ -56,7 +53,7 @@ class Session:
         t, rank = tag & 3, tag >> 2 & 3
         if rank == 0:
             return bytes([tag, 1, 0]) + bytes(m.memory[addr + 1:addr + 1 + WIDTH[t]])
-        h = m.memory[addr + 1]
+        h = m.memory[addr + 1]      # (a function's block is a CHAR vector too)
         a = m.memory[L["HTL"] + h] | m.memory[L["HTH"] + h] << 8
         n = m.memory[a + 1] | m.memory[a + 2] << 8
         return bytes(m.memory[a:a + 3 + 2 * rank + n * WIDTH[t]])
@@ -72,8 +69,17 @@ class Session:
             return ('err', e.kind)
 
     def vars_model(self):
-        return [self.model.vars[i].to_bytes() if i in self.model.vars else None
-                for i in range(len(self.model.names))]
+        out = []
+        for i in range(len(self.model.names)):
+            if i in self.model.vars:
+                out.append(self.model.vars[i].to_bytes())
+            elif self.model.defining is not None and self.model.defining[0] == i:
+                out.append(self.model.defining[1].block_bytes())     # the 6502 installs it at the header
+            elif i in self.model.funcs:
+                out.append(self.model.funcs[i].block_bytes())
+            else:
+                out.append(None)
+        return out
 
 
 def check(s, line):

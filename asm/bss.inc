@@ -77,6 +77,10 @@ FNPFX   .fill 4
 CMDBUF  .fill 12                ; system command name
 WSNAME  .fill 20                ; workspace name: length, then up to 16 characters
 NAMETMP .fill 20                ; a name being checked
+defmode = FV                    ; a function is being defined
+deffn   = FV+1                  ; its symbol
+defh    = FV+2                  ; the handle of its block, which is the last one in the heap
+dtl     = FV+3                  ; (2) the size of the line being added
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer
@@ -119,6 +123,7 @@ ldtag   = STV+60
 lw      = STV+61
 osa     = STV+62                ; secondary address for open_sa
 lcnt    = STV+63                ; )LIB: lines listed on this page
+FV      .fill 8                 ; user-defined functions: definition state (see funcs.inc)
 HEAP_BASE = *
         .endv
 

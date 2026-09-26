@@ -28,6 +28,7 @@ E_INDEX  = 9
         .include "scalar.inc"
         .include "reduce.inc"
         .include "index.inc"
+        .include "funcs.inc"
         .include "format.inc"
         .include "startup.inc"
 
@@ -768,6 +769,10 @@ pushname:
         lda (cptr),y
         cmp #$80
         beq pn_val
+        and #TAG_FN             ; calling functions is not implemented yet
+        bne pn_nonce
+        ldy #0
+        lda (cptr),y
         ldy #3
 pnl1:    lda (cptr),y
         sta cv,y
@@ -775,6 +780,10 @@ pnl1:    lda (cptr),y
         bpl pnl1
         jmp pushcv
 pn_val: lda #E_VALUE
+        sec
+        rts
+pn_nonce:
+        lda #E_NONCE
         sec
         rts
 

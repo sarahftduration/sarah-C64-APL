@@ -155,13 +155,41 @@ rt1:    lda kidx
         jmp rt1
 rt2:    rts
 
-prompt: ldx #PROMPT_LEN
+prompt: lda defmode
+        beq pr_plain
+        lda #'['                ; [n]: the number of the next line of the function
+        jsr scr_put
+        ldx defh
+        lda HTL,x
+        sta gp
+        lda HTH,x
+        sta gp+1
+        ldy #8
+        lda (gp),y
+        sec
+        adc #0
+        sta ftmp
+        lda #0
+        adc #0
+        sta ftmp+1
+        jsr print_dec16
+        lda #']'
+        jsr scr_put
+        sec
+        lda #PROMPT_LEN-2
+        sbc fnI
+        beq pr_done
+        tax
+        jmp pr1
+pr_plain:
+        ldx #PROMPT_LEN
 pr1:    lda #' '
         stx kidx
         jsr scr_put
         ldx kidx
         dex
         bne pr1
+pr_done:
         rts
 
 cursor_on:
@@ -201,6 +229,8 @@ rp_h:   lda INBUF,x
         bne rp_h
 rp_run: lda #CHNL
         jsr scr_put
+        lda defmode             ; in a function definition every line is a body line
+        bne rp_tok
         ldx #0                  ; a system command?
 rp_s1:  lda INBUF,x
         cmp #' '
@@ -211,9 +241,7 @@ rp_s2:  cmp #')'
         bne rp_tok
         jsr syscmd
         jmp repl
-rp_tok: jsr tokenize
-        bcs rp_err
-        jsr eval_line
+rp_tok: jsr do_line
         bcc repl_again
 rp_err: jsr print_error
 repl_again:
