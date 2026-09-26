@@ -38,6 +38,8 @@ element leaves int16, redo the whole primitive in float24.
 last axis, the result the shape of v.  a∘.f b is the outer product: f between every element of a
 and every element of b, shaped like the shape of a followed by the shape of b (LIMIT ERROR past
 rank 2); f is one of the scalar dyadic functions.
+A function or operator followed by [k] takes an axis: +/[k]v, +\\[k]v, ⌽[k]v and a⌽[k]v, k from 1 to the rank of v
+(RANK, DOMAIN, INDEX ERROR); axis 1 of a matrix is worked as the last axis of its transpose (axis_fn).
 "\\" after a value is expand (a\\b: the 0s of a are fills, the 1s take the elements of b); a~b is without, ⍉ is
 transpose (a⍉b takes a permutation of the axes).
 a f.g b is the inner product: f/ of (a g b) over the last axis of a and the first axis of b (see make_inner).
@@ -981,6 +983,8 @@ def make_reduce(glyph):
         lead = v.shape[0] if v.rank == 2 else 1
         rows = [_reduce_row(glyph, dy, v.t, v.data[r * n:(r + 1) * n])
                 for r in range(lead)]
+        if not rows:                                    # a matrix with no rows: an empty vector of the identity's type
+            return Value(_IDENT[glyph][0] if _IDENT[glyph] else INT, v.shape[:-1], [])
         t = rows[0].t
         for r in rows[1:]:
             t = join_type(t, r.t)
@@ -1027,6 +1031,19 @@ def make_outer(glyph):
         t, data = fn(a.t, [x for x in a.data for _ in b.data], b.t, list(b.data) * len(a.data))
         return Value(t, shape, data)
     return outer
+
+
+def axis_fn(fn, flip):
+    """The (monadic, dyadic) pair fn applied along axis 1 of a matrix: these functions work along the last
+    axis, so the matrix is transposed before and, if the result is a matrix, after.  Without flip (axis 2 of
+    a matrix, axis 1 of a vector) fn is used as it is."""
+    if not flip:
+        return fn
+    mon, dy = fn
+
+    def fix(r):
+        return transpose(r) if r.rank == 2 else r
+    return (lambda v: fix(mon(transpose(v))), lambda a, v: fix(dy(a, transpose(v))))
 
 
 def make_inner(fglyph, gglyph):
@@ -1458,7 +1475,8 @@ class Interp:
             elif c == T_RBRK:
                 j = self._match(toks, i, T_RBRK, T_LBRK)
                 if j > 0 and toks[j - 1][0] >= 0x80:
-                    raise AplError('NONCE ERROR')           # axis: +/[1] A
+                    val, i = self._axis(toks, j, i, val)    # an axis after a function: +/[1]A  ⌽[1]A
+                    continue
                 raise AplError('SYNTAX ERROR')
             elif c >= 0xC0:
                 if i == 0:
@@ -1522,10 +1540,44 @@ class Interp:
                 raise AplError('SYNTAX ERROR')
         return val
 
+    def _axis_end(self, toks, i):
+        """Is the ']' at i the end of an axis (its '[' follows a function) and not of an index?"""
+        if toks[i][0] != T_RBRK:
+            return False
+        j = self._match(toks, i, T_RBRK, T_LBRK)
+        return j > 0 and toks[j - 1][0] >= 0x80
+
+    def _axis(self, toks, j, i, val):
+        """f/[k]v, f\\[k]v, ⌽[k]v and a⌽[k]v: the brackets at j..i follow a function; val is the right
+        argument.  k is a scalar whole number from 1 to the rank of val (RANK, DOMAIN and INDEX
+        ERROR); then the function must be one that takes an axis (NONCE ERROR otherwise)."""
+        kv = self.eval_tokens(toks[j + 1:i])
+        if kv.rank != 0:
+            raise AplError('RANK ERROR')
+        k = to_ints(kv)[0]
+        if not 1 <= k <= val.rank:
+            raise AplError('INDEX ERROR')
+        tk = toks[j - 1][0]
+        if tk >= 0xC0:                                          # an operator: it needs its function
+            if j < 2 or not (0x80 <= toks[j - 2][0] < 0xC0 or self._isv(toks[j - 2])):
+                raise AplError('SYNTAX ERROR')
+            if not 0x80 <= toks[j - 2][0] < 0xC0:
+                raise AplError('NONCE ERROR')                   # a/[k]b, a\\[k]b
+            g, pg = OP_GLYPHS[tk - 0xC0], PRIM_GLYPHS[toks[j - 2][0] - 0x80]
+            if g not in '/\\' or pg not in SCALAR_DYADIC:
+                raise AplError('NONCE ERROR')
+            fn, pos = ((make_reduce if g == '/' else make_scan)(pg), _nonce), j - 2
+        else:
+            if PRIM_GLYPHS[tk - 0x80] != '⌽':
+                raise AplError('NONCE ERROR')
+            fn, pos = PRIMS['⌽'], j - 1
+        val = self._apply(axis_fn(fn, k == 1 and val.rank == 2), toks, pos - 1, val)
+        return val, self._pos
+
     def _apply(self, fn, toks, i, right):
         """Apply fn monadically or dyadically; leaves new index in self._pos (set
         after the call, which may run nested evaluations)."""
-        if i >= 0 and self._isv(toks[i]):
+        if i >= 0 and self._isv(toks[i]) and not self._axis_end(toks, i):
             left, i = self._operand(toks, i)
             if left is None:
                 raise AplError('VALUE ERROR')
@@ -1982,7 +2034,10 @@ def selftest():
         ('A[1;]', '!RANK ERROR'),
         ('A[1]←5', ''),
         ('A', '5 20 30 40'),
-        ('+/[1]A', '!NONCE ERROR'),
+        ('+/[1]A', '95'),
+        ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
+        ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
+        ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '!NONCE ERROR'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),
         ('⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('⍉⍳3', '1 2 3'), ('⍉5', '5'), ('2 1⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('1 2⍉2 3⍴⍳6', '1 2 3|4 5 6'),
         ('1 1⍉2 2⍴⍳4', '!DOMAIN ERROR'), ('2 1⍉⍳3', '!LENGTH ERROR'), ('⍬⍉5', '5'), ("⍉'ab'", 'ab'), ('⍉⍉2 3⍴⍳6', '1 2 3|4 5 6'),
         ('(⍳5)~2 4', '1 3 5'), ("'hello'~'l'", 'heo'), ('3~1 2 3', ''), ('1 2 3~⍬', '1 2 3'), ('(2 2⍴1)~1', '!RANK ERROR'), ('1 2 3~2.0', '1 3'),
