@@ -34,6 +34,10 @@ Comparison tolerance (floats only; int/int comparison is exact):
 Integer arithmetic (+ - x) is optimistic: run in int16, and if ANY result
 element leaves int16, redo the whole primitive in float24.
 "/" is reduce (right to left).  "+/" accumulates exactly and rounds once.
+"\\" is scan: element k of f\\v is f/ of the first k elements (so -\\1 2 3 is 1 ¯1 2), along the
+last axis, the result the shape of v.  a∘.f b is the outer product: f between every element of a
+and every element of b, shaped like the shape of a followed by the shape of b (LIMIT ERROR past
+rank 2); f is one of the scalar dyadic functions.
 Division always gives FLOAT.  0 / 0 is 1; x / 0 is DOMAIN ERROR.
 Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] (the
 result shape is the index shapes joined; a result of rank 3 or more is
@@ -936,6 +940,46 @@ def make_reduce(glyph):
     return red
 
 
+def make_scan(glyph):
+    """f\\v: along the last axis, element k is f/ of the first k+1 elements (each prefix
+    reduced right to left, so - and ÷ alternate).  The result has the shape of v, its type
+    the widest of the prefix results."""
+    dy = PRIMS[glyph][1]
+
+    def scan(v):
+        if v.rank == 0:
+            return v
+        n = v.shape[-1]
+        lead = v.shape[0] if v.rank == 2 else 1
+        outs = [_reduce_row(glyph, dy, v.t, v.data[r * n:r * n + k])
+                for r in range(lead) for k in range(1, n + 1)]
+        if not outs:
+            return Value(v.t, v.shape, [])
+        t = outs[0].t
+        for o in outs[1:]:
+            t = join_type(t, o.t)
+        return Value(t, v.shape, [convert(o.t, t, o.data[0]) for o in outs])
+    return scan
+
+
+def make_outer(glyph):
+    """a∘.f b: f applied to every element of a with every element of b; the shape of the
+    result is the shape of a followed by the shape of b (rank over 2 is LIMIT ERROR, and a
+    result over 65535 elements is WS FULL before anything is computed)."""
+    fn = _DY[glyph]
+
+    def outer(a, b):
+        shape = a.shape + b.shape
+        if len(shape) > 2:
+            raise AplError('LIMIT ERROR')
+        n = len(a.data) * len(b.data)
+        if n > 65535:
+            raise AplError('WS FULL')
+        t, data = fn(a.t, [x for x in a.data for _ in b.data], b.t, list(b.data) * len(a.data))
+        return Value(t, shape, data)
+    return outer
+
+
 PRIMS = {}
 for _g in SCALAR_DYADIC:
     _m = _MON.get(_g)
@@ -1347,12 +1391,23 @@ class Interp:
                     raise AplError('SYNTAX ERROR')
                 g = OP_GLYPHS[c - 0xC0]
                 pg = PRIM_GLYPHS[pc - 0x80]
-                if g != '/' or pg not in SCALAR_DYADIC:
+                if g not in '/\\' or pg not in SCALAR_DYADIC:
                     raise AplError('NONCE ERROR')
-                fn = (make_reduce(pg), _nonce)
+                fn = ((make_reduce if g == '/' else make_scan)(pg), _nonce)
                 i -= 2
                 val = self._apply(fn, toks, i, val)
                 i = self._pos
+            elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and toks[i - 2][0] == 0xC4:
+                pg = PRIM_GLYPHS[c - 0x80]                  # a∘.f b: outer product
+                if pg not in SCALAR_DYADIC:
+                    raise AplError('NONCE ERROR')
+                i -= 3
+                if i < 0 or not self._isv(toks[i]):
+                    raise AplError('SYNTAX ERROR')
+                left, i = self._operand(toks, i)
+                if left is None:
+                    raise AplError('VALUE ERROR')
+                val = make_outer(pg)(left, val)
             elif c >= 0x80:
                 fn = PRIMS[PRIM_GLYPHS[c - 0x80]]
                 i -= 1
@@ -1831,6 +1886,12 @@ def selftest():
         ('A[1]←5', ''),
         ('A', '5 20 30 40'),
         ('+/[1]A', '!NONCE ERROR'),
+        ('+\\1 2 3 4', '1 3 6 10'), ('-\\1 2 3 4', '1 ¯1 2 ¯2'), ('×\\⍳5', '1 2 6 24 120'), ('+\\2 3⍴⍳6', '1 3  6|4 9 15'),
+        ('⌈\\3 1 4 1 5', '3 3 4 4 5'), ('+\\⍬', ''), ('+\\5', '5'), ('+\\32767 1 1', '32767 32768 32769'),
+        ("+\\'ab'", '!DOMAIN ERROR'), ('1 2+\\3', '!NONCE ERROR'), ('1 2\\3', '!NONCE ERROR'),
+        ('1 2 3∘.×1 2 3', '1 2 3|2 4 6|3 6 9'), ('(⍳3)∘.=⍳3', '1 0 0|0 1 0|0 0 1'), ('1 2∘.+10 20 30', '11 21 31|12 22 32'),
+        ('2∘.+3', '5'), ('2∘.+1 2', '3 4'), ('(2 2⍴1)∘.+1 2', '!LIMIT ERROR'), ('∘.+1', '!SYNTAX ERROR'),
+        ('1 2∘.⍳3', '!NONCE ERROR'), ('(⍳300)∘.+⍳300', '!WS FULL'),
         ('A[1⋄2]', '!SYNTAX ERROR'),
         ('P←1 2 3 4 5 ⋄ P[2]←9', ''),
         ('P', '1 9 3 4 5'),
