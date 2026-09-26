@@ -324,7 +324,7 @@ One line ends with `$00`.
 | `$0B` | a name of a function with arguments (made when a line is loaded, never stored; two bytes like a name) |
 | `$0C` | `⍬`, the empty INT vector, in one byte (a literal would be six); the evaluator makes the array |
 | `$10-$7F` | Reserved (system functions, ⎕ names, control keywords) |
-| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|∧∨~⌽↑↓` |
+| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|∧∨~⌽↑↓∊⍋⍒⍉` |
 | `$C0+i` | Operator, `i` indexes `/\¨.∘⍤` |
 
 - Number strands and strings are folded into **one literal** by the tokenizer.
@@ -448,6 +448,20 @@ ordinary scalar extension, with two vectors the engine makes one pass over `b` p
 higher rank is LIMIT ERROR (checked first), then more than 65535 elements WS FULL, then the types (DOMAIN)
 and the size, in the order of the other scalar functions. Monadic `∘.f` is SYNTAX ERROR; any other `f` is
 NONCE ERROR. The evaluator marks the function as an outer product by adding `$60` to its token.
+
+## Transpose, without and expand
+
+`⍉B` (pound `t`, charset code `$A1`, token `$99`; `p_transpose` in `reshape.inc`): a matrix with rows and columns
+exchanged; a scalar or vector is unchanged. `A⍉B` takes a permutation of the axes: one whole number per axis of
+`B` (LENGTH ERROR otherwise), `1 2` leaves a matrix as it is and `2 1` transposes it, anything else is DOMAIN
+ERROR (only rank 2 exists, so there is nothing else to permute). `A~B` (`p_without` in `search.inc`): the
+elements of the vector (or scalar) `A` that are not in `B`, in order, with the same equality as `∊` (exact across
+BOOL, INT and FLOAT, a character equals only a character); `B` may have any shape; RANK ERROR for a matrix `A`; the
+result is a vector of `A`'s type. `A\B` (expand, `p_expand` in `replicate.inc`; the evaluator gives it the function
+code `$7e`, as `a/b` has `$7f`): `A` is 0s and 1s (RANK ERROR above a vector, DOMAIN ERROR for anything else),
+`B` a vector with one element per 1 (LENGTH ERROR otherwise) or a scalar (used for every 1), a matrix `B` is
+NONCE ERROR; the result has one element for each element of `A`: the next element of `B` for a 1, a 0 or a blank
+for a 0. Checks go in the model's order (`expand`, `without`, `transpose_axes` in `apl64.py`).
 
 ## Inner product
 
@@ -797,7 +811,7 @@ at `SYMTAB`.
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
 `f/` and `f\` for scalar dyadic `f` (including `⌈ ⌊ |`), `a∘.f b`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
-NONCE: `¨ ⍤`, expand `a\b`, `∘.` with a function that is not scalar dyadic, axis brackets, `→` outside a function,
+NONCE: `¨ ⍤`, `∘.` with a function that is not scalar dyadic, axis brackets, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## REU: overlays, then array spill
@@ -832,7 +846,7 @@ test now runs the overlaid code through the real dispatcher (py65 loads the imag
 start-up does), and the disk and key tests do so in VICE.
 
 Overlays so far (sizes in bytes; the window is the largest, 1,891): `)` command handlers (`sysov.inc`, 636),
-disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒` (1,312), reshape `⌽ ↑ ↓` (1,316), replicate (570), the del
+disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒ ~` (1,613), reshape `⌽ ↑ ↓ ⍉` (1,776), replicate and expand (927), the del
 editor (`fdef.inc`, 1,086), monadic floor and ceiling (`floor.inc`, 388) and inner product (`inner.inc`, 1,472). Their entry points in resident
 code are stubs (`s_x` runs `p_x`, in `overlay.inc`). Start-up data that is read once (the character shapes,
 `glyphs.inc`) sits after the images in the PRG and is not copied anywhere; nothing may write to that RAM

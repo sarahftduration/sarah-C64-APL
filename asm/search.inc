@@ -619,3 +619,138 @@ gx_a:   clc
         adc zsb+1
         sta cs+1
         rts
+
+; --- without: A~B --------------------------------------------------------------------------------------------
+; Spec: apl64.py without. The elements of the vector (or scalar) A that are not in B (any shape, taken in
+; order), as a vector of A's type. Two passes over A with elem_eq: the first counts what stays, the second
+; copies it.
+p_without:
+        jsr topcell
+        jsr getval
+        lda vrk
+        cmp #2
+        bcc wo_1
+        lda #E_RANK
+        sec
+        rts
+wo_1:   lda vt
+        sta zto
+        lda vn
+        sta zon
+        lda vn+1
+        sta zon+1
+        ldx vt
+        lda WIDTHT,x
+        sta zwo
+        jsr secondcell
+        jsr getval
+        lda vt
+        sta zti
+        lda vn
+        sta zin
+        lda vn+1
+        sta zin+1
+        ldx vt
+        lda WIDTHT,x
+        sta zwi
+        lda #0
+        sta zmd
+        sta zv
+        sta zv+1
+        jsr wo_pass
+        lda zto
+        sta nt
+        lda #1
+        sta nrk
+        lda zv
+        sta nn
+        sta nd0
+        lda zv+1
+        sta nn+1
+        sta nd0+1
+        jsr newarr
+        bcc wo_2
+        rts
+wo_2:   lda #1
+        sta zmd
+        jsr wo_pass
+        jmp setdy
+
+; zmd 0: count the elements of A that stay in zv; zmd 1: copy them to dp
+wo_pass:
+        jsr topcell
+        jsr getval
+        lda vp
+        sta qsrc
+        lda vp+1
+        sta qsrc+1
+        jsr secondcell
+        jsr getval
+        lda vp
+        sta zib
+        lda vp+1
+        sta zib+1
+        lda zon
+        sta zoc
+        lda zon+1
+        sta zoc+1
+wp_o:   lda zoc
+        ora zoc+1
+        bne wp_o0
+        rts
+wp_o0:
+        lda zib
+        sta mp
+        lda zib+1
+        sta mp+1
+        lda #0
+        sta qxk
+        sta qxk+1
+wp_i:   lda qxk
+        cmp zin
+        bne wp_c
+        lda qxk+1
+        cmp zin+1
+        beq wp_nf
+wp_c:   jsr elem_eq
+        bcs wp_next             ; found: it goes
+        clc
+        lda mp
+        adc zwi
+        sta mp
+        bcc wp_i1
+        inc mp+1
+wp_i1:  inc qxk
+        bne wp_i
+        inc qxk+1
+        jmp wp_i
+wp_nf:  lda zmd                 ; not found: it stays
+        bne wp_cp
+        inc zv
+        bne wp_next
+        inc zv+1
+        jmp wp_next
+wp_cp:  ldy #0
+wp_k:   lda (qsrc),y
+        sta (dp),y
+        iny
+        cpy zwo
+        bne wp_k
+        clc
+        lda dp
+        adc zwo
+        sta dp
+        bcc wp_next
+        inc dp+1
+wp_next:
+        clc
+        lda qsrc
+        adc zwo
+        sta qsrc
+        bcc wp_n1
+        inc qsrc+1
+wp_n1:  lda zoc
+        bne wp_n2
+        dec zoc+1
+wp_n2:  dec zoc
+        jmp wp_o

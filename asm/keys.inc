@@ -31,6 +31,7 @@ dg_table:
         .byte $6e, $7e
         .byte $72, $8b
         .byte $73, $8d
+        .byte $74, $a1
         .byte $75, $9d
         .byte $76, $9a
         .byte $77, $99

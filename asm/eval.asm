@@ -561,11 +561,14 @@ rl_m3:  sec
 rl_ok:  dec ev_i1               ; skip the operator and the function
         dec ev_i1
         jmp rl_fn2
-rl_val: lda ev_tok              ; a value before an operator: a/b replicates, the others are not done
+rl_val: lda ev_tok              ; a value before an operator: a/b replicates and a\b expands, the others are not done
+        ldx #$7f                ; (function codes of their own: x f/ y is not a/b)
         cmp #$c0
+        beq rl_v1
+        ldx #$7e
+        cmp #$c1
         bne rl_nonce
-        lda #$7f                ; (a function code of its own: x f/ y is not a/b)
-        sta ev_tok
+rl_v1:  stx ev_tok
         dec ev_i1
         jmp rl_fn2
 rl_nonce:
@@ -1120,9 +1123,12 @@ apply_mon:
         beq am_gu
         cmp #24
         beq am_gd
+        cmp #25
+        beq am_tr
         lda #E_NONCE
         sec
         rts
+am_tr:  jmp s_transpose
 am_ceil: jmp s_ceil
 am_floor: jmp s_floor
 am_abs: jmp p_abs
@@ -1175,7 +1181,7 @@ ad_std: sec
         jmp p_sdyad
 ad_l:   cmp #18
         bcc ad_l2
-        beq ad_nonce
+        beq ad_wo
         cmp #19
         beq ad_rot
         cmp #20
@@ -1183,8 +1189,12 @@ ad_l:   cmp #18
         cmp #21
         beq ad_drop
         cmp #22
+        beq ad_mem
+        cmp #25
         bne ad_nonce
-        jmp s_member
+        jmp s_transax
+ad_mem: jmp s_member
+ad_wo:  jmp s_without
 ad_drop: jmp s_drop
 ad_l2:  sec
         sbc #2
@@ -1194,8 +1204,11 @@ ad_iof: jmp s_indexof
 ad_take: jmp s_take
 ad_nonce:
         cmp #$ff                ; replicate: the code $7f set by rl_val
-        bne ad_n2
+        bne ad_n1
         jmp s_repl
+ad_n1:  cmp #$fe                ; expand: the code $7e
+        bne ad_n2
+        jmp s_expand
 ad_n2:  lda #E_NONCE
         sec
         rts

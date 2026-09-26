@@ -43,13 +43,17 @@ ovstub  .macro
 ; the entry points of the routines in overlays (jump or call these: s_x runs p_x)
 s_gradeup: .ovstub p_gradeup, OVID_SEARCH
 s_gradedown: .ovstub p_gradedown, OVID_SEARCH
+s_without: .ovstub p_without, OVID_SEARCH
 s_member: .ovstub p_member, OVID_SEARCH
 s_indexof: .ovstub p_indexof, OVID_SEARCH
 s_rev: .ovstub p_rev, OVID_RESHAPE
 s_drop: .ovstub p_drop, OVID_RESHAPE
 s_rot: .ovstub p_rot, OVID_RESHAPE
 s_take: .ovstub p_take, OVID_RESHAPE
+s_transpose: .ovstub p_transpose, OVID_RESHAPE
+s_transax: .ovstub p_transax, OVID_RESHAPE
 s_repl: .ovstub p_repl, OVID_REPL
+s_expand: .ovstub p_expand, OVID_REPL
 s_begin_def: .ovstub begin_def, OVID_FDEF
 s_def_line: .ovstub def_line, OVID_FDEF
 s_ceil: .ovstub p_ceil, OVID_FLOOR
