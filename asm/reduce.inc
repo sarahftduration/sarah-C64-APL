@@ -55,6 +55,9 @@ red_ident:
         .byte 0, 1, 0, 0        ; ≤
         .byte 0, 0, 0, 0        ; >
         .byte 0, 1, 0, 0        ; ≥
+        .byte 2, 0, 0, 0        ; ⌈ (no identity: an empty row is DOMAIN ERROR)
+        .byte 2, 0, 0, 0        ; ⌊
+        .byte 2, 0, 0, 0        ; |
 
 ; A = function index 0..9 (the operand is the top cell)
 p_reduce:
@@ -301,6 +304,11 @@ rr3:    jmp rr_fold
 
 rr_ident:
         lda rgl
+        cmp #12                 ; ⌈ and ⌊ have no identity
+        bcs ri_0
+        cmp #10
+        bcs rr_dom
+ri_0:   lda rgl
         asl
         asl
         tax
@@ -334,6 +342,13 @@ rr_single:
         lda rbase+1
         sta ep+1
         lda rgl
+        cmp #10                 ; ⌈ ⌊ | do not take characters
+        bcc rs_a
+        lda rt
+        cmp #1
+        beq rr_dom
+        jmp rs_plain
+rs_a:   lda rgl
         cmp #4
         bcs rs_plain
         lda rt

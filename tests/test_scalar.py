@@ -61,7 +61,44 @@ POOL = ["0", "1", "7", "¯3", "32767", "¯32768", "32768", "40000", "¯40000", "
         "'abc'", "'ab'", "⍬", "''", "4 5", "1 0", "(1⍴5)", "(1⍴1.5)",
         "(2 3⍴⍳6)", "(2 3⍴1.5)", "(3 2⍴1 0)", "(2 3⍴'abcdef')", "(0 3⍴1)", "(2 3⍴¯32768)",
         "(⍳4)", "(1 2 3 4×10000)", "(1 2,3.5)"]
-OPS = "+-×÷=≠<≤>≥"
+OPS = "+-×÷=≠<≤>≥⌈⌊|"
+POOL += ["2.5", "¯2.5", "0.3", "¯0.3", "65535", "65536", "1e10", "¯1e10", "3.5 ¯3.5 0.5", "1e30", "7 ¯7 0 32768", "1e¯3 2e¯3"]
+
+
+def test_f_floor_residue():
+    """The floor and the residue kernels against the model's f_floor and f_residue, on floats of every size."""
+    m, L = load("eval")
+    rng = random.Random(4)
+    n = dom = 0
+    for _ in range(30000):
+        a = rand_f(rng)
+        if rng.random() < .5:
+            a = (rng.choice([127, 128, 129, 130, 135, 140, 143, 144, 145]) << 16) | (rng.getrandbits(1) << 15) | rng.getrandbits(15)
+        m.memory[FA:FA + 3] = to_bytes(a)
+        call(m, L["f_floor"])
+        got = m.memory[FA] << 16 | m.memory[FA + 1] << 8 | m.memory[FA + 2]
+        assert got == apl64.f_floor(a), (hex(a), hex(got), hex(apl64.f_floor(a)))
+    for _ in range(30000):
+        a, b = rand_f(rng), rand_f(rng)
+        r = rng.random()
+        if r < .5:                                       # exponents that make the quotient of moderate size
+            e = rng.randint(120, 150)
+            a = (e << 16) | (rng.getrandbits(1) << 15) | rng.getrandbits(15)
+            b = ((e + rng.randint(-3, 12)) << 16) | (rng.getrandbits(1) << 15) | rng.getrandbits(15)
+        m.memory[FA:FA + 3] = to_bytes(a)
+        m.memory[FB:FB + 3] = to_bytes(b)
+        call(m, L["k_fres"], max_steps=200000)
+        try:
+            want = apl64.f_residue(a, b)
+        except apl64.AplError:
+            assert m.p & 1 and m.a == 2, (hex(a), hex(b))
+            dom += 1
+            continue
+        assert not m.p & 1, (hex(a), hex(b))
+        got = m.memory[FA] << 16 | m.memory[FA + 1] << 8 | m.memory[FA + 2]
+        assert got == want, (hex(a), hex(b), hex(got), hex(want))
+        n += 1
+    print(f"float floor and residue: 30000 floors and {n} residues ({dom} overflows) match the model bit for bit")
 
 
 def test_matrix():
@@ -70,7 +107,7 @@ def test_matrix():
     kinds = {}
     lines = [f"{a}{op}{b}" for a in POOL for op in OPS for b in POOL]
     rng.shuffle(lines)
-    lines = lines[:3500] + [f"{op}{a}" for a in POOL for op in "-×÷+"]
+    lines = lines[:6000] + [f"{op}{a}" for a in POOL for op in "-×÷+⌈⌊|"]
     for n, line in enumerate(lines):
         if n % 25 == 0:
             s.reset()
@@ -92,5 +129,6 @@ def test_sizes():
 
 if __name__ == "__main__":
     test_f_cmp3()
+    test_f_floor_residue()
     test_sizes()
     test_matrix()

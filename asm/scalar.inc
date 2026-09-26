@@ -1,4 +1,4 @@
-; Scalar functions: dyadic + - × ÷ = ≠ < ≤ > ≥, monadic - × ÷.
+; Scalar functions: dyadic + - × ÷ = ≠ < ≤ > ≥ ⌈ ⌊ |, monadic - × ÷ ⌈ ⌊ |.
 ; Spec: apl64.py dyadic_scalar/_arith/_div/_cmp, monadic_scalar, f_teq..f_ge.
 ;
 ; One engine runs every dyadic: shapes are conformed (equal, or scalar
@@ -182,6 +182,250 @@ k_fchk: bcc k_fok
         lda #E_DOMAIN
         sec
 k_fok:  rts
+
+; ⌈ ⌊ on INT: ia = the larger or smaller of ia, ib
+icmp:   sec                     ; N set if ia < ib
+        lda ia
+        sbc ib
+        lda ia+1
+        sbc ib+1
+        bvc ic1
+        eor #$80
+ic1:    rts
+k_imax: jsr icmp
+        bpl k_ikeep
+k_icpb: lda ib
+        sta ia
+        lda ib+1
+        sta ia+1
+k_ikeep: clc
+        rts
+k_imin: jsr icmp
+        bmi k_ikeep
+        bpl k_icpb
+
+; ... on FLOAT: exact order (keycmp), no tolerance
+k_fcp:  ldx #2
+kf_1:   lda fa,x
+        sta ca,x
+        lda fb,x
+        sta cb,x
+        dex
+        bpl kf_1
+        jmp keycmp
+k_fmax: jsr k_fcp
+        cmp #$ff
+        bne k_fkeep
+k_fcpb: lda fb
+        sta fa
+        lda fb+1
+        sta fa+1
+        lda fb+2
+        sta fa+2
+k_fkeep: clc
+        rts
+k_fmin: jsr k_fcp
+        cmp #1
+        beq k_fcpb
+        clc
+        rts
+
+; magnitude: |ib|, INT overflow (-32768) redoes the array in FLOAT
+k_iabs: lda ib
+        sta ia
+        lda ib+1
+        sta ia+1
+        bpl kia_r
+        sec
+        lda #0
+        sbc ib
+        sta ia
+        lda #0
+        sbc ib+1
+        sta ia+1
+        bpl kia_r
+        lda #1
+        sta sdov
+kia_r:  clc
+        rts
+k_fabs: lda fb
+        sta fa
+        lda fb+1
+        and #$7f
+        sta fa+1
+        lda fb+2
+        sta fa+2
+        clc
+        rts
+
+; residue on INT: ia | ib = ib mod ia with the sign of ia; 0 | b is b
+; ua = |ia|, ub = |ib|, r = ub mod ua; the same signs give r, opposite signs ua - r (0 stays 0);
+; the sign of ia is put on the result
+rsa     = WS+$ed
+rsb     = WS+$ee
+rrem    = WS+$ef                ; (2)
+k_ires: lda ia
+        ora ia+1
+        bne kr_1
+        lda ib
+        sta ia
+        lda ib+1
+        sta ia+1
+        clc
+        rts
+kr_1:   lda ia+1
+        and #$80
+        sta rsa
+        bpl kr_2
+        sec
+        lda #0
+        sbc ia
+        sta ia
+        lda #0
+        sbc ia+1
+        sta ia+1
+kr_2:   lda ib+1
+        and #$80
+        sta rsb
+        bpl kr_3
+        sec
+        lda #0
+        sbc ib
+        sta ib
+        lda #0
+        sbc ib+1
+        sta ib+1
+kr_3:   lda #0                  ; rrem = ub mod ua by shifting ub in and subtracting
+        sta rrem
+        sta rrem+1
+        ldx #16
+kr_4:   asl ib
+        rol ib+1
+        rol rrem
+        rol rrem+1
+        sec
+        lda rrem
+        sbc ia
+        tay
+        lda rrem+1
+        sbc ia+1
+        bcc kr_5
+        sta rrem+1
+        sty rrem
+kr_5:   dex
+        bne kr_4
+        lda rrem
+        ora rrem+1
+        beq kr_z
+        lda rsa
+        eor rsb
+        bpl kr_6                ; the same sign: r itself
+        sec                     ; opposite signs: ua - r
+        lda ia
+        sbc rrem
+        sta rrem
+        lda ia+1
+        sbc rrem+1
+        sta rrem+1
+kr_6:   lda rrem
+        sta ia
+        lda rrem+1
+        sta ia+1
+        lda rsa
+        bpl kr_ok
+        sec
+        lda #0
+        sbc ia
+        sta ia
+        lda #0
+        sbc ia+1
+        sta ia+1
+kr_ok:  clc
+        rts
+kr_z:   lda #0
+        sta ia
+        sta ia+1
+        clc
+        rts
+
+; residue on FLOAT: the model's f_residue. fa = A, fb = B; ca = A, cb = B are kept.
+k_fres: lda fa
+        bne kq_1
+        lda fb                  ; A = 0: the result is B
+        sta fa
+        lda fb+1
+        sta fa+1
+        lda fb+2
+        sta fa+2
+        clc
+        rts
+kq_1:   ldx #2
+kq_2:   lda fa,x
+        sta ca,x
+        lda fb,x
+        sta cb,x
+        dex
+        bpl kq_2
+        ldx #2                  ; q = floor(B / A)
+kq_3:   lda cb,x
+        sta fa,x
+        lda ca,x
+        sta fb,x
+        dex
+        bpl kq_3
+        jsr f_div
+        bcs kq_dom
+        jsr f_floor
+        ldx #2                  ; A * q
+kq_4:   lda ca,x
+        sta fb,x
+        dex
+        bpl kq_4
+        jsr f_mul
+        bcs kq_dom
+        ldx #2                  ; r = B - A * q
+kq_5:   lda fa,x
+        sta fb,x
+        lda cb,x
+        sta fa,x
+        dex
+        bpl kq_5
+        jsr f_sub
+        bcs kq_dom
+        lda fa
+        beq kq_done
+        lda fa+1                ; a sign different from A's: r + A
+        eor ca+1
+        bpl kq_same
+        ldx #2
+kq_6:   lda ca,x
+        sta fb,x
+        dex
+        bpl kq_6
+        jsr f_add
+        bcs kq_dom
+kq_done: clc
+        rts
+kq_same: ldx #2                 ; the same sign: r - A if |r| >= |A|
+kq_7:   lda fa,x
+        sta cb,x
+        dex
+        bpl kq_7
+        jsr magcmp              ; |ca| against |cb|: 1 if |A| > |r|
+        cmp #1
+        beq kq_done
+        ldx #2
+kq_8:   lda ca,x
+        sta fb,x
+        dex
+        bpl kq_8
+        jsr f_sub
+        bcs kq_dom
+        clc
+        rts
+kq_dom: lda #E_DOMAIN
+        sec
+        rts
 
 k_fdiv: lda fb                  ; x ÷ 0 is DOMAIN ERROR, but 0 ÷ 0 is 1
         bne kd1
@@ -443,10 +687,12 @@ mode_rt: .byte 2, 3, 0, 0, 0
 mode_w:  .byte 2, 3, 1, 1, 1
 mode_stl: .byte <st_i, <st_f, <st_b, <st_b, <st_b
 mode_sth: .byte >st_i, >st_f, >st_b, >st_b, >st_b
-kint_l: .byte <k_iadd, <k_isub, <k_imul
-kint_h: .byte >k_iadd, >k_isub, >k_imul
-kflt_l: .byte <k_fadd, <k_fsub, <k_fmul, <k_fdiv
-kflt_h: .byte >k_fadd, >k_fsub, >k_fmul, >k_fdiv
+; indexed by the operation for + - × ÷ (0-3), and by the operation - 6 for ⌈ ⌊ | and the
+; magnitude (10-13, the engine's four extra operations)
+kint_l: .byte <k_iadd, <k_isub, <k_imul, <k_iadd, <k_imax, <k_imin, <k_ires, <k_iabs
+kint_h: .byte >k_iadd, >k_isub, >k_imul, >k_iadd, >k_imax, >k_imin, >k_ires, >k_iabs
+kflt_l: .byte <k_fadd, <k_fsub, <k_fmul, <k_fdiv, <k_fmax, <k_fmin, <k_fres, <k_fabs
+kflt_h: .byte >k_fadd, >k_fsub, >k_fmul, >k_fdiv, >k_fmax, >k_fmin, >k_fres, >k_fabs
 lai_l:  .byte <la_bool_i, <sd_nop, <la_int_i, <sd_nop
 lai_h:  .byte >la_bool_i, >sd_nop, >la_int_i, >sd_nop
 laf_l:  .byte <la_bool_f, <sd_nop, <la_int_f, <la_flt
@@ -455,6 +701,16 @@ lbi_l:  .byte <lb_bool_i, <sd_nop, <lb_int_i, <sd_nop
 lbi_h:  .byte >lb_bool_i, >sd_nop, >lb_int_i, >sd_nop
 lbf_l:  .byte <lb_bool_f, <sd_nop, <lb_int_f, <lb_flt
 lbf_h:  .byte >lb_bool_f, >sd_nop, >lb_int_f, >lb_flt
+
+; Y = the kernel table index of sdop
+opidx:  ldy sdop
+        cpy #10
+        bcc oi_r
+        tya
+        sec
+        sbc #6
+        tay
+oi_r:   rts
 
 ; install the four routines for sdmode / sdop / sdta / sdtb; set sdrt and sdw
 sd_setvecs:
@@ -482,7 +738,7 @@ sd_setvecs:
         rts
 sv_n4:  cpx #0
         bne sv_n0
-        ldy sdop
+        jsr opidx
         lda kint_l,y
         sta SDV+4
         lda kint_h,y
@@ -490,7 +746,7 @@ sv_n4:  cpx #0
         jmp sv_li
 sv_n0:  cpx #1
         bne sv_n1
-        ldy sdop
+        jsr opidx
         lda kflt_l,y
         sta SDV+4
         lda kflt_h,y
@@ -705,8 +961,10 @@ sc_fromA:
 sc_types:
         lda sdop                ; CHAR: only = and ≠ accept it
         cmp #4
-        bcs ty_cmp
-        lda sdta
+        bcc ty_ar
+        cmp #10
+        bcc ty_cmp
+ty_ar:  lda sdta
         cmp #1
         beq ty_dom
         lda sdtb
@@ -927,3 +1185,270 @@ sg_p2:  lda qcnt
 sg_p3:  dec qcnt
         jmp sgl
 sg_done: jmp setmon
+
+; --- floor and ceiling ---------------------------------------------------------------------------------
+; flr_q: the floor of fa. A = 0: the result is a small whole number, magnitude in ia and the sign
+; in bit 7 of sgn (zero has ia = 0); A = 1: fa is 2^16 or more, so it is whole already.
+flw     = WS+$f0
+pfm     = WS+$f1                ; 0 floor, 1 ceiling
+pfa     = WS+$f2                ; every result fits int16
+flr_q:  lda fa
+        cmp #144
+        bcs fq_big
+        cmp #128
+        bcc fq_small
+        eor #$ff                ; the shift: 144 - exponent, 1 to 16
+        clc
+        adc #145
+        tax
+        lda fa+1
+        and #$80
+        sta sgn
+        lda fa+1
+        and #$7f
+        ora #$80
+        sta ia+1
+        lda fa+2
+        sta ia
+        lda #0
+        sta flw
+fq_l:   lsr ia+1
+        ror ia
+        bcc fq_n
+        lda #1
+        sta flw
+fq_n:   dex
+        bne fq_l
+        lda flw                 ; below zero, bits lost: one more
+        beq fq_d
+        lda sgn
+        bpl fq_d
+        inc ia
+        bne fq_d
+        inc ia+1
+fq_d:   lda #0
+        rts
+fq_small:
+        lda #0                  ; below one half: 0, or -1 if negative and not zero
+        sta ia+1
+        sta sgn
+        sta ia
+        lda fa
+        beq fq_d
+        lda fa+1
+        and #$80
+        sta sgn
+        bpl fq_d
+        lda #1
+        sta ia
+        bne fq_d
+fq_big: lda #1
+        rts
+
+f_floor:
+        jsr flr_q
+        cmp #1
+        beq ff_r
+        jmp m_to_f
+ff_r:   rts
+
+; the floor (or ceiling) of the FLOAT element at ep, as flr_q gives it. For a ceiling the sign
+; is turned round before and after: ceil(x) = -floor(-x).
+pf_elem:
+        ldy #0
+        lda (ep),y
+        sta fa
+        iny
+        lda (ep),y
+        sta fa+1
+        iny
+        lda (ep),y
+        sta fa+2
+        jsr pf_neg
+        jsr flr_q
+        cmp #1
+        beq pf_b
+        lda pfm
+        beq pf_z
+        lda sgn
+        eor #$80
+        sta sgn
+pf_z:   lda #0
+        rts
+pf_b:   jsr pf_neg
+        lda #1
+        rts
+pf_neg: lda pfm
+        beq pn_r
+        lda fa
+        beq pn_r
+        lda fa+1
+        eor #$80
+        sta fa+1
+pn_r:   rts
+
+p_ceil: lda #1
+        bne pf_go
+p_floor: lda #0
+pf_go:  sta pfm
+        jsr topcell
+        jsr getval
+        lda vt
+        cmp #1
+        bne pf_1
+        lda #E_DOMAIN
+        sec
+        rts
+pf_1:   cmp #3
+        beq pf_f
+        clc                     ; BOOL and INT are whole already
+        rts
+pf_f:   lda vp                  ; first pass: does every result fit int16?
+        sta ep
+        lda vp+1
+        sta ep+1
+        lda vn
+        sta qcnt
+        lda vn+1
+        sta qcnt+1
+        lda #1
+        sta pfa
+pf_p1:  lda qcnt
+        ora qcnt+1
+        beq pf_a
+        jsr pf_elem
+        cmp #1
+        bne pf_p2               ; a big whole number fits only as exactly -2^15
+        lda fa
+        cmp #144
+        bne pf_nf
+        lda fa+1
+        cmp #$80
+        bne pf_nf
+        lda fa+2
+        beq pf_p2
+pf_nf:  lda #0
+        sta pfa
+pf_p2:  clc
+        lda ep
+        adc #3
+        sta ep
+        bcc pf_p3
+        inc ep+1
+pf_p3:  lda qcnt
+        bne pf_p4
+        dec qcnt+1
+pf_p4:  dec qcnt
+        jmp pf_p1
+pf_a:   lda pfa                 ; the result: INT if all fit, else FLOAT
+        eor #1
+        clc
+        adc #2
+        sta nt                  ; 2 or 3
+        lda vrk
+        bne pf_arr
+        lda nt
+        sta cv
+        lda #0
+        sta cv+1
+        sta cv+2
+        sta cv+3
+        lda #<(cv+1)
+        sta dp
+        lda #>(cv+1)
+        sta dp+1
+        jmp pf_fill
+pf_arr: sta nrk
+        lda vn
+        sta nn
+        lda vn+1
+        sta nn+1
+        lda vs0
+        sta nd0
+        lda vs0+1
+        sta nd0+1
+        lda vs1
+        sta nd1
+        lda vs1+1
+        sta nd1+1
+        jsr newarr
+        bcc pf_a2
+        rts
+pf_a2:  jsr topcell             ; (the arrays may have moved)
+        jsr getval
+pf_fill:
+        lda vp
+        sta ep
+        lda vp+1
+        sta ep+1
+        lda vn
+        sta qcnt
+        lda vn+1
+        sta qcnt+1
+pf_l:   lda qcnt
+        ora qcnt+1
+        beq pf_done
+        jsr pf_elem
+        tax                     ; 0: ia and sgn, 1: fa
+        ldy #0
+        lda pfa
+        beq pf_fl
+        cpx #0                  ; INT: a two's complement 16-bit value
+        bne pf_min
+        lda sgn
+        bpl pf_pos
+        sec
+        lda #0
+        sbc ia
+        sta ia
+        lda #0
+        sbc ia+1
+        sta ia+1
+pf_pos: lda ia
+        sta (dp),y
+        iny
+        lda ia+1
+        sta (dp),y
+        lda #2
+        bne pf_adv
+pf_min: lda #0                  ; -2^15
+        sta (dp),y
+        iny
+        lda #$80
+        sta (dp),y
+        lda #2
+        bne pf_adv
+pf_fl:  cpx #0
+        bne pf_st
+        jsr m_to_f
+pf_st:  lda fa
+        sta (dp),y
+        iny
+        lda fa+1
+        sta (dp),y
+        iny
+        lda fa+2
+        sta (dp),y
+        lda #3
+pf_adv: clc
+        adc dp
+        sta dp
+        bcc pf_v1
+        inc dp+1
+pf_v1:  clc
+        lda ep
+        adc #3
+        sta ep
+        bcc pf_v2
+        inc ep+1
+pf_v2:  lda qcnt
+        bne pf_v3
+        dec qcnt+1
+pf_v3:  dec qcnt
+        jmp pf_l
+pf_done: jmp setmon
+
+; monadic |: the magnitude, through the engine with a 0 on the left
+p_abs:  lda #0
+        ldx #13
+        jmp mo_const

@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **22,573 bytes** (`$0801`-`$602D`, including the start-up
+Code and read-only tables **23,696 bytes** (`$0801`-`$6490`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 20,400 bytes** (`$7C50` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 19,280 bytes** (`$80B0` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). `⌈ ⌊ |` then cost about 1,120 (19,280): the kernels for INT and FLOAT (about 460, residue being the largest), floor and ceiling (about 500) and the glue. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -304,7 +304,7 @@ model). Glyphs that are also tokens use their token code.
 | `$87` | `≤` | `$C4` | `∘`  | `$94` | `⍬` |
 | `$89` | `≥` | `$C5` | `⍤`  | `$95` | `⍝` |
 | `$90` | `¯` | `$96` | `∆`  | `$97` | `⍙` |
-| `$98` | `∇` | | | | |
+| `$98` | `∇` | `$8D` | `⌈` | `$8E` | `⌊` |
 
 A character with no code is a DOMAIN ERROR inside a string and a SYNTAX ERROR
 elsewhere. Input lines are at most 255 bytes and end with `$00`.
@@ -322,7 +322,7 @@ One line ends with `$00`.
 | `$0B` | a name of a function with arguments (made when a line is loaded, never stored; two bytes like a name) |
 | `$0C` | `⍬`, the empty INT vector, in one byte (a literal would be six); the evaluator makes the array |
 | `$10-$7F` | Reserved (system functions, ⎕ names, control keywords) |
-| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,` |
+| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|` |
 | `$C0+i` | Operator, `i` indexes `/\¨.∘⍤` |
 
 - Number strands and strings are folded into **one literal** by the tokenizer.
@@ -366,6 +366,23 @@ No parse tree. Scan tokens right to left:
    `name←`, and its value is `v`.
 3. `⋄` splits statements. A statement whose leftmost tokens are `name ←` is
    not echoed.
+
+## Maximum, minimum, floor, ceiling, residue, magnitude
+
+`⌈ ⌊ |` (typed pound `s`, `d`, `l`; `|` is the ASCII bar) are scalar functions run by the same
+engine as `+ - × ÷ = ≠ < ≤ > ≥` (`asm/scalar.inc`), so scalar extension, shape checks, DOMAIN ERROR for
+characters, and the size rules are the same, and `⌈/ ⌊/ |/` work like the other reductions.
+
+- **`A⌈B`, `A⌊B`**: the larger and smaller. BOOL and INT give INT; a FLOAT operand gives FLOAT. The order
+  is exact (no comparison tolerance).
+- **`⌈B`, `⌊B`**: ceiling and floor. BOOL and INT are unchanged. FLOAT becomes INT if every result fits int16,
+  otherwise stays FLOAT (whole values). The floor is exact (no tolerance).
+- **`A|B`**: the residue, `B` modulo `A`, with the sign of `A`; `0|B` is `B`. BOOL and INT give exact INT. FLOAT
+  gives `B - A × ⌊B÷A` with each step rounded, then, if that left the result outside `[0,A)`
+  (or `(A,0]`), one correction by `A`; overflow of the division is DOMAIN ERROR.
+- **`|B`**: the magnitude; BOOL and INT give INT (the whole array becomes FLOAT if `¯32768` is in it),
+  FLOAT clears the sign.
+- `⌈/⍬` and `⌊/⍬` are DOMAIN ERROR (the identity would be the largest or smallest number), `|/⍬` is 0.
 
 ## Replicate and compress
 
@@ -580,7 +597,8 @@ done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
   | `1` | `¨` | `0` | `⍤` | `'` | `⍬` |
   | `[` | `←` | `]` | `→` | `.` | `⋄` |
   | `,` | `⍝` | `h` | `∆` | shifted `h` | `⍙` |
-  | `g` | `∇` | | | | |
+  | `g` | `∇` | `s` | `⌈` | `d` | `⌊` |
+  | `l` | `\|` | | | | |
   | `←` key | `_` | `£` | `\` | anything else | nothing |
 
 - **Line editor** (`edit_key`, `repl`): the line is built in the tokenizer's input
@@ -701,7 +719,7 @@ at `SYMTAB`.
 
 `+ - × ÷` (monadic: identity, negate, signum, reciprocal), `= ≠ < ≤ > ≥`,
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
-`f/` for scalar dyadic `f`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
+`f/` for scalar dyadic `f` (including `⌈ ⌊ |`), replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
 NONCE: `\ ¨ . ∘ ⍤`, axis brackets, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.

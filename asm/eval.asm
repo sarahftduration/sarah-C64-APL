@@ -533,8 +533,15 @@ rl_fnok:
         bne rl_nonce
         lda ev_pg
         cmp #10
+        bcc rl_ok               ; + - × ÷ = ≠ < ≤ > ≥ are 0-9, ⌈ ⌊ | are 13-15: reduce knows them as 10-12
+        cmp #13
+        bcc rl_nonce
+        cmp #16
         bcs rl_nonce
-        dec ev_i1               ; skip the operator and the function
+        sec
+        sbc #3
+        sta ev_pg
+rl_ok:  dec ev_i1               ; skip the operator and the function
         dec ev_i1
         jmp rl_fn2
 rl_val: lda ev_tok              ; a value before an operator: a/b replicates, the others are not done
@@ -996,9 +1003,18 @@ apply_mon:
         beq am_sign
         cmp #3
         beq am_recip
+        cmp #13
+        beq am_ceil
+        cmp #14
+        beq am_floor
+        cmp #15
+        beq am_abs
         lda #E_NONCE
         sec
         rts
+am_ceil: jmp p_ceil
+am_floor: jmp p_floor
+am_abs: jmp p_abs
 am_plus:
         jmp p_plusm
 am_iota:
@@ -1021,6 +1037,13 @@ apply_dy:
         beq ad_reshape
         cmp #12
         beq ad_cat
+        cmp #13                 ; ⌈ ⌊ | are the engine's operations 10 to 12
+        bcc ad_nonce
+        cmp #16
+        bcs ad_nonce
+        sec
+        sbc #3
+        jmp p_sdyad
 ad_nonce:
         cmp #$ff                ; replicate: the code $7f set by rl_val
         bne ad_n2
