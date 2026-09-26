@@ -38,6 +38,8 @@ element leaves int16, redo the whole primitive in float24.
 last axis, the result the shape of v.  a∘.f b is the outer product: f between every element of a
 and every element of b, shaped like the shape of a followed by the shape of b (LIMIT ERROR past
 rank 2); f is one of the scalar dyadic functions.
+"\\" after a value is expand (a\\b: the 0s of a are fills, the 1s take the elements of b); a~b is without, ⍉ is
+transpose (a⍉b takes a permutation of the axes).
 a f.g b is the inner product: f/ of (a g b) over the last axis of a and the first axis of b (see make_inner).
 Division always gives FLOAT.  0 / 0 is 1; x / 0 is DOMAIN ERROR.
 Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] (the
@@ -807,6 +809,52 @@ def replicate(a, b):
     return vector(b.t, [d for d, x in zip(data, xs) for _ in range(x)])
 
 
+def expand(a, b):
+    """a\\b: a vector of 0s and 1s (a) says where the elements of b go: each 1 takes the next element of b
+    and each 0 has a fill (0 or a blank) instead.  b is a vector with one element per 1, or a scalar (used for
+    all of them).  Checks: a (RANK, DOMAIN), b's rank (NONCE), a's values (DOMAIN), lengths, size."""
+    xs = to_ints(a)
+    if b.rank > 1:
+        raise AplError('NONCE ERROR')
+    if any(x not in (0, 1) for x in xs):
+        raise AplError('DOMAIN ERROR')
+    ones = sum(xs)
+    data = b.data
+    if b.rank == 0:
+        data = data * ones
+    elif len(data) != ones:
+        raise AplError('LENGTH ERROR')
+    check_size(b.t, len(xs))
+    it = iter(data)
+    return vector(b.t, [next(it) if x else FILL[b.t] for x in xs])
+
+
+def without(a, b):
+    """a~b: the elements of the vector a that are not in b (a scalar a counts as a vector of one)."""
+    if a.rank > 1:
+        raise AplError('RANK ERROR')
+    return vector(a.t, [x for x in a.data if not any(_same(a.t, x, b.t, y) for y in b.data)])
+
+
+def transpose(v):
+    """⍉v: rows and columns exchanged; a scalar or vector is unchanged."""
+    if v.rank < 2:
+        return v
+    m, n = v.shape
+    return Value(v.t, (n, m), [v.data[i * n + j] for j in range(n) for i in range(m)])
+
+
+def transpose_axes(a, v):
+    """a⍉v: a names the axis of the result that each axis of v becomes: a permutation of 1..rank v
+    (one entry per axis, LENGTH ERROR otherwise, DOMAIN ERROR if it is not a permutation)."""
+    xs = to_ints(a)
+    if len(xs) != v.rank:
+        raise AplError('LENGTH ERROR')
+    if sorted(xs) != list(range(1, v.rank + 1)):
+        raise AplError('DOMAIN ERROR')
+    return transpose(v) if xs == [2, 1] else v
+
+
 def ravel(v):
     return vector(v.t, v.data)
 
@@ -1022,13 +1070,14 @@ for _g in SCALAR_DYADIC:
     PRIMS[_g] = (
         (lambda f: (lambda v: monadic_scalar(f, v)))(_m) if _m else _nonce,
         (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
-PRIMS['~'] = (lambda v: monadic_scalar(_m_not, v), _nonce)      # (dyadic ~ is not done)
+PRIMS['~'] = (lambda v: monadic_scalar(_m_not, v), without)
 PRIMS['⌽'] = (reverse, rotate)
 PRIMS['↑'] = (_nonce, take)
 PRIMS['↓'] = (_nonce, drop)
 PRIMS['⍳'] = (iota, index_of)
 PRIMS['∊'] = (_nonce, member)
 PRIMS['⍋'] = (grade(False), _nonce)
+PRIMS['⍉'] = (transpose, transpose_axes)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -1071,12 +1120,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒⍉'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
@@ -1416,12 +1465,12 @@ class Interp:
                     raise AplError('SYNTAX ERROR')
                 pc = toks[i - 1][0]
                 if self._isv(toks[i - 1]):                  # a/b: replicate and compress
-                    if OP_GLYPHS[c - 0xC0] != '/':
+                    if OP_GLYPHS[c - 0xC0] not in '/\\':
                         raise AplError('NONCE ERROR')
                     left, i = self._operand(toks, i - 1)
                     if left is None:
                         raise AplError('VALUE ERROR')
-                    val = replicate(left, val)
+                    val = (replicate if OP_GLYPHS[c - 0xC0] == '/' else expand)(left, val)
                     continue
                 if not 0x80 <= pc < 0xC0:
                     raise AplError('SYNTAX ERROR')
@@ -1850,7 +1899,7 @@ def selftest():
         ("'a'/5", '!DOMAIN ERROR'),
         ('(2 2⍴1)/5', '!RANK ERROR'),
         ('1/2 2⍴1', '!NONCE ERROR'),
-        ('1 0 1\\1 2 3', '!NONCE ERROR'),
+        ('1 0 1\\1 2 3', '!LENGTH ERROR'),
         ('(1 0 1=1 2 1)/⍳3', '1 3'),
         ('+/2/1 2', '6'),
         ('A←3 ⋄ A/⍳2', '1 1 1 2 2 2'),
@@ -1934,9 +1983,14 @@ def selftest():
         ('A[1]←5', ''),
         ('A', '5 20 30 40'),
         ('+/[1]A', '!NONCE ERROR'),
+        ('⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('⍉⍳3', '1 2 3'), ('⍉5', '5'), ('2 1⍉2 3⍴⍳6', '1 4|2 5|3 6'), ('1 2⍉2 3⍴⍳6', '1 2 3|4 5 6'),
+        ('1 1⍉2 2⍴⍳4', '!DOMAIN ERROR'), ('2 1⍉⍳3', '!LENGTH ERROR'), ('⍬⍉5', '5'), ("⍉'ab'", 'ab'), ('⍉⍉2 3⍴⍳6', '1 2 3|4 5 6'),
+        ('(⍳5)~2 4', '1 3 5'), ("'hello'~'l'", 'heo'), ('3~1 2 3', ''), ('1 2 3~⍬', '1 2 3'), ('(2 2⍴1)~1', '!RANK ERROR'), ('1 2 3~2.0', '1 3'),
+        ('1 0 1\\7 8', '7 0 8'), ('1 0 1 1\\1 2 3', '1 0 2 3'), ("1 0 1\\'ab'", 'a b'), ('1 0 1\\5', '5 0 5'), ('0 0\\⍬', '0 0'),
+        ('1 2\\3 4', '!DOMAIN ERROR'), ('1 0 1\\2 2⍴1', '!NONCE ERROR'), ('(2 2⍴1)\\1 2', '!RANK ERROR'),
         ('+\\1 2 3 4', '1 3 6 10'), ('-\\1 2 3 4', '1 ¯1 2 ¯2'), ('×\\⍳5', '1 2 6 24 120'), ('+\\2 3⍴⍳6', '1 3  6|4 9 15'),
         ('⌈\\3 1 4 1 5', '3 3 4 4 5'), ('+\\⍬', ''), ('+\\5', '5'), ('+\\32767 1 1', '32767 32768 32769'),
-        ("+\\'ab'", '!DOMAIN ERROR'), ('1 2+\\3', '!NONCE ERROR'), ('1 2\\3', '!NONCE ERROR'),
+        ("+\\'ab'", '!DOMAIN ERROR'), ('1 2+\\3', '!NONCE ERROR'), ('1 2\\3', '!DOMAIN ERROR'),
         ('1 2 3∘.×1 2 3', '1 2 3|2 4 6|3 6 9'), ('(⍳3)∘.=⍳3', '1 0 0|0 1 0|0 0 1'), ('1 2∘.+10 20 30', '11 21 31|12 22 32'),
         ('2∘.+3', '5'), ('2∘.+1 2', '3 4'), ('(2 2⍴1)∘.+1 2', '!LIMIT ERROR'), ('∘.+1', '!SYNTAX ERROR'),
         ('1 2∘.⍳3', '!NONCE ERROR'), ('(⍳300)∘.+⍳300', '!WS FULL'),
