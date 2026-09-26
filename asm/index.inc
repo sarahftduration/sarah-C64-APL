@@ -18,12 +18,11 @@ xt      = WS+$bc                ; type of the indexed array
 xrk     = WS+$bd                ; its rank
 xd      = WS+$be                ; (2+2) its dimensions
 xf      = WS+$c2                ; an index was out of range
-xa      = WS+$c3                ; current axis (times 2 while filling)
+xa      = WS+$c3                ; current axis times 2
 xw      = WS+$c4                ; element width
 xpn     = WS+$d4                ; (2+2) number of index elements per axis
 xpt     = WS+$d8                ; type of the index per axis, $ff when elided; xpt+1: dims overflow
 xrem    = WS+$dc                ; (2+2) elements of the axis still to visit
-xp1i    = WS+$e0                ; (2) start of axis 1's cursor
 xlin    = WS+$e2                ; (2) element number in the indexed array
 xrow    = WS+$e4                ; (2) start of the current row
 xov     = xpt+1
@@ -37,23 +36,110 @@ xbig    = WS+$ec                ; the selection has 65536 or more elements
 xcur    = qsrc                  ; axis cursors: qsrc for axis 0, mp for axis 1 (stride 2)
 xbase   = sp                    ; data pointer of the indexed array
 
-; cptr = the cell of index group A (0-based)
-axcell: sec
+; cptr = the cell of index group X/2 (0-based): vsp - 8 - 4 * axis
+axcell: txa
+        asl
+        adc #8
+        sta cptr
         lda vsp
-        sbc #8
+        sec
+        sbc cptr
         sta cptr
         lda vsp+1
         sbc #0
         sta cptr+1
-        cpx #0
-        beq axc1
-        sec
-        lda cptr
-        sbc #4
-        sta cptr
-        bcs axc1
-        dec cptr+1
-axc1:   rts
+        rts
+
+; Set up the cursor over the index group of axis X/2 (X = 2 * axis): its type xpt (or $ff
+; for an elided axis), element count xpn, cursor xcur (the first element's address, or the
+; value 0 for an elided axis), xrem = xpn, and vrk, vs0, vs1 = the group's shape (an elided
+; axis is a vector of the axis length). Returns X = 2 * axis.
+axinit: stx xa
+        jsr axcell
+        ldy #0
+        lda (cptr),y
+        cmp #$82
+        bne ai_arr
+        ldx xa
+        lda #$ff
+        sta xpt,x
+        lda xd,x
+        sta xpn,x
+        sta vs0
+        lda xd+1,x
+        sta xpn+1,x
+        sta vs0+1
+        lda #1
+        sta vrk
+        lda #0
+        sta xcur,x
+        sta xcur+1,x
+        beq ai_end
+ai_arr: jsr getval
+        ldx xa
+        lda vt
+        sta xpt,x
+        lda vn
+        sta xpn,x
+        lda vn+1
+        sta xpn+1,x
+        lda vp
+        sta xcur,x
+        lda vp+1
+        sta xcur+1,x
+ai_end: lda xpn,x
+        sta xrem,x
+        lda xpn+1,x
+        sta xrem+1,x
+        rts
+
+; one fewer element to visit on axis X/2; Z set when none is left
+dec_rem:
+        lda xrem,x
+        bne dr1
+        dec xrem+1,x
+dr1:    dec xrem,x
+        lda xrem,x
+        ora xrem+1,x
+        rts
+
+; im = the next index of axis X/2, 0-based (the model's index minus 1); carry set: not a
+; whole number. ineg and ihuge tell about the other bad values.
+ax_next:
+        stx xa
+        lda xpt,x
+        cmp #$ff
+        bne an1
+        lda xcur,x
+        sta im
+        lda xcur+1,x
+        sta im+1
+        inc xcur,x
+        bne an_r
+        inc xcur+1,x
+an_r:   clc
+        rts
+an1:    sta vt
+        lda xcur,x
+        sta ep
+        lda xcur+1,x
+        sta ep+1
+        jsr elem_to_int
+        php
+        ldx xa
+        ldy vt
+        lda WIDTHT,y
+        clc
+        adc xcur,x
+        sta xcur,x
+        bcc an2
+        inc xcur+1,x
+an2:    lda im
+        bne an3
+        dec im+1
+an3:    dec im
+        plp
+        rts
 
 ; append the dimension in qd0 to the result shape (nrk counts them)
 adddim: lda nrk
@@ -118,93 +204,49 @@ px_wd:  lda cptr
         sec
         rts
 
-; phase 1: validate every axis and build the result's shape
+; validate every axis and build the selection's shape
 px_ax:  lda #0
-        sta xa
         sta nrk
         sta xov
-px_a1:  lda xa
-        asl
-        tax
-        lda xa
-        jsr axcell_a
-        ldy #0
-        lda (cptr),y
-        cmp #$82
-        bne px_arr
-        lda #$ff                ; elided: the whole axis
-        sta xpt,x
-        lda xd,x
-        sta xpn,x
-        sta qd0
-        lda xd+1,x
-        sta xpn+1,x
-        sta qd0+1
-        jsr adddim
-        jmp px_next
-px_arr: jsr getval
-        lda xa
-        asl
-        tax
-        lda vt
-        sta xpt,x
-        lda vn
-        sta xpn,x
-        lda vn+1
-        sta xpn+1,x
-        lda vp
-        sta ep
-        lda vp+1
-        sta ep+1
-        lda vn
-        sta qcnt
-        lda vn+1
-        sta qcnt+1
+        sta xpn+3               ; a vector is a matrix with one column group of length 1
+        lda #1
+        sta xpn+2
+        ldx #0
+px_a1:  jsr axinit
+        lda xpt,x
+        cmp #$ff
+        beq px_shape
         lda #0
         sta xf
-px_v:   lda qcnt
-        ora qcnt+1
+        lda xrem,x              ; no elements: nothing to check
+        ora xrem+1,x
         beq px_vd
-        jsr elem_to_int
+px_v:   jsr ax_next
         bcc px_v1
         lda #E_DOMAIN
         sec
         rts
-px_v1:  lda xa
-        asl
-        tax
-        lda ineg
+px_v1:  lda ineg
         ora ihuge
         bne px_bad
-        lda im
-        ora im+1
-        beq px_bad
-        lda xd,x                ; dim < index?
-        cmp im
-        lda xd+1,x
-        sbc im+1
-        bcs px_adv
+        ldx xa
+        lda im                  ; index >= dimension?
+        cmp xd,x
+        lda im+1
+        sbc xd+1,x
+        bcc px_ok
 px_bad: lda #1
         sta xf
-px_adv: ldx vt
-        clc
-        lda ep
-        adc WIDTHT,x
-        sta ep
-        bcc px_a3
-        inc ep+1
-px_a3:  lda qcnt
-        bne px_a4
-        dec qcnt+1
-px_a4:  dec qcnt
-        jmp px_v
+px_ok:  ldx xa
+        jsr dec_rem
+        bne px_v
 px_vd:  lda xf
         beq px_shape
         lda #E_INDEX
         sec
         rts
 px_shape:
-        lda vrk                 ; the index's own dimensions join the result's
+        lda vrk                 ; the index's own dimensions join the selection's
         beq px_next
         lda vs0
         sta qd0
@@ -220,8 +262,11 @@ px_shape:
         sta qd0+1
         jsr adddim
 px_next:
-        inc xa
-        lda xa
+        ldx xa
+        inx
+        inx
+        txa
+        lsr
         cmp xk
         beq px_done
         jmp px_a1
@@ -231,18 +276,7 @@ px_done:
         lda #E_LIMIT
         sec
         rts
-px_n:   lda #0
-        sta xbig
-        lda xk                  ; selection count
-        cmp #2
-        beq px_mul
-        lda xpn
-        sta nn
-        lda xpn+1
-        sta nn+1
-        ora nn
-        jmp px_e
-px_mul: lda xpn
+px_n:   lda xpn
         sta p0
         lda xpn+1
         sta p1
@@ -251,6 +285,7 @@ px_mul: lda xpn
         lda xpn+3
         sta bh
         jsr mul16
+        ldx #0
         lda p2
         ora p3
         sta xbig
@@ -261,9 +296,7 @@ px_mul: lda xpn
         ora p0
         ora p2
         ora p3
-px_e:   ldx #0                  ; A = 0 iff the selection is empty
-        cmp #0
-        bne px_e1
+        bne px_e1               ; X = 1 iff the selection is empty
         inx
 px_e1:  stx xemp
         clc
@@ -280,7 +313,6 @@ pi_1:   lda xbig
         rts
 pi_2:   lda #0
         sta xmode
-px_alloc:
         ldx xt
         lda WIDTHT,x
         sta xw
@@ -303,94 +335,52 @@ px_new: lda xt
         bcc px_fill
         rts
 
-; phase 2: gather. Nothing here allocates, so the addresses derived now stay valid.
+; gather. Nothing here allocates, so the addresses derived now stay valid.
 px_fill:
         lda xemp
-        beq px_go
-        jmp px_fin
-px_go:  jsr topcell
+        bne px_fin
+        jsr topcell
         jsr getval
         lda vp
         sta xbase
         lda vp+1
         sta xbase+1
         jsr fill_run
-px_fin: lda xmk                 ; the result replaces the marker, the groups and the array
-        sta cptr
-        clc
-        adc #4
+px_fin: jsr dropto              ; the result replaces the marker, the groups and the array
+        jmp pushcv
+
+; drop the marker, the groups and the array (leaving what is below the marker)
+dropto: lda xmk
         sta vsp
         lda xmk+1
-        sta cptr+1
-        adc #0
         sta vsp+1
-        ldy #3
-px_f1:  lda cv,y
-        sta (cptr),y
-        dey
-        bpl px_f1
         clc
         rts
 
-; Visit the selection in order, calling act for each element with xrow + im - 1 the
-; element number in the indexed array. The cursors are re-derived here, so this may only
-; run when nothing allocates.
+; Visit the selection in order, calling act for each element with xrow + im the
+; (0-based) element number in the indexed array. The cursors are set up here, so this may
+; only run when nothing allocates.
 fill_run:
-        lda #0
-        sta xa
-px_i:   lda xa
-        asl
-        tax
-        lda xpn,x
-        sta xrem,x
-        lda xpn+1,x
-        sta xrem+1,x
-        lda xpt,x
-        cmp #$ff
-        bne px_i1
-        lda #1                  ; elided: the cursor counts 1, 2, ...
-        sta xcur,x
-        lda #0
-        sta xcur+1,x
-        jmp px_i2
-px_i1:  lda xa
-        jsr axcell_a
-        jsr getval
-        lda xa
-        asl
-        tax
-        lda vp
-        sta xcur,x
-        lda vp+1
-        sta xcur+1,x
-px_i2:  inc xa
-        lda xa
-        cmp xk
-        bne px_i
-        lda xcur+2              ; axis 1 restarts for every row
-        sta xp1i
-        lda xcur+3
-        sta xp1i+1
         lda #0
         sta xrow
         sta xrow+1
+        tax
+        jsr axinit
         lda xk
         cmp #2
         beq px_mat
 px_vec: ldx #0
         jsr ax_next
         jsr act
-        jsr dec_rem0
+        ldx #0
+        jsr dec_rem
         bne px_vec
         rts
 px_mat: ldx #0
-        jsr ax_next             ; row r: xrow = (r-1) * columns
-        sec
+        jsr ax_next             ; row r: xrow = r * columns
         lda im
-        sbc #1
         sta p0
         lda im+1
-        sbc #0
         sta p1
         lda xd+2
         sta bl
@@ -401,75 +391,17 @@ px_mat: ldx #0
         sta xrow
         lda p1
         sta xrow+1
-        lda xp1i
-        sta xcur+2
-        lda xp1i+1
-        sta xcur+3
-        lda xpn+2
-        sta xrem+2
-        lda xpn+3
-        sta xrem+3
+        ldx #2                  ; axis 1 starts again for every row
+        jsr axinit
 px_col: ldx #2
         jsr ax_next
         jsr act
-        lda xrem+2
-        bne px_c1
-        dec xrem+3
-px_c1:  dec xrem+2
-        lda xrem+2
-        ora xrem+3
+        ldx #2
+        jsr dec_rem
         bne px_col
-        jsr dec_rem0
+        ldx #0
+        jsr dec_rem
         bne px_mat
-        rts
-
-; the group number in A -> cptr (X is preserved as 2 * A)
-axcell_a:
-        pha
-        tax
-        jsr axcell
-        pla
-        asl
-        tax
-        rts
-
-dec_rem0:
-        lda xrem
-        bne dr1
-        dec xrem+1
-dr1:    dec xrem
-        lda xrem
-        ora xrem+1
-        rts
-
-; im = the next index of axis X/2, 1-based
-ax_next:
-        stx xa
-        lda xpt,x
-        cmp #$ff
-        bne an1
-        lda xcur,x
-        sta im
-        lda xcur+1,x
-        sta im+1
-        inc xcur,x
-        bne an_r
-        inc xcur+1,x
-an_r:   rts
-an1:    sta vt
-        lda xcur,x
-        sta ep
-        lda xcur+1,x
-        sta ep+1
-        jsr elem_to_int
-        ldx xa
-        ldy vt
-        lda WIDTHT,y
-        clc
-        adc xcur,x
-        sta xcur,x
-        bcc an_r
-        inc xcur+1,x
         rts
 
 act:    lda xmode
@@ -489,22 +421,16 @@ ga_c:   lda (cs),y
         inc dp+1
 ga_r:   rts
 
-; cs = xbase + (xrow + im - 1) * xw
+; cs = xbase + (xrow + im) * xw
 elemaddr:
         clc
         lda xrow
         adc im
         sta xlin
+        sta cs
         lda xrow+1
         adc im+1
         sta xlin+1
-        lda xlin
-        bne ga1
-        dec xlin+1
-ga1:    dec xlin
-        lda xlin
-        sta cs
-        lda xlin+1
         sta cs+1
         lda xw
         cmp #1
@@ -687,9 +613,4 @@ ia_6:   lda cv,y
         sta (cptr),y
         dey
         bpl ia_6
-ia_fin: lda xmk                 ; drop the marker, the groups and the array; v stays
-        sta vsp
-        lda xmk+1
-        sta vsp+1
-        clc
-        rts
+ia_fin: jmp dropto              ; v stays

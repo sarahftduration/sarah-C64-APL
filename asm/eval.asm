@@ -70,6 +70,7 @@ ev_ix   = WS+$f7
 ev_hb   = WS+$f8
 ev_px   = WS+$f9
 ev_sf   = WS+$f5                ; find_delim: stop at semicolons
+ev_na   = WS+$f6                ; the statement began with an assignment: no echo
 echov   = WS+$fa
 ev_pg   = WS+$fe
 
@@ -233,44 +234,8 @@ el_end: stx ev_shi
         jsr eval_stmt
         bcc el_ok
         rts
-el_ok:  lda ev_shi              ; echo unless the statement starts with name ←
-        sec
-        sbc ev_slo
-        cmp #2
-        bcc el_echo
-        ldx ev_slo
-        lda TC,x
-        cmp #T_NAME
-        bne el_echo
-        lda TC+1,x
-        cmp #T_ASSIGN
-        beq el_pop
-        cmp #T_LBRK             ; name[...]<- is not echoed either
-        bne el_echo
-        lda #1
-        sta ev_dep
-el_ix:  inx
-        lda TC+1,x
-        cmp #T_LPAR
-        beq el_ix1
-        cmp #T_LBRK
-        bne el_ix2
-el_ix1: inc ev_dep
-        jmp el_ix
-el_ix2: cmp #T_RPAR
-        beq el_ix3
-        cmp #T_RBRK
-        bne el_ix
-el_ix3: dec ev_dep
-        bne el_ix
-        txa                     ; the token after the matching ']', if the statement has one
-        clc
-        adc #2
-        cmp ev_shi
-        bcs el_echo
-        lda TC+2,x
-        cmp #T_ASSIGN
-        beq el_pop
+el_ok:  lda ev_na               ; echo unless the statement starts with name ← or name[...]←
+        bne el_pop
 el_echo:
         jsr callecho
 el_pop: sec
@@ -311,7 +276,9 @@ es_nonce:
         lda #E_NONCE
         sec
         rts
-es2:    lda ev_slo
+es2:    lda #0
+        sta ev_na
+        lda ev_slo
         sta ev_lo
         lda ev_shi
         sta ev_i1
@@ -390,7 +357,10 @@ ct_idx: cmp #K_IDX
         jsr p_index
         jmp ct_pop
 ct_ia:  ldx ev_i1               ; the name token of A[i]<-v
-        jsr nameidx
+        cpx ev_slo
+        bne ci_x
+        inc ev_na
+ci_x:   jsr nameidx
         sta xvar
         jsr p_iasg
 ct_pop: bcc *+3
@@ -427,8 +397,9 @@ evloop: lda ev_i1
         cmp #$c0
         bcs rl_op
         cmp #$80
-        bcs rl_fn
-        cmp #T_RBRK
+        bcc rl_x
+        jmp rl_fn
+rl_x:   cmp #T_RBRK
         bne rl_bad
         jmp rl_axis
 rl_bad: jmp ev_syn
@@ -448,7 +419,10 @@ rl_asg: cpx ev_lo
 ra_name:
         cmp #T_NAME
         bne ev_syn
-        jsr nameidx
+        cpx ev_slo
+        bne ra_x
+        inc ev_na
+ra_x:   jsr nameidx
         jsr assign
         dec ev_i1
         dec ev_i1
