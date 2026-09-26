@@ -145,7 +145,7 @@ def run_vice_disk(prg, initbreak, hostdir, script):
         cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
                "roms/basic.bin", "-chargen", "roms/chargen.bin", "-autostartprgmode", "1", "-initbreak", initbreak,
                "-limitcycles", "800000000", "+drive8truedrive", "-iecdevice8", "-fs8", hostdir,
-               "-autostart", prg, "-moncommands", mon]
+               "-autostart", prg, "-moncommands", mon, "-reu", "-reusize", "512"]
         subprocess.run(cmd, capture_output=True, timeout=400)
         return {n: open(os.path.join(d, n), "rb").read() for n in os.listdir(d) if n != "mon.txt"}
 
@@ -215,7 +215,7 @@ def image_session(text, files=None):
                         "-kernal", "roms/kernal.bin", "-basic", "roms/basic.bin", "-chargen", "roms/chargen.bin",
                         "-dos1541", dos1541_rom(), "-autostartprgmode", "1", "-initbreak", hex(L["selftest_done"]),
                         "-limitcycles", "1500000000", "-drive8type", "1541", "-8", img,
-                        "-autostart", scratch("keytest.prg"), "-moncommands", mon], capture_output=True, timeout=600)
+                        "-autostart", scratch("keytest.prg"), "-moncommands", mon, "-reu", "-reusize", "512"], capture_output=True, timeout=600)
         ed = DiskModel((L["HEAP_BASE"], L["HEAP_LIMIT"]), files, dos=True)
         for k in keys:
             ed.key(k)

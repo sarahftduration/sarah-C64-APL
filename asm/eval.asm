@@ -32,6 +32,7 @@ E_INTR   = 10
         .include "replicate.inc"
         .include "reshape.inc"
         .include "search.inc"
+        .include "reu.inc"
         .include "funcs.inc"
         .include "format.inc"
         .include "startup.inc"

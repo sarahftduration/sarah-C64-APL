@@ -63,3 +63,35 @@ def call(mpu, addr, max_steps=1_000_000):
             assert not bad, f"zero page written outside the allowed set: {[hex(a) for a in bad]}"
             return
     raise RuntimeError("routine did not return")
+
+
+class Reu:
+    """A RAM Expansion Unit for py65 tests: the transfer happens when the program reaches the
+    instruction that stores the command (label reu_trig), using the registers in memory.
+
+    size is in bytes (a power of two, at least 128 KB); the REU address wraps at that size, as a real
+    one does. Only stash and fetch are modelled (the program uses no others)."""
+
+    def __init__(self, mpu, labels, size):
+        self.mpu, self.size = mpu, size
+        self.mem = bytearray(size)
+        self.transfers = []
+        if not hasattr(mpu, "hooks"):
+            mpu.hooks = {}
+        mpu.hooks[labels["reu_trig"]] = self.trigger
+
+    def trigger(self, mpu):
+        m = mpu.memory
+        cmd = mpu.a
+        c64 = m[0xDF02] | m[0xDF03] << 8
+        reu = m[0xDF04] | m[0xDF05] << 8 | m[0xDF06] << 16
+        n = (m[0xDF07] | m[0xDF08] << 8) or 0x10000
+        assert cmd & 0x90 == 0x90 and cmd & 3 in (0, 1), f"unmodelled REU command {cmd:02x}"
+        assert m[0xDF0A] == 0, "address control must count both addresses up"
+        self.transfers.append((cmd & 3, c64, reu, n))
+        for i in range(n):
+            r = (reu + i) % self.size
+            if cmd & 3 == 0:
+                self.mem[r] = m[(c64 + i) & 0xFFFF]
+            else:
+                m[(c64 + i) & 0xFFFF] = self.mem[r]

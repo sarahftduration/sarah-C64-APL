@@ -55,6 +55,16 @@ su2:    sta (cd),y
         jsr eval_init           ; (sets the test log pointer, which the cursor shares)
         jsr disk_init
         jsr scr_clear
+        jsr reu_detect
+        bcc su_reu
+        lda #<msg_noreu         ; runs, but only with what is not in an overlay
+        sta mp
+        lda #>msg_noreu
+        sta mp+1
+        jsr print_z
+        lda #CHNL
+        jsr scr_put
+su_reu:
         lda #<scr_put
         sta outv
         lda #>scr_put
@@ -367,6 +377,8 @@ err8:   .text "WS FULL"
 err9:   .text "INDEX ERROR"
         .byte 0
 err10:  .text "INTERRUPT"
+        .byte 0
+msg_noreu: .text "NO REU: LIMITED FEATURES"
         .byte 0
 
 ; --- the program ----------------------------------------------------------------------------------------

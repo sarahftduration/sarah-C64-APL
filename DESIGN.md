@@ -780,29 +780,38 @@ at `SYMTAB`.
 NONCE: `¨ ⍤`, expand `a\b`, `∘.` with a function that is not scalar dyadic, axis brackets, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
-## Plan: optional extra RAM (REU) as a storage tier
+## REU: overlays, then array spill
 
-Not built yet. The decisions so far (from the design discussion):
+Decided 2026-09-26: the machine is meant to run with an REU (VICE `-reu -reusize N`, or an Ultimate's
+emulated one). Code in an overlay costs no heap, which is the only way to fit the planned features (the
+heap had 3,500 bytes above its 12 KB floor). Without an REU the program still starts and prints
+`NO REU: LIMITED FEATURES`; it then has only the resident code, and the overlaid features report an
+error. There is one build.
 
-- **Never required.** The interpreter runs in plain C64 RAM exactly as today; a plain machine is for
-  small workspaces. With a RAM Expansion Unit (VICE `-reu -reusize N`, or an Ultimate cartridge's
-  emulated one) it uses the extra RAM automatically, detected at start-up.
-- **What it does.** The CPU cannot address an REU; a DMA controller copies blocks between it and main
-  RAM. So it is used to *spill* arrays: each handle is either resident in the heap or held in the REU,
-  and `getval` (the one place an array's data address is derived) makes an array resident before use.
-  When the heap is full, instead of WS FULL, live arrays that are not the operands of the current
-  operation (the top one or two stack cells) or its pinned result are moved out. Marking needs no
-  change, since `gcmark` reads only cells. Without an REU the spill path is off and the behaviour is
-  today's.
-- **Limit.** One operation's operands and result must still fit in main RAM together. Arrays larger
-  than that (streaming through chunks) are a later step.
-- **Cost.** A table saying where each spilled array is: about 512 bytes, allocated at start-up only
-  if an REU is present, so a plain machine pays nothing.
-- **Testing.** Differential: the same sessions with a tiny main heap and a VICE REU must give the
-  results of the model, whether or not arrays spilled. `tests/test_stress.py` already enforces the
-  precondition, that no data address survives an allocation.
-- **Also possible later:** `)SAVE` / `)LOAD` to an REU "drive", workspace snapshots, and code overlays
-  for rarely used parts, kept optional by leaving a resident or disk-loaded copy.
+**Built: `asm/reu.inc`.** `reu_detect` (start-up) checks that the registers at `$DF02-$DF05` read back
+two patterns, then finds the size by wrap-around (bank N of an REU of N banks is bank 0), setting
+`reu_banks` (64 KB banks, 255 for 16 MB, 0 for none). `reu_stash` and `reu_fetch` move a block: the
+caller stores the C64 address in `$DF02`, the REU address (offset low, high, bank) in `$DF04` and the
+length in `$DF07`, and the call returns when the transfer, which stops the CPU, is done. Tests: py65 with
+`tests/harness.py Reu`, which performs the transfer when the program reaches `reu_trig`, and VICE with
+real REUs of 128 KB to 16 MB and with none. All the VICE tests now start VICE with `-reu -reusize 512`.
+
+**Next: overlays.** One window in main RAM, sized for the largest overlay; every overlay is assembled to
+run at the window's address and kept in the REU (the images travel in the PRG, in the space that becomes
+heap, and are copied out at start-up). A resident dispatcher makes the right overlay resident before
+running a routine; errors still come back as carry and a code. An overlay may call resident code but not
+another overlay (the build checks). Candidates, by payoff: disk and `)` commands, the function editor,
+search, reshape, replicate, floor and ceiling, and each new feature. Then array spill (below).
+
+**Array spill (after overlays).** Each handle is either resident in the heap or held in the REU, and
+`getval` (the one place an array's data address is derived) makes an array resident before use. When the
+heap is full, instead of WS FULL, live arrays that are not the operands of the current operation (the top
+one or two stack cells) or its pinned result are moved out. Marking needs no change, since `gcmark` reads
+only cells. One operation's operands and result must still fit in main RAM together (chunked operations
+are a later step). A table of where each spilled array is: about 512 bytes. `tests/test_stress.py`
+already enforces the precondition, that no data address survives an allocation. Test: the same sessions
+with a tiny main heap and an REU must give the results of the model, whether or not arrays spilled.
+Also possible: `)SAVE` / `)LOAD` to an REU "drive" and workspace snapshots.
 
 Also planned later: graphics. A hires bitmap can live at `$E000` in VIC bank 3 (the RAM under the
 KERNAL, which the interpreter cannot use), with its colour map under the I/O area, so it costs no

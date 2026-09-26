@@ -14,7 +14,7 @@ from harness import load
 ROMS = ["chargen.bin", "basic.bin", "kernal.bin"]
 
 
-def run_vice(monitor_lines, initbreak, cycles=60_000_000):
+def run_vice(monitor_lines, initbreak, cycles=60_000_000, extra=("-reu", "-reusize", "512")):
     """Autostart build/apl.prg (injected into RAM); at the breakpoint run the monitor script."""
     with tempfile.TemporaryDirectory() as d:
         script = os.path.join(d, "mon.txt")
@@ -23,7 +23,7 @@ def run_vice(monitor_lines, initbreak, cycles=60_000_000):
         cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp",
                "-kernal", "roms/kernal.bin", "-basic", "roms/basic.bin", "-chargen", "roms/chargen.bin",
                "-autostartprgmode", "1", "-initbreak", initbreak, "-limitcycles", str(cycles),
-               "-autostart", "build/apl.prg", "-moncommands", script]
+               "-autostart", "build/apl.prg", "-moncommands", script, *extra]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         files = {n: open(os.path.join(d, n), "rb").read() for n in os.listdir(d) if n != "mon.txt"}
         return r.stdout + r.stderr, files
