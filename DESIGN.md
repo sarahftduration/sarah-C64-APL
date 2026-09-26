@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **19,053 bytes** (`$0801`-`$526D`, including the start-up
+Code and read-only tables **22,006 bytes** (`$0801`-`$5DE6`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 23,240 bytes** (`$7138` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 20,224 bytes** (`$7D00` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224): the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), the check of loaded functions 800, and the rest the new `)FNS`, the version 2 file format and the tables (80 bytes of state). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
