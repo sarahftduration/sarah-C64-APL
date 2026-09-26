@@ -42,7 +42,7 @@ to left, then the indexed array.  Indexed assignment A[i]<-v makes a new array (
 
 Token stream (bytes), one line ends with $00:
     $00 end   $01 literal   $02 name (1-byte symbol index)
-    $03 (  $04 )  $05 [  $06 ]  $07 <-  $08 ->  $09 diamond  $0A ;
+    $03 (  $04 )  $05 [  $06 ]  $07 <-  $08 ->  $09 diamond  $0A ;  $0C the empty vector
     $80+i primitive function, i indexing PRIM_GLYPHS
     $C0+i operator, i indexing OP_GLYPHS
 Literal body is exactly the heap layout of an array:
@@ -768,6 +768,7 @@ def format_value(v):
 # Tokenizer and evaluator
 # =========================================================================
 T_END, T_LIT, T_NAME = 0, 1, 2
+T_EMPTY = 12                    # the empty numeric vector: one byte, though a literal would be six
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
@@ -955,8 +956,7 @@ class Interp:
                 out.append(T_LIT)
                 out += literal_from_numbers(vals).to_bytes()
             elif c == '⍬':
-                out.append(T_LIT)
-                out += vector(INT, []).to_bytes()
+                out.append(T_EMPTY)
                 i += 1
             elif NAME_RE.match(line, i):
                 m = NAME_RE.match(line, i)
@@ -987,6 +987,8 @@ class Interp:
             if c == T_LIT:
                 v, i = Value.from_bytes(buf, i)
                 toks.append((c, v))
+            elif c == T_EMPTY:
+                toks.append((T_LIT, vector(INT, [])))
             elif c == T_NAME:
                 toks.append((c, buf[i]))
                 i += 1

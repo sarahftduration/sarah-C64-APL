@@ -219,7 +219,31 @@ def test_limits():
     assert check(s, ' '.join(["1.5"] * 63)) == 'ok'
     assert check(s, ' '.join(["9"] * 124) + " 1e40") == 'err'
     assert check(s, "a" * 254) == 'ok'
-    print("tokenizer limits: 256 names, 255-byte lines and 6-byte-per-glyph output ok")
+    for line in ["1A" * 127, "''" * 127, ".5A" * 85, "1(" * 127, "⍬" * 255, "¯.5A" * 63, "1E9A" * 63, "'a'A" * 63]:
+        assert check(s, line) in ('ok', 'err'), line
+        n = len(apl64.Interp().tokenize(line))
+        assert n <= 1024, (line, n)                     # OUTBUF's size
+    print("tokenizer limits: 256 names, 255-byte lines and the densest lines fit the token buffer")
+
+
+def test_density():
+    """No line of 255 characters makes more than 1,024 bytes of tokens (the size of OUTBUF)."""
+    rng = random.Random(8)
+    atoms = ["1", "A", "'", "''", ".5", "⍬", "(", ")", "+", "1E9", "¯1", "[", "]", ";", "←", "⋄", "'a'", "x1", " ", "0.1", "12345", "→"]
+    worst = 0.0
+    m = apl64.Interp()
+    for _ in range(3000):
+        line = ""
+        while len(line) < 250:
+            line += rng.choice(atoms)
+        line = line[:255]
+        try:
+            n = len(m.tokenize(line))
+        except apl64.AplError:
+            continue
+        worst = max(worst, n / len(line))
+        assert n <= 1024, (line, n)
+    print(f"tokenizer: the densest of 3000 random lines makes {worst:.2f} token bytes per character (buffer allows 4)")
 
 
 def exact_decimal(p):
@@ -331,6 +355,7 @@ def test_fuzz():
 if __name__ == "__main__":
     test_fixed()
     test_limits()
+    test_density()
     test_roundtrip()
     test_exact_range()
     test_ties()

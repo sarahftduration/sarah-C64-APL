@@ -110,7 +110,11 @@ mi1:    ldy #0
         lda (gsrc),y
         beq mi_end
         sta TC,x
-        lda gsrc
+        cmp #T_EMPTY            ; the empty vector is a literal to the evaluator
+        bne mi_t
+        lda #T_LIT
+        sta TC,x
+mi_t:   lda gsrc
         sta TIL,x
         lda gsrc+1
         sta TIH,x
@@ -890,7 +894,24 @@ pushlit:
         sta cs
         lda TIH,x
         sta cs+1
-        ldy #1
+        ldy #0
+        lda (cs),y
+        cmp #T_EMPTY
+        bne pl_1
+        lda #2                  ; an empty INT vector
+        sta nt
+        lda #1
+        sta nrk
+        lda #0
+        sta nn
+        sta nn+1
+        sta nd0
+        sta nd0+1
+        jsr newarr
+        bcc *+3
+        rts
+        jmp pushcv
+pl_1:   ldy #1
         lda (cs),y
         sta ev_hb
         and #$0c

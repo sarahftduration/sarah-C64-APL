@@ -51,7 +51,7 @@ VSTACK  .fill 512               ; value stack: 128 cells
 VSTACK_END = *
 FSTK    .fill 256               ; evaluator frames: 4 arrays of 64
 SYMTAB  .fill SYMTAB_SIZE       ; symbol table
-OUTBUF  .fill 1536              ; token stream: 6 bytes per input byte
+OUTBUF  .fill 1024              ; token stream: at most 3.5 bytes per input byte (1A1A...), 4 allowed
 SBUF    .fill 512               ; number strand scratch
 SDV     .fill 8                 ; scalar engine vectors
         .if !RV_EARLY

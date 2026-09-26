@@ -21,6 +21,7 @@ E_LIMIT  = 3
 
 T_END   = 0
 T_LIT   = 1
+T_EMPTY = 12
 T_NAME  = 2
 
 ip      = $0e           ; input index
@@ -85,17 +86,10 @@ m1:     jsr isnum
         bcc m2
         jmp number
 m2:     lda INBUF,x
-        cmp #$94                ; empty numeric vector
+        cmp #$94                ; empty numeric vector: one byte (the evaluator makes the array)
         bne m3
-        lda #0
-        sta cc
-mempty: ldx cc
-        lda emptyv,x
+        lda #T_EMPTY
         jsr emit
-        inc cc
-        lda cc
-        cmp #6
-        bne mempty
         inc ip
         jmp main
 m3:     jsr isalpha
@@ -121,8 +115,6 @@ err_dom:
         lda #E_DOMAIN
         sec
         rts
-
-emptyv: .byte T_LIT, $06, 0, 0, 0, 0
 
 emit:   ldy #0
         sta (op),y

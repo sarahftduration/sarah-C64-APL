@@ -37,21 +37,21 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **22,640 bytes** (`$0801`-`$6070`, including the start-up
+Code and read-only tables **22,573 bytes** (`$0801`-`$602D`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 19,560 bytes** (`$7F98` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 20,400 bytes** (`$7C50` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
 now costs heap byte for byte: the tables that need a page (`VARS`, `VSTACK`, `SYMTAB`) start on a
 page boundary, and the tables that do not need one (`RV`, `FMT`, `FACC`, `DIGS`, `FR`) fill the gap
 before it when they fit (`asm/bss.inc`), so there is no cliff where the heap suddenly loses 256
-bytes. The tables are sized by proven worst cases (6 bytes of tokens per input byte, 85 levels of
+bytes. The tables are sized by proven worst cases (3.5 bytes of tokens per input byte at worst, 64 levels of
 nesting, 256 handles and names), so shrinking them means lowering a limit. Code that is only
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -106,7 +106,7 @@ heap.) Consequences:
 
 Uninitialised tables (7.9 KB): remaining variables 512; handle table 768; variable
 cells 1,024 (256 names); value stack 512 (128 cells); frame stack 512; symbol table
-2,048; token output 1,536 (6 bytes per input byte, worst case); number-strand
+2,048; token output 1,024 (at most about 3.5 bytes per input byte); number-strand
 scratch 512; formatter/reduce buffers 512. Value stack and frame stack are cut
 from today's 192 and 128 entries: nesting depth is at most about 85 in a
 255-byte line, and overflow is LIMIT ERROR anyway.
@@ -319,6 +319,8 @@ One line ends with `$00`.
 | `$01` | Literal, followed by an array body (layout above) |
 | `$02` | Name, followed by a 1-byte symbol index (max 256 names) |
 | `$03-$0A` | `(  )  [  ]  ←  →  ⋄  ;` |
+| `$0B` | a name of a function with arguments (made when a line is loaded, never stored; two bytes like a name) |
+| `$0C` | `⍬`, the empty INT vector, in one byte (a literal would be six); the evaluator makes the array |
 | `$10-$7F` | Reserved (system functions, ⎕ names, control keywords) |
 | `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,` |
 | `$C0+i` | Operator, `i` indexes `/\¨.∘⍤` |
@@ -692,7 +694,7 @@ to 9 significant digits with e from -13 to 13, and within **1 ulp** of the
 model otherwise. Underflow flushes to a FLOAT zero.
 
 Buffers: input at `INBUF` (page aligned), strand scratch at `SBUF` (4 bytes
-per element), tokens at `OUTBUF` (6 bytes per input byte is enough), symbols
+per element), tokens at `OUTBUF` (1,024 bytes; 3.5 per input byte is the worst case, `.5A.5A...` and `1(1(`... make 3), symbols
 at `SYMTAB`.
 
 ## Implemented in the model so far

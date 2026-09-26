@@ -19,7 +19,7 @@ def test_layout():
     # the tables lie between the code and the heap and never overlap. Those that need a page start on one; the
     # rest may sit in the gap before the first page boundary (bss.inc), so the space left over is under a page.
     sizes = {"HTL": 256, "HTH": 256, "HM": 256, "VARS": 1024, "VSTACK": 512, "FSTK": 256, "SYMTAB": 2048,
-             "OUTBUF": 1536, "SBUF": 512, "SDV": 8, "RV": 64, "FACC": 40, "FMT": 96, "DIGS": 40, "FR": 24,
+             "OUTBUF": 1024, "SBUF": 512, "SDV": 8, "RV": 64, "FACC": 40, "FMT": 96, "DIGS": 40, "FR": 24,
              "COLW": 256, "STV": 96, "HIST": 256, "FNBUF": 32, "FNPFX": 4, "CMDBUF": 12, "WSNAME": 20, "NAMETMP": 20}
     spans = sorted((L[n], L[n] + size, n) for n, size in sizes.items())
     assert spans[0][0] >= code_end and spans[-1][1] <= L["HEAP_BASE"]
