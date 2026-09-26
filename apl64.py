@@ -38,6 +38,7 @@ element leaves int16, redo the whole primitive in float24.
 last axis, the result the shape of v.  a∘.f b is the outer product: f between every element of a
 and every element of b, shaped like the shape of a followed by the shape of b (LIMIT ERROR past
 rank 2); f is one of the scalar dyadic functions.
+a f.g b is the inner product: f/ of (a g b) over the last axis of a and the first axis of b (see make_inner).
 Division always gives FLOAT.  0 / 0 is 1; x / 0 is DOMAIN ERROR.
 Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] (the
 result shape is the index shapes joined; a result of rank 3 or more is
@@ -980,6 +981,41 @@ def make_outer(glyph):
     return outer
 
 
+def make_inner(fglyph, gglyph):
+    """a f.g b: f/ of (a g b) over the last axis of a and the first axis of b.  The result has the shape
+    of a without its last axis followed by the shape of b without its first (a scalar counts as extending
+    to the other's length).  Every element is f/ of the g-products of a row of a and a column of b, so
+    the rules for types, DOMAIN ERROR and WS FULL are those of the scalar functions and of reduce.  Inner
+    axes of different lengths are LENGTH ERROR; a result with a zero dimension is NONCE ERROR."""
+    dyf, dyg = PRIMS[fglyph][1], PRIMS[gglyph][1]
+
+    def inner(a, b):
+        na = a.shape[-1] if a.rank else 1
+        nb = b.shape[0] if b.rank else 1
+        if a.rank and b.rank and na != nb:
+            raise AplError('LENGTH ERROR')
+        n = nb if a.rank == 0 else na
+        m = a.shape[0] if a.rank == 2 else 1
+        p = b.shape[1] if b.rank == 2 else 1
+        if m == 0 or p == 0:
+            raise AplError('NONCE ERROR')
+        shape = (a.shape[:1] if a.rank == 2 else ()) + (b.shape[1:] if b.rank == 2 else ())
+        outs = []
+        for i in range(m):
+            row = a.data[i * n:(i + 1) * n] if a.rank else a.data * n
+            for j in range(p):
+                col = b.data[j::p] if b.rank == 2 else (b.data if b.rank else b.data * n)
+                ys = Value(b.t, (n,), col)
+                xs = Value(a.t, (n,), row)
+                tv = dyg(xs, ys)
+                outs.append(_reduce_row(fglyph, dyf, tv.t, tv.data))
+        t = outs[0].t
+        for o in outs[1:]:
+            t = join_type(t, o.t)
+        return Value(t, shape, [convert(o.t, t, o.data[0]) for o in outs])
+    return inner
+
+
 PRIMS = {}
 for _g in SCALAR_DYADIC:
     _m = _MON.get(_g)
@@ -1397,6 +1433,18 @@ class Interp:
                 i -= 2
                 val = self._apply(fn, toks, i, val)
                 i = self._pos
+            elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and 0x80 <= toks[i - 2][0] < 0xC0:
+                pf = PRIM_GLYPHS[toks[i - 2][0] - 0x80]     # a f.g b: inner product
+                pg = PRIM_GLYPHS[c - 0x80]
+                if pf not in SCALAR_DYADIC or pg not in SCALAR_DYADIC:
+                    raise AplError('NONCE ERROR')
+                i -= 3
+                if i < 0 or not self._isv(toks[i]):
+                    raise AplError('SYNTAX ERROR')
+                left, i = self._operand(toks, i)
+                if left is None:
+                    raise AplError('VALUE ERROR')
+                val = make_inner(pf, pg)(left, val)
             elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and toks[i - 2][0] == 0xC4:
                 pg = PRIM_GLYPHS[c - 0x80]                  # a∘.f b: outer product
                 if pg not in SCALAR_DYADIC:
