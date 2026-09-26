@@ -675,6 +675,42 @@ def reshape(a, b):
     return Value(b.t, tuple(dims), data)
 
 
+def _same(ta, x, tb, y):
+    """Are two elements equal?  Exactly, across BOOL, INT and FLOAT; a character equals only a character."""
+    if ta == CHAR or tb == CHAR:
+        return ta == tb and x == y
+    if ta == FLOAT or tb == FLOAT:
+        return to_f(ta, x) == to_f(tb, y)
+    return x == y
+
+
+def index_of(a, b):
+    """a⍳b: for each element of b, its 1-based position in the vector a, or 1 + the length of a."""
+    if a.rank != 1:
+        raise AplError('RANK ERROR')
+    out = []
+    for y in b.data:
+        k = next((i for i, x in enumerate(a.data) if _same(a.t, x, b.t, y)), len(a.data))
+        out.append(k + 1)
+    return Value(INT, b.shape, out)
+
+
+def member(a, b):
+    """a∊b: for each element of a, whether it is in b."""
+    return Value(BOOL, a.shape, [int(any(_same(a.t, x, b.t, y) for y in b.data)) for x in a.data])
+
+
+def grade(descending):
+    """⍋v and ⍒v: the positions that put the vector v in order (equal elements keep their order)."""
+    def run(v):
+        if v.rank != 1:
+            raise AplError('RANK ERROR')
+        key = _fkey if v.t == FLOAT else (lambda x: x)
+        order = sorted(range(v.count), key=lambda i: key(v.data[i]), reverse=descending)
+        return vector(INT, [i + 1 for i in order])
+    return run
+
+
 def reverse(v):
     """⌽v: each row (the last axis) backwards; a scalar is unchanged."""
     if v.rank == 0:
@@ -910,7 +946,10 @@ PRIMS['~'] = (lambda v: monadic_scalar(_m_not, v), _nonce)      # (dyadic ~ is n
 PRIMS['⌽'] = (reverse, rotate)
 PRIMS['↑'] = (_nonce, take)
 PRIMS['↓'] = (_nonce, drop)
-PRIMS['⍳'] = (iota, _nonce)
+PRIMS['⍳'] = (iota, index_of)
+PRIMS['∊'] = (_nonce, member)
+PRIMS['⍋'] = (grade(False), _nonce)
+PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
 
@@ -952,12 +991,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
@@ -1716,6 +1755,12 @@ def selftest():
         ('⍬/⍬', ''),
         ('1 1 1/⍬', '!LENGTH ERROR'),
         ('⍳¯1', '!DOMAIN ERROR'),
+        ('10 20 30⍳20', '2'), ('10 20 30⍳5 30 10', '4 3 1'), ('10 20 30⍳2 2⍴10 20 30 40', '1 2|3 4'), ("'abc'⍳'cab'", '3 1 2'),
+        ("'abc'⍳'z'", '4'), ('1 2 3⍳1.5-0.5', '1'), ('1.5 2⍳2 1.5', '2 1'), ("1 2 3⍳'a'", '4'), ("'a'⍳1", '!RANK ERROR'),
+        ('⍬⍳1 2', '1 1'), ('1 2⍳⍬', ''), ('5⍳5', '!RANK ERROR'), ('1 2 3∊2', '0 1 0'), ("'abc'∊'cd'", '0 0 1'),
+        ('(2 2⍴1 2 3 4)∊2 4', '0 1|0 1'), ('⍬∊1', ''), ('1∊⍬', '0'), ('1 2∊1.5-0.5 3', '1 0'),
+        ('⍋3 1 2', '2 3 1'), ('⍒3 1 2', '1 3 2'), ('⍋3 1 2 1', '2 4 3 1'), ('⍒3 1 2 1', '1 3 2 4'), ("⍋'hello'", '2 1 3 4 5'),
+        ('⍋1.5 ¯2 0 1.5', '2 3 1 4'), ('⍋⍬', ''), ('⍋5', '!RANK ERROR'), ('⍋2 2⍴1', '!RANK ERROR'), ('⍋32767 ¯32768 0', '2 3 1'),
         ('⌽1 2 3', '3 2 1'), ('⌽5', '5'), ('⌽2 3⍴⍳6', '3 2 1|6 5 4'), ("⌽'abc'", 'cba'), ('⌽⍬', ''),
         ('1⌽1 2 3 4', '2 3 4 1'), ('¯1⌽1 2 3 4', '4 1 2 3'), ('5⌽1 2 3 4', '2 3 4 1'), ('1⌽2 3⍴⍳6', '2 3 1|5 6 4'),
         ('1⌽5', '5'), ('1 2⌽1 2 3', '!NONCE ERROR'), ('(2 3⍴1)⌽1 2 3', '!RANK ERROR'), ('1.5⌽1 2', '!DOMAIN ERROR'),
