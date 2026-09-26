@@ -568,6 +568,30 @@ def reshape(a, b):
     return Value(b.t, tuple(dims), data)
 
 
+def replicate(a, b):
+    """a/b: each element of the vector (or scalar) b repeated as many times as the matching
+    element of a says.  a is non-negative whole numbers, one per element of b, or one for all,
+    or (a one-element b) many for it; compress is the case of 0s and 1s.  Checks: a (RANK,
+    DOMAIN), b's rank (NONCE), the lengths (LENGTH), negative counts (DOMAIN), size (WS FULL)."""
+    xs = to_ints(a)
+    if b.rank > 1:
+        raise AplError('NONCE ERROR')
+    k, m = len(xs), b.count
+    data = b.data
+    if k != m:
+        if k == 1:
+            xs = xs * m
+        elif m == 1:
+            data = data * k
+        else:
+            raise AplError('LENGTH ERROR')
+    if any(x < 0 for x in xs):
+        raise AplError('DOMAIN ERROR')
+    n = sum(xs)
+    check_size(b.t, n)
+    return vector(b.t, [d for d, x in zip(data, xs) for _ in range(x)])
+
+
 def ravel(v):
     return vector(v.t, v.data)
 
@@ -1090,8 +1114,14 @@ class Interp:
                 if i == 0:
                     raise AplError('SYNTAX ERROR')
                 pc = toks[i - 1][0]
-                if self._isv(toks[i - 1]):
-                    raise AplError('NONCE ERROR')       # replicate / compress
+                if self._isv(toks[i - 1]):                  # a/b: replicate and compress
+                    if OP_GLYPHS[c - 0xC0] != '/':
+                        raise AplError('NONCE ERROR')
+                    left, i = self._operand(toks, i - 1)
+                    if left is None:
+                        raise AplError('VALUE ERROR')
+                    val = replicate(left, val)
+                    continue
                 if not 0x80 <= pc < 0xC0:
                     raise AplError('SYNTAX ERROR')
                 g = OP_GLYPHS[c - 0xC0]
@@ -1483,7 +1513,26 @@ def selftest():
         ('QQ', '!VALUE ERROR'),
         ('1 2 3 4', '1 2 3 4'),
         ('(1+2', '!SYNTAX ERROR'),
-        ('2/3', '!NONCE ERROR'),
+        ('2/3', '3 3'),
+        ('1 0 1/4 5 6', '4 6'),
+        ('1 0 1/\'abc\'', 'ac'),
+        ('0/5', ''),
+        ('2 0 1/1 2 3', '1 1 3'),
+        ('1 2/3', '3 3 3'),
+        ('2/1 2', '1 1 2 2'),
+        ('1 1/1 2 3', '!LENGTH ERROR'),
+        ('¯1/5', '!DOMAIN ERROR'),
+        ('1.5/5', '!DOMAIN ERROR'),
+        ("'a'/5", '!DOMAIN ERROR'),
+        ('(2 2⍴1)/5', '!RANK ERROR'),
+        ('1/2 2⍴1', '!NONCE ERROR'),
+        ('1 0 1\\1 2 3', '!NONCE ERROR'),
+        ('(1 0 1=1 2 1)/⍳3', '1 3'),
+        ('+/2/1 2', '6'),
+        ('A←3 ⋄ A/⍳2', '1 1 1 2 2 2'),
+        ('40000/1', '!WS FULL'),
+        ('⍬/⍬', ''),
+        ('1 1 1/⍬', '!LENGTH ERROR'),
         ('⍳¯1', '!DOMAIN ERROR'),
         ('A←10 20 30 40 ⋄ A[2]', '20'),
         ('A[3 1]', '30 10'),

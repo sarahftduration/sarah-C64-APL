@@ -365,6 +365,17 @@ No parse tree. Scan tokens right to left:
 3. `⋄` splits statements. A statement whose leftmost tokens are `name ←` is
    not echoed.
 
+## Replicate and compress
+
+`a/b` (a value to the left of `/`, `asm/replicate.inc`): each element of the vector or scalar `b` is
+repeated as many times as the matching element of `a` says, so 0s and 1s select (`(A>2)/A`).
+`a` is non-negative whole numbers (RANK ERROR above a vector, DOMAIN ERROR for anything else,
+negative counts included); it has one element per element of `b`, or one element for all of `b`
+(`3/5` is `5 5 5`), or `b` has one element for all of `a`; any other lengths are LENGTH ERROR. A
+matrix `b` is NONCE ERROR (no axis or last-axis version yet), WS FULL if the result is too big. The
+result is a vector with `b`'s type. A count of a single element applied to an empty `b` is not
+looked at. `x f/ y` and the other operators after a value are still NONCE ERROR.
+
 ## User-defined functions
 
 `∇` (typed as pound `g`) starts a definition when it is the first non-blank character of a
@@ -595,7 +606,7 @@ structural primitives `⍳`, `⍴` and `,` (monadic and dyadic), the scalar
 functions in `asm/scalar.inc` (dyadic `+ - × ÷ = ≠ < ≤ > ≥`, monadic `+ - × ÷`),
 and reduce `f/` for those ten functions (`asm/reduce.inc`). Everything else
 returns NONCE ERROR: other operators, and `f/` for other functions, which are
-NONCE ERROR in the model too, and `→`, axis brackets and dyadic `⍳` likewise. `x f/ y`
+NONCE ERROR in the model too, and axis brackets and dyadic `⍳` likewise. `x f/ y`
 evaluates `x` first (so its errors come first) and then gives NONCE ERROR.
 
 Scalar functions share one engine. Shapes are conformed first (equal, or one
@@ -679,9 +690,9 @@ at `SYMTAB`.
 
 `+ - × ÷` (monadic: identity, negate, signum, reciprocal), `= ≠ < ≤ > ≥`,
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
-`f/` for scalar dyadic `f`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
+`f/` for scalar dyadic `f`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
-NONCE: `\ ¨ . ∘ ⍤`, replicate (`n/x`), axis brackets, `→` outside a function,
+NONCE: `\ ¨ . ∘ ⍤`, axis brackets, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## Plan: optional extra RAM (REU) as a storage tier

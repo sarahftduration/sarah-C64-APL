@@ -26,7 +26,7 @@ LINES = [
     "A[2]←9", "A", "M[1;2]←0", "M", "M[;1]←7 8 9", "M", "A[1]←1.5", "A", "A[7]←1", "A[1]←'a'", "1+A[1]←2",
     "∇R←SQ X", "R←X×X", "∇", "SQ 7", "SQ ⍳5", "1+SQ 2", "∇R←A ADD B;T", "T←A+B", "T", "R←T×2", "∇", "1 ADD 2",
     "∇SHOW X", "X", "'done'", "∇", "SHOW 3", "1+SHOW 3", "∇R←BAD X", "R←X÷0", "∇", "BAD 1", "SQ", "∇1", "∇R←LOOP", "R←LOOP", "∇", "LOOP",
-    "∇R←SUMTO N;I", "R←0", "I←1", "TOP:R←R+I", "I←I+1", "→TOP×⍳I≤N", "∇", "SUMTO 10", "SUMTO 100", "→1", "∇R←FACT N", "R←1", "→0×⍳N<2",
+    "∇R←SUMTO N;I", "R←0", "I←1", "TOP:R←R+I", "I←I+1", "→TOP×⍳I≤N", "∇", "SUMTO 10", "SUMTO 100", "→1", "1 0 1/4 5 6", "2/1 2", "(A>2)/A", "'abcd'/1", "∇R←FACT N", "R←1", "→0×⍳N<2",
     "R←N×FACT N-1", "∇", "FACT 5", "FACT 6", "∇F", "'a'", "→4", "'b'", "'c'", "∇", "F",
 ]
 

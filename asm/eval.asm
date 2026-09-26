@@ -28,6 +28,7 @@ E_INDEX  = 9
         .include "scalar.inc"
         .include "reduce.inc"
         .include "index.inc"
+        .include "replicate.inc"
         .include "funcs.inc"
         .include "format.inc"
         .include "startup.inc"
@@ -505,13 +506,13 @@ ro_1:
         dex
         lda TC,x
         cmp #T_LIT
-        beq rl_nonce
+        beq rl_val
         cmp #T_NAME
-        beq rl_nonce
+        beq rl_val
         cmp #T_RPAR
-        beq rl_nonce
+        beq rl_val
         cmp #T_RBRK
-        beq rl_nonce
+        beq rl_val
         cmp #$80
         bcs *+5
         jmp ev_syn
@@ -529,6 +530,13 @@ rl_fnok:
         cmp #10
         bcs rl_nonce
         dec ev_i1               ; skip the operator and the function
+        dec ev_i1
+        jmp rl_fn2
+rl_val: lda ev_tok              ; a value before an operator: a/b replicates, the others are not done
+        cmp #$c0
+        bne rl_nonce
+        lda #$7f                ; (a function code of its own: x f/ y is not a/b)
+        sta ev_tok
         dec ev_i1
         jmp rl_fn2
 rl_nonce:
@@ -992,7 +1000,10 @@ apply_dy:
         cmp #12
         beq ad_cat
 ad_nonce:
-        lda #E_NONCE
+        cmp #$ff                ; replicate: the code $7f set by rl_val
+        bne ad_n2
+        jmp p_repl
+ad_n2:  lda #E_NONCE
         sec
         rts
 ad_sd:  jmp p_sdyad
