@@ -1128,7 +1128,11 @@ class Interp:
             self._begin_def(text[1:])
             return []
         self._outs = outs = []
-        self._run_statements(self._statements(self.decode(self.tokenize(line))))
+        try:
+            self._run_statements(self._statements(self.decode(self.tokenize(line))))
+        except AplError as e:
+            e.outs = outs           # what was echoed before the error (a function line can echo)
+            raise
         return outs
 
     @staticmethod
@@ -1254,6 +1258,8 @@ def repl():
             for o in ws.run_line(line):
                 print(o)
         except AplError as e:
+            for v in getattr(e, 'outs', []):
+                print(format_value(v))
             print(e.kind)
             print('      ' + line)
 

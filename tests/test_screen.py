@@ -24,6 +24,8 @@ LINES = [
     "x←⍳3 ⋄ x", "⍳0", "5", "⍳100",
     "M←3 4⍴⍳12", "M[2;3]", "M[;2]", "M[1 3;2 4]", "A[2 4]", "A[6]", "M[1;5]", "M[1]", "'hello'[5 1]", "A[⍳0]", "A[(1;2)]",
     "A[2]←9", "A", "M[1;2]←0", "M", "M[;1]←7 8 9", "M", "A[1]←1.5", "A", "A[7]←1", "A[1]←'a'", "1+A[1]←2",
+    "∇R←SQ X", "R←X×X", "∇", "SQ 7", "SQ ⍳5", "1+SQ 2", "∇R←A ADD B;T", "T←A+B", "T", "R←T×2", "∇", "1 ADD 2",
+    "∇SHOW X", "X", "'done'", "∇", "SHOW 3", "1+SHOW 3", "∇R←BAD X", "R←X÷0", "∇", "BAD 1", "SQ", "∇1", "∇R←LOOP", "R←LOOP", "∇", "LOOP",
 ]
 
 
@@ -81,11 +83,13 @@ def text_bytes(v):
 def expected_screen(lines, with_scrolls=False):
     scr, model = Screen(), apl64.Interp()
     for line in lines:
-        scr.write(b" " * 6 + apl64.encode_line(line) + b"\n")
+        scr.write(apl64.encode_line(model.prompt()) + apl64.encode_line(line) + b"\n")
         try:
             for v in model.run_values(line):
                 scr.write(text_bytes(v) + b"\n")
         except apl64.AplError as e:
+            for v in getattr(e, "outs", []):
+                scr.write(text_bytes(v) + b"\n")
             scr.write(e.kind.encode() + b"\n")
     return (bytes(scr.mem), scr.scrolls) if with_scrolls else bytes(scr.mem)
 

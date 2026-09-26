@@ -176,7 +176,7 @@ def test_exhaustion():
         if n > 195:
             break
     top = h.check()[1]
-    assert n > 10
+    assert n > 8
     # drop everything: the next big allocation must succeed by collecting
     for slot in list(h.vars):
         h.set_var(slot, None)

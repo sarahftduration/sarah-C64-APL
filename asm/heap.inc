@@ -54,6 +54,8 @@ hi1:    sta HTH,x
         bne hi1
         sta hpinf
         sta defmode
+        sta cdepth
+        sta cfh
         lda #<VSTACK
         sta vsp
         lda #>VSTACK

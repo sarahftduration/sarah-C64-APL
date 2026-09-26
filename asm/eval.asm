@@ -50,6 +50,8 @@ K_LEFT    = 1
 K_GRP     = 2                   ; an index group: go on to the next group to its left
 K_IDX     = 3                   ; the indexed array: apply p_index, then the outer kind
 K_IASG    = 4                   ; the assigned variable: apply p_iasg, then the outer kind
+K_LEFTU   = 5                   ; like K_LEFT, for a user-defined function (its symbol in the frame)
+T_FN      = $0b                 ; a name of a function that takes arguments (see classify)
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
 FLO     = FSTK+128
@@ -72,6 +74,11 @@ ev_hb   = WS+$f8
 ev_px   = WS+$f9
 ev_sf   = WS+$f5                ; find_delim: stop at semicolons
 ev_na   = WS+$f6                ; the statement began with an assignment: no echo
+ev_tl   = WS+$100               ; (2) size of the token stream in OUTBUF, with its end mark
+ev_nv   = WS+$102               ; the last function called gave no value
+ev_us   = WS+$103               ; symbol of the function to be called
+ev_rm   = WS+$104               ; how to go on afterwards: 0 evloop, 1 as after a pushed operand
+ev_no   = WS+$105               ; operands of the call: 0, 1 or 2
 echov   = WS+$fa
 ev_pg   = WS+$fe
 
@@ -110,6 +117,8 @@ mi1:    ldy #0
         beq mi_lit
         cmp #T_NAME
         beq mi_2
+        cmp #T_FN
+        beq mi_2
         lda #1
         bne mi_adv
 mi_2:   lda #2
@@ -132,7 +141,17 @@ mi_lit: stx ev_ix
         sta gsrc+1
         jmp mi_n
 mi_end: stx ev_ntok
-        rts
+        sec                     ; the stream's size, with its end mark
+        lda gsrc
+        sbc #<OUTBUF
+        sta ev_tl
+        lda gsrc+1
+        sbc #>OUTBUF
+        sta ev_tl+1
+        inc ev_tl
+        bne mi_e1
+        inc ev_tl+1
+mi_e1:  rts
 
 ; parentheses and brackets must nest properly across the whole line, checked before any
 ; evaluation. FK is used as the stack of open tokens (evaluation has not started).
@@ -181,6 +200,10 @@ eval_line:
         jsr eval_line_body
         php
         pha
+        lda cdepth              ; an error inside calls: give the localised names back
+        beq el_u1
+        jsr unwind
+el_u1:
         lda #<VSTACK
         sta vsp
         lda #>VSTACK
@@ -200,7 +223,8 @@ eval_line_body:
         jsr balance
         bcc elb0
         rts
-elb0:    lda #0
+elb0:    jsr classify
+        lda #0
         sta ev_slo
 el_next:
         ldx ev_slo
@@ -235,7 +259,9 @@ el_end: stx ev_shi
         jsr eval_stmt
         bcc el_ok
         rts
-el_ok:  lda ev_na               ; echo unless the statement starts with name ← or name[...]←
+el_ok:  lda ev_nv               ; a call that gave no value: nothing to echo or pop
+        bne el_empty
+        lda ev_na               ; echo unless the statement starts with name ← or name[...]←
         bne el_pop
 el_echo:
         jsr callecho
@@ -255,7 +281,10 @@ el_empty:
         sta ev_slo
         jmp el_next
 el_done:
-        clc
+        lda cdepth              ; inside a function: go on with its next line
+        beq el_d1
+        jmp fn_nextline
+el_d1:  clc
         rts
 
 callecho:
@@ -279,6 +308,7 @@ es_nonce:
         rts
 es2:    lda #0
         sta ev_na
+        sta ev_nv
         lda ev_slo
         sta ev_lo
         lda ev_shi
@@ -354,9 +384,14 @@ cont:   lda ev_pkind
         bne ct_idx
         jmp gstep
 ct_idx: cmp #K_IDX
-        bne ct_ia
+        bne ct_i2
         jsr p_index
         jmp ct_pop
+ct_i2:  cmp #K_LEFTU
+        bne ct_ia
+        lda ev_pfn
+        sta ev_us
+        jmp udf_dy
 ct_ia:  ldx ev_i1               ; the name token of A[i]<-v
         cpx ev_slo
         bne ci_x
@@ -400,7 +435,12 @@ evloop: lda ev_i1
         cmp #$80
         bcc rl_x
         jmp rl_fn
-rl_x:   cmp #T_RBRK
+rl_x:   cmp #T_FN
+        bne rl_y
+        jsr nameidx             ; a user-defined function: remember which
+        sta ev_us
+        jmp rl_fn
+rl_y:   cmp #T_RBRK
         bne rl_bad
         jmp rl_axis
 rl_bad: jmp ev_syn
@@ -424,12 +464,23 @@ ra_name:
         bne ra_x
         inc ev_na
 ra_x:   jsr nameidx
+        pha
+        jsr varcell
+        ldy #0
+        lda (cptr),y
+        and #TAG_FN             ; a function's name cannot be assigned to
+        beq ra_ok
+        pla
+        jmp ev_syn
+ra_ok:  pla
         jsr assign
         dec ev_i1
         dec ev_i1
         jmp evloop
 rl_op:  cpx ev_lo               ; operators: only f/ on a scalar dyadic is implemented
-        beq ev_syn
+        bne ro_1
+        jmp ev_syn
+ro_1:
         dex
         lda TC,x
         cmp #T_LIT
@@ -480,7 +531,10 @@ rl_fn2: lda ev_i1
         cmp #T_RBRK
         beq rf_opnd
 rf_mon: lda ev_tok
-        cmp #$c0
+        cmp #T_FN
+        bne rf_m1
+        jmp udf_mon
+rf_m1:  cmp #$c0
         bcs rf_red
         jsr apply_mon
         bcc *+3
@@ -492,7 +546,15 @@ rf_red: lda ev_pg
         rts
         jmp evloop
 rf_opnd:
-        lda #K_LEFT
+        lda ev_tok
+        cmp #T_FN
+        bne rf_o1
+        lda #K_LEFTU
+        sta ev_pkind
+        lda ev_us
+        sta ev_pfn
+        jmp opnd
+rf_o1:  lda #K_LEFT
         sta ev_pkind
         lda ev_tok
         sta ev_pfn
@@ -535,7 +597,13 @@ fetch_rbrk:
         lda TC,x
         ldy ev_pkind
         bpl fr_val
-        cmp #T_NAME             ; an assignment needs a name before the '['
+        cmp #T_NAME             ; an assignment needs a name before the '[' that is not a function
+        bne fr_syn
+        jsr nameidx
+        jsr varcell
+        ldy #0
+        lda (cptr),y
+        and #TAG_FN
         beq fr_ok
         bne fr_syn
 fr_val: cmp #T_LIT
@@ -578,8 +646,9 @@ gstep:  ldx ev_i1
         beq gs_empty
         ldx ev_fsp
         cpx #128
-        bcs fr_lim
-        lda #K_GRP
+        bcc gs_1
+        jmp fr_lim
+gs_1:   lda #K_GRP
         sta FK,x
         lda ev_lo
         sta FLO,x
@@ -764,16 +833,16 @@ as1:    lda (gp),y
 
 pushname:
         jsr nameidx
+        sta ev_us
         jsr varcell
         ldy #0
         lda (cptr),y
         cmp #$80
         beq pn_val
-        and #TAG_FN             ; calling functions is not implemented yet
-        bne pn_nonce
-        ldy #0
-        lda (cptr),y
-        ldy #3
+        and #TAG_FN
+        beq pn_c
+        jmp udf_ni              ; a function without arguments: call it
+pn_c:   ldy #3
 pnl1:    lda (cptr),y
         sta cv,y
         dey
@@ -782,10 +851,7 @@ pnl1:    lda (cptr),y
 pn_val: lda #E_VALUE
         sec
         rts
-pn_nonce:
-        lda #E_NONCE
-        sec
-        rts
+
 
 ; push the literal at token index X: scalars into the cell, arrays into the heap
 pushlit:

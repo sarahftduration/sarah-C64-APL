@@ -81,6 +81,20 @@ defmode = FV                    ; a function is being defined
 deffn   = FV+1                  ; its symbol
 defh    = FV+2                  ; the handle of its block, which is the last one in the heap
 dtl     = FV+3                  ; (2) the size of the line being added
+cdepth  = FV+5                  ; nested calls in progress
+cfh     = FV+6                  ; handle of the running function (meaningful when cdepth > 0)
+cln     = FV+7                  ; the next line of the running function
+CSL     = FV+8                  ; per call: the address of its record on the value stack (16 each)
+CSH     = FV+24
+CSF     = FV+40                 ; ... and the handle of the function
+cu_h    = FV+56                 ; the function being called
+cu_r    = FV+57                 ; (2) its record
+cu_n    = FV+59
+cu_i    = FV+60
+cu_p    = FV+61
+cu_na   = FV+62
+cu_m    = FV+63
+cu_a    = FV+64
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer
@@ -123,7 +137,7 @@ ldtag   = STV+60
 lw      = STV+61
 osa     = STV+62                ; secondary address for open_sa
 lcnt    = STV+63                ; )LIB: lines listed on this page
-FV      .fill 8                 ; user-defined functions: definition state (see funcs.inc)
+FV      .fill 80                ; user-defined functions: definition and call state (see funcs.inc)
 HEAP_BASE = *
         .endv
 

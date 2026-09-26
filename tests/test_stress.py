@@ -90,6 +90,21 @@ def test_fuzz():
     print(f"stress: {n_lines} random lines match the model ({s.stats['allocs']} allocations, {s.stats['moved']} block moves)")
 
 
+def test_functions():
+    """Function blocks and saved contexts move too: definitions and calls with every block moved."""
+    import test_funcs as F
+    s = StressSession()
+    n = 0
+    for lines in F.DEFS + F.CALLS:
+        s.reset()
+        for line in lines:
+            T.check(s, line)
+            n += 1
+    print(f"stress: {n} function-session lines match the model ({s.stats['allocs']} allocations, "
+          f"{s.stats['moved']} block moves)")
+
+
 if __name__ == "__main__":
     test_fixed()
+    test_functions()
     test_fuzz()
