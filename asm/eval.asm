@@ -29,9 +29,6 @@ E_INTR   = 10
         .include "scalar.inc"
         .include "reduce.inc"
         .include "index.inc"
-        .include "replicate.inc"
-        .include "reshape.inc"
-        .include "search.inc"
         .include "reu.inc"
         .include "overlay.inc"
         .include "funcs.inc"
@@ -1078,9 +1075,9 @@ am_ceil: jmp p_ceil
 am_floor: jmp p_floor
 am_abs: jmp p_abs
 am_not: jmp p_not
-am_rev: jmp p_rev
-am_gu:  jmp p_gradeup
-am_gd:  jmp p_gradedown
+am_rev: jmp s_rev
+am_gu:  jmp s_gradeup
+am_gd:  jmp s_gradedown
 am_plus:
         jmp p_plusm
 am_iota:
@@ -1135,18 +1132,18 @@ ad_l:   cmp #18
         beq ad_drop
         cmp #22
         bne ad_nonce
-        jmp p_member
-ad_drop: jmp p_drop
+        jmp s_member
+ad_drop: jmp s_drop
 ad_l2:  sec
         sbc #2
         jmp p_sdyad
-ad_rot: jmp p_rot
-ad_iof: jmp p_indexof
-ad_take: jmp p_take
+ad_rot: jmp s_rot
+ad_iof: jmp s_indexof
+ad_take: jmp s_take
 ad_nonce:
         cmp #$ff                ; replicate: the code $7f set by rl_val
         bne ad_n2
-        jmp p_repl
+        jmp s_repl
 ad_n2:  lda #E_NONCE
         sec
         rts

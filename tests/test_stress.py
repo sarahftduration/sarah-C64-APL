@@ -47,7 +47,7 @@ def install(s):
             mem[HTL + h], mem[HTH + h] = (q + 1) & 0xFF, (q + 1) >> 8
             q += len(data)
 
-    m.hooks = {L["alloc"]: reverse_blocks}
+    m.hooks[L["alloc"]] = reverse_blocks
 
 
 class StressSession(T.Session):

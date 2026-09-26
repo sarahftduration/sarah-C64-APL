@@ -15,6 +15,9 @@
 
 OVID_SYS  = 1                   ; ids start at 1: 0 means the window is empty
 OVID_DISK = 2
+OVID_SEARCH = 3
+OVID_RESHAPE = 4
+OVID_REPL = 5
 
 E_NOREU   = 11
 
@@ -33,6 +36,17 @@ ovstub  .macro
         .byte \2
         .word \1
         .endm
+
+; the entry points of the routines in overlays (jump or call these: s_x runs p_x)
+s_gradeup: .ovstub p_gradeup, OVID_SEARCH
+s_gradedown: .ovstub p_gradedown, OVID_SEARCH
+s_member: .ovstub p_member, OVID_SEARCH
+s_indexof: .ovstub p_indexof, OVID_SEARCH
+s_rev: .ovstub p_rev, OVID_RESHAPE
+s_drop: .ovstub p_drop, OVID_RESHAPE
+s_rot: .ovstub p_rot, OVID_RESHAPE
+s_take: .ovstub p_take, OVID_RESHAPE
+s_repl: .ovstub p_repl, OVID_REPL
 
 ov_call:
         sta ov_sa
@@ -105,7 +119,7 @@ ov_init:
         jmp reu_stash
 
 ; where each image is in the REU, and how long it is; indexed by id
-ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG)
-ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG)
-ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK
-ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK
+ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG), <(OVP_SEARCH-OVL_IMG), <(OVP_RESHAPE-OVL_IMG), <(OVP_REPL-OVL_IMG)
+ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG), >(OVP_SEARCH-OVL_IMG), >(OVP_RESHAPE-OVL_IMG), >(OVP_REPL-OVL_IMG)
+ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK, <OVN_SEARCH, <OVN_RESHAPE, <OVN_REPL
+ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK, >OVN_SEARCH, >OVN_RESHAPE, >OVN_REPL

@@ -111,14 +111,25 @@ def test_active_overlay_check():
     raise AssertionError("the switch was not noticed")
 
 
+def overlays(L):
+    """[(name, physical address, length)] in image order."""
+    out = [(n[4:], L["OVP_" + n[4:]], L[n]) for n in L if n.startswith("OVN_")]
+    return sorted(out, key=lambda o: o[1])
+
+
 def test_images():
     """The REU holds exactly the images the PRG carries, back to back from offset 0."""
     m, L = load("eval")
-    assert L["OVP_SYS"] == L["OVL_IMG"] and L["OVP_DISK"] == L["OVP_SYS"] + L["OVN_SYS"]
-    assert L["OVL_TOT"] == L["OVN_SYS"] + L["OVN_DISK"]
+    ovs = overlays(L)
+    pos = L["OVL_IMG"]
+    for name, addr, n in ovs:
+        assert addr == pos, name
+        pos += n
+    assert L["OVL_TOT"] == pos - L["OVL_IMG"]
     img = open("build/eval.bin", "rb").read()[L["OVL_IMG"] - L["ORG"]:]
     assert bytes(m.reu.mem[:L["OVL_TOT"]]) == img
-    print(f"overlay: {L['OVL_TOT']} bytes of images (system {L['OVN_SYS']}, disk {L['OVN_DISK']}) in the PRG and the REU, window {L['OVWIN_SIZE']}")
+    print(f"overlay: {L['OVL_TOT']} bytes of images ({', '.join(f'{n.lower()} {k}' for n, _, k in ovs)}) in the PRG and the REU, "
+          f"window {L['OVWIN_SIZE']}")
 
 
 if __name__ == "__main__":

@@ -312,9 +312,10 @@ def test_interrupt():
             if count[0] == n:
                 mm.memory[0x91] = 0x7F
 
-        m.hooks = {L["fn_nextline"]: poke, L["fn_intr"]: lambda mm: mm.memory.__setitem__(0x91, 0)}
+        m.hooks.update({L["fn_nextline"]: poke, L["fn_intr"]: lambda mm: mm.memory.__setitem__(0x91, 0)})
         got = s.run6502(line)
-        m.hooks = {}
+        m.hooks.pop(L["fn_nextline"])
+        m.hooks.pop(L["fn_intr"])
         assert got == ("err", "INTERRUPT"), (line, got)
         assert m.memory[L["cdepth"]] == 0
         assert s.vars6502() == s.vars_model(), line              # A is 7 again
