@@ -35,7 +35,10 @@ Integer arithmetic (+ - x) is optimistic: run in int16, and if ANY result
 element leaves int16, redo the whole primitive in float24.
 "/" is reduce (right to left).  "+/" accumulates exactly and rounds once.
 Division always gives FLOAT.  0 / 0 is 1; x / 0 is DOMAIN ERROR.
-Origin is 1.  Rank <= 2.  Workspace is limited to WS_BYTES per array.
+Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] is read-only (the
+result shape is the index shapes joined; a result of rank 3 or more is
+LIMIT ERROR; a bad index value is INDEX ERROR); indices are evaluated right
+to left, then the indexed array.  Indexed assignment is NONCE ERROR.  Workspace is limited to WS_BYTES per array.
 
 Token stream (bytes), one line ends with $00:
     $00 end   $01 literal   $02 name (1-byte symbol index)
@@ -388,8 +391,8 @@ def to_f(t, x):
     return x if t == FLOAT else f_from_int(x)
 
 
-def to_ints(v):
-    if v.rank > 1:
+def to_ints(v, any_rank=False):
+    if v.rank > 1 and not any_rank:
         raise AplError('RANK ERROR')
     out = []
     for x in v.data:
@@ -583,6 +586,37 @@ def catenate(a, b):
     return vector(t, data)
 
 
+def index_value(a, idxs):
+    """A[i] and A[i;j] (origin 1).  idxs has one entry per axis of a, each a
+    Value or None (elided: the whole axis).  The result's shape is the shapes
+    of the indices joined in axis order (an elided axis contributes its
+    length, a scalar index contributes nothing); rank above 2 is LIMIT ERROR.
+    Checks run in this order: axis count (RANK), then per axis left to right
+    the index type (DOMAIN) and range (INDEX), then the result rank (LIMIT).
+    The result has the type of a."""
+    if len(idxs) != a.rank:
+        raise AplError('RANK ERROR')
+    axes, shape = [], ()
+    for dim, ix in zip(a.shape, idxs):
+        if ix is None:
+            axes.append(list(range(dim)))
+            shape += (dim,)
+            continue
+        xs = to_ints(ix, any_rank=True)
+        if any(x < 1 or x > dim for x in xs):
+            raise AplError('INDEX ERROR')
+        axes.append([x - 1 for x in xs])
+        shape += ix.shape
+    if len(shape) > 2:
+        raise AplError('LIMIT ERROR')
+    if a.rank == 1:
+        data = [a.data[x] for x in axes[0]]
+    else:
+        n = a.shape[1]
+        data = [a.data[r * n + c] for r in axes[0] for c in axes[1]]
+    return Value(a.t, shape, data)
+
+
 # =========================================================================
 # Reduce
 # =========================================================================
@@ -708,7 +742,7 @@ NAME_RE = re.compile(r'[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*')
 
 
 def _is_value_tok(c):
-    return c in (T_LIT, T_NAME, T_RPAR)
+    return c in (T_LIT, T_NAME, T_RPAR, T_RBRK)
 
 
 def _skip_ws(line, i):
@@ -843,8 +877,51 @@ class Interp:
             raise AplError('VALUE ERROR')
         return self.vars[idx]
 
+    @staticmethod
+    def _match(toks, i, close, open_):
+        """Index of the open_ token matching the close token at i."""
+        depth, j = 0, i
+        while j >= 0:
+            cj = toks[j][0]
+            if cj == close:
+                depth += 1
+            elif cj == open_:
+                depth -= 1
+                if depth == 0:
+                    return j
+            j -= 1
+        raise AplError('SYNTAX ERROR')
+
+    def _index_groups(self, toks):
+        """Split the tokens between [ and ] at top-level semicolons; an empty
+        group is None.  Groups are evaluated right to left."""
+        groups, cur, depth = [], [], 0
+        for tk in toks:
+            if tk[0] in (T_LPAR, T_LBRK):
+                depth += 1
+            elif tk[0] in (T_RPAR, T_RBRK):
+                depth -= 1
+            if tk[0] == T_SEMI and depth == 0:
+                groups.append(cur)
+                cur = []
+            else:
+                cur.append(tk)
+        groups.append(cur)
+        vals = [None] * len(groups)
+        for k in range(len(groups) - 1, -1, -1):
+            if groups[k]:
+                vals[k] = self.eval_tokens(groups[k])
+        return vals
+
     def _operand(self, toks, i):
         c, arg = toks[i]
+        if c == T_RBRK:
+            j = self._match(toks, i, T_RBRK, T_LBRK)
+            if j == 0 or not _is_value_tok(toks[j - 1][0]):
+                raise AplError('SYNTAX ERROR')
+            idxs = self._index_groups(toks[j + 1:i])
+            base, k = self._operand(toks, j - 1)
+            return index_value(base, idxs), k
         if c == T_LIT:
             return arg, i - 1
         if c == T_NAME:
@@ -864,7 +941,7 @@ class Interp:
         return self.eval_tokens(toks[j + 1:i]), j - 1
 
     def eval_tokens(self, toks):
-        if any(c in (T_LBRK, T_RBRK, T_BRANCH, T_SEMI) for c, _ in toks):
+        if any(c == T_BRANCH for c, _ in toks):
             raise AplError('NONCE ERROR')
         i = len(toks) - 1
         if i < 0 or not _is_value_tok(toks[i][0]):
@@ -873,10 +950,17 @@ class Interp:
         while i >= 0:
             c = toks[i][0]
             if c == T_ASSIGN:
+                if i > 0 and toks[i - 1][0] == T_RBRK:
+                    raise AplError('NONCE ERROR')           # indexed assignment
                 if i == 0 or toks[i - 1][0] != T_NAME:
                     raise AplError('SYNTAX ERROR')
                 self.vars[toks[i - 1][1]] = val
                 i -= 2
+            elif c == T_RBRK:
+                j = self._match(toks, i, T_RBRK, T_LBRK)
+                if j > 0 and toks[j - 1][0] >= 0x80:
+                    raise AplError('NONCE ERROR')           # axis: +/[1] A
+                raise AplError('SYNTAX ERROR')
             elif c >= 0xC0:
                 if i == 0:
                     raise AplError('SYNTAX ERROR')
@@ -917,21 +1001,20 @@ class Interp:
     def run_values(self, line):
         """Evaluate a line; return the values that would be echoed."""
         toks = self.decode(self.tokenize(line))
-        stmts, cur, depth = [], [], 0
+        stmts, cur, stack = [], [], []
         for tk in toks:
-            if tk[0] == T_LPAR:
-                depth += 1
-            elif tk[0] == T_RPAR:
-                depth -= 1
-                if depth < 0:
+            if tk[0] in (T_LPAR, T_LBRK):
+                stack.append(tk[0])
+            elif tk[0] in (T_RPAR, T_RBRK):
+                if not stack or stack.pop() != tk[0] - 1:
                     raise AplError('SYNTAX ERROR')
-            if tk[0] == T_DIAMOND and depth == 0:
+            if tk[0] == T_DIAMOND and not stack:
                 stmts.append(cur)
                 cur = []
             else:
                 cur.append(tk)
         stmts.append(cur)
-        if depth != 0:
+        if stack:
             raise AplError('SYNTAX ERROR')
         outs = []
         for st in stmts:
@@ -1102,6 +1185,57 @@ def selftest():
         ('(1+2', '!SYNTAX ERROR'),
         ('2/3', '!NONCE ERROR'),
         ('⍳¯1', '!DOMAIN ERROR'),
+        ('A←10 20 30 40 ⋄ A[2]', '20'),
+        ('A[3 1]', '30 10'),
+        ('A[⍳0]', ''),
+        ('A[2 2⍴1 2 3 4]', '10 20|30 40'),
+        ('A[1]+A[4]', '50'),
+        ('A[A[1]÷10]', '10'),
+        ('A[2.0]', '20'),
+        ('A[]', '10 20 30 40'),
+        ('A[5]', '!INDEX ERROR'),
+        ('A[0]', '!INDEX ERROR'),
+        ('A[¯1]', '!INDEX ERROR'),
+        ('A[1.5]', '!DOMAIN ERROR'),
+        ("A['a']", '!DOMAIN ERROR'),
+        ('A[1;2]', '!RANK ERROR'),
+        ('5[1]', '!RANK ERROR'),
+        ('M←3 4⍴⍳12 ⋄ M[2;3]', '7'),
+        ('M[2;]', '5 6 7 8'),
+        ('M[;2]', '2 6 10'),
+        ('M[;]', '1  2  3  4|5  6  7  8|9 10 11 12'),
+        ('M[1 3;2 4]', ' 2  4|10 12'),
+        ('M[3 1;1]', '9 1'),
+        ('M[2 2⍴1 2 3 1;1]', '1 5|9 1'),
+        ('M[1]', '!RANK ERROR'),
+        ('M[1;2;3]', '!RANK ERROR'),
+        ('M[4;1]', '!INDEX ERROR'),
+        ('M[1;5]', '!INDEX ERROR'),
+        ('M[1 2;1 2]', '1 2|5 6'),
+        ('M[2 2⍴1;1 2]', '!LIMIT ERROR'),
+        ('(⍳5)[3]', '3'),
+        ('(2 3⍴⍳6)[2;2]', '5'),
+        ("'hello'[1 5]", 'ho'),
+        ('1 2 3[2]', '2'),
+        ('B←2 3⍴⍳6 ⋄ ⍴B[;1]', '2'),
+        ('⍴A[2 2⍴1]', '2 2'),
+        ('A[1][1]', '!RANK ERROR'),
+        ('A[1 2][2]', '20'),
+        ('M[2;][3]', '7'),
+        ('+/M[;1]', '15'),
+        ('A[QQ]', '!VALUE ERROR'),
+        ('QQ[1]', '!VALUE ERROR'),
+        ('A[1', '!SYNTAX ERROR'),
+        ('A[1)', '!SYNTAX ERROR'),
+        ('(A[1)]', '!SYNTAX ERROR'),
+        ('A]', '!SYNTAX ERROR'),
+        ('[1]', '!SYNTAX ERROR'),
+        ('+[1]', '!SYNTAX ERROR'),
+        ('1;2', '!SYNTAX ERROR'),
+        ('A[1;]', '!RANK ERROR'),
+        ('A[1]←5', '!NONCE ERROR'),
+        ('+/[1]A', '!NONCE ERROR'),
+        ('A[1⋄2]', '!SYNTAX ERROR'),
     ]
     ws = Interp()
     for src, want in cases:

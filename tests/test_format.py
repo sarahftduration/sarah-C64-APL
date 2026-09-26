@@ -65,6 +65,9 @@ def test_f_fmt():
 
 
 def check_text(s, line):
+    if set('[];') & set(line):
+        s.reset()               # indexing is in the model only so far
+        return 'nonce'
     got = s.run6502(line)
     want = s.run_model_text(line)
     if got[0] == 'err' or want[0] == 'err':

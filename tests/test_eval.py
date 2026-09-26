@@ -11,7 +11,7 @@ ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
        5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
-UNIMPLEMENTED = set()
+UNIMPLEMENTED = set('[];')       # indexing is in the model only so far
 
 
 class Session:
@@ -77,6 +77,9 @@ class Session:
 
 
 def check(s, line):
+    if UNIMPLEMENTED & set(line):
+        s.reset()               # the 6502 does not know this syntax yet
+        return 'nonce'
     got = s.run6502(line)
     want = s.run_model(line)
     if got == ('err', 'NONCE ERROR') and want != got:
