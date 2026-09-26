@@ -1,7 +1,7 @@
-; Dyadic /: replicate and compress. Spec: apl64.py replicate. Included by eval.asm.
+; Dyadic /: replicate and compress. Spec: apl64.py replicate. An overlay (see overlay.inc).
 ; The left operand is the top cell, the right one below. Checks in the model's order: the left
-; argument's rank and whole-number-ness (arg_ints), the right argument's rank, the lengths,
-; negative counts, the size.
+; argument's rank and whole-number-ness (arg_ints), the lengths, negative counts, the size. A matrix
+; on the right is done a row at a time: ym is its columns, ymr its rows.
 
 yk      = WS+$b9                ; (2) elements of the left argument
 ym      = WS+$bb                ; (2) elements of the right argument
@@ -14,6 +14,13 @@ yp      = WS+$c3                ; (2) pairs of (count, element) still to do
 ywr     = WS+$c9                ; element width of the right argument
 ywl     = WS+$ca                ; ... of the left
 
+yrk:     .byte 0                ; the right argument's rank
+ymr:     .word 0                ; its rows (1 unless a matrix)
+yrc:     .word 0                ; rows still to do
+yrow:    .word 0                ; the start of the row being done, and the bytes in a row
+yrowb:   .word 0
+ya0:     .word 0                ; the start of the counts
+
 p_repl: jsr topcell
         jsr arg_ints            ; RANK, DOMAIN
         bcc yq_1
@@ -25,18 +32,29 @@ yq_1:   lda qan
         jsr secondcell
         jsr getval
         lda vrk
-        cmp #2
-        bcc yq_2
-        lda #E_NONCE
-        sec
-        rts
-yq_2:   lda vt
+        sta yrk
+        lda #1
+        sta ymr
+        lda #0
+        sta ymr+1
+        lda vt
         sta yt
         lda vn
         sta ym
         lda vn+1
         sta ym+1
-        lda yk                  ; k = m, or one of them is 1
+        lda yrk
+        cmp #2
+        bne yq_2
+        lda vs1                 ; a matrix: its columns are what the counts apply to
+        sta ym
+        lda vs1+1
+        sta ym+1
+        lda vs0
+        sta ymr
+        lda vs0+1
+        sta ymr+1
+yq_2:   lda yk                  ; k = m, or one of them is 1
         cmp ym
         bne yq_l
         lda yk+1
@@ -160,7 +178,39 @@ yq_a:   lda yt
         lda ytot+1
         sta nn+1
         sta nd0+1
-        jsr newarr
+        lda yrk
+        cmp #2
+        bne yq_a2
+        lda ymr                 ; a matrix: rows of ytot
+        sta p0
+        lda ymr+1
+        sta p1
+        lda ytot
+        sta bl
+        lda ytot+1
+        sta bh
+        jsr mul16
+        lda p2
+        ora p3
+        beq yq_a1
+        lda #E_WSFULL
+        sec
+        rts
+yq_a1:  lda p0
+        sta nn
+        lda p1
+        sta nn+1
+        lda #2
+        sta nrk
+        lda ymr
+        sta nd0
+        lda ymr+1
+        sta nd0+1
+        lda ytot
+        sta nd1
+        lda ytot+1
+        sta nd1+1
+yq_a2:  jsr newarr
         bcc yq_b
         rts
 yq_b:   jsr topcell             ; (the collector may have moved them) the left cursor
@@ -181,6 +231,54 @@ yq_b:   jsr topcell             ; (the collector may have moved them) the left c
         ldx yt
         lda WIDTHT,x
         sta ywr
+        lda mp                  ; the row loop: b's rows one after the other
+        sta yrow
+        lda mp+1
+        sta yrow+1
+        lda qsrc
+        sta ya0
+        lda qsrc+1
+        sta ya0+1
+        lda ym                  ; the bytes in a row
+        sta yrowb
+        lda ym+1
+        sta yrowb+1
+        lda ywr
+        cmp #2
+        bcc yq_rb
+        clc
+        lda yrowb
+        adc ym
+        sta yrowb
+        lda yrowb+1
+        adc ym+1
+        sta yrowb+1
+        lda ywr
+        cmp #3
+        bcc yq_rb
+        clc
+        lda yrowb
+        adc ym
+        sta yrowb
+        lda yrowb+1
+        adc ym+1
+        sta yrowb+1
+yq_rb:  lda ymr
+        sta yrc
+        lda ymr+1
+        sta yrc+1
+yq_row: lda yrc
+        ora yrc+1
+        bne yq_rw
+        jmp setdy
+yq_rw:  lda ya0                 ; this row: the counts from the start, b from the row
+        sta qsrc
+        lda ya0+1
+        sta qsrc+1
+        lda yrow
+        sta mp
+        lda yrow+1
+        sta mp+1
         lda yk+1                ; pairs: the right argument's length, or the left's
         bne yq_f
         lda yk
@@ -198,7 +296,18 @@ yq_f:   lda yk
 yq_g:   lda yp
         ora yp+1
         bne yq_h
-        jmp setdy
+        clc                     ; on to the next row
+        lda yrow
+        adc yrowb
+        sta yrow
+        lda yrow+1
+        adc yrowb+1
+        sta yrow+1
+        lda yrc
+        bne yq_rd
+        dec yrc+1
+yq_rd:  dec yrc
+        jmp yq_row
 yq_h:   lda qsrc                ; the count of this pair
         sta ep
         lda qsrc+1
@@ -270,6 +379,9 @@ xp_bt:   .byte 0                ; b's type, rank, count and element width
 xp_br:   .byte 0
 xp_bn:   .word 0
 xp_bw:   .byte 0
+xp_m:    .word 0                ; b's rows (1 unless a matrix)
+xp_rc:   .word 0                ; rows still to do
+xp_a0:   .word 0                ; the start of a
 
 p_expand:
         jsr topcell
@@ -283,19 +395,29 @@ xp_1:   lda qan
         jsr secondcell
         jsr getval
         lda vrk
-        cmp #2
-        bcc xp_2
-        lda #E_NONCE
-        sec
-        rts
 xp_2:   sta xp_br
+        lda #1
+        sta xp_m
+        lda #0
+        sta xp_m+1
         lda vt
         sta xp_bt
         lda vn
         sta xp_bn
         lda vn+1
         sta xp_bn+1
-        ldx vt
+        lda xp_br               ; a matrix: its columns must fit the 1s, row by row
+        cmp #2
+        bne xp_2a
+        lda vs1
+        sta xp_bn
+        lda vs1+1
+        sta xp_bn+1
+        lda vs0
+        sta xp_m
+        lda vs0+1
+        sta xp_m+1
+xp_2a:  ldx vt
         lda WIDTHT,x
         sta xp_bw
         jsr topcell             ; count the 1s
@@ -359,7 +481,39 @@ xp_al:  lda xp_bt
         lda xp_n+1
         sta nn+1
         sta nd0+1
-        jsr newarr
+        lda xp_br
+        cmp #2
+        bne xp_al2
+        lda xp_m                ; a matrix: xp_m rows of xp_n
+        sta p0
+        lda xp_m+1
+        sta p1
+        lda xp_n
+        sta bl
+        lda xp_n+1
+        sta bh
+        jsr mul16
+        lda p2
+        ora p3
+        beq xp_al1
+        lda #E_WSFULL
+        sec
+        rts
+xp_al1: lda p0
+        sta nn
+        lda p1
+        sta nn+1
+        lda #2
+        sta nrk
+        lda xp_m
+        sta nd0
+        lda xp_m+1
+        sta nd0+1
+        lda xp_n
+        sta nd1
+        lda xp_n+1
+        sta nd1+1
+xp_al2: jsr newarr
         bcc xp_go
         rts
 xp_len: lda #E_LENGTH
@@ -381,6 +535,18 @@ xp_go:  jsr secondcell          ; (the collector may have moved them) b's cursor
         sta qcnt
         lda vn+1
         sta qcnt+1
+        lda ep
+        sta xp_a0
+        lda ep+1
+        sta xp_a0+1
+        lda xp_m
+        sta xp_rc
+        lda xp_m+1
+        sta xp_rc+1
+        lda xp_rc
+        ora xp_rc+1
+        bne xp_l
+        jmp setdy
 xp_l:   lda qcnt
         ora qcnt+1
         beq xp_done
@@ -430,4 +596,21 @@ xp_a2:  lda qcnt
         dec qcnt+1
 xp_a3:  dec qcnt
         jmp xp_l
-xp_done: jmp setdy
+xp_done:
+        lda xp_rc               ; the next row: a again from its start
+        bne xp_r1
+        dec xp_rc+1
+xp_r1:  dec xp_rc
+        lda xp_rc
+        ora xp_rc+1
+        bne xp_r2
+        jmp setdy
+xp_r2:  lda xp_a0
+        sta ep
+        lda xp_a0+1
+        sta ep+1
+        lda xp_n
+        sta qcnt
+        lda xp_n+1
+        sta qcnt+1
+        jmp xp_l

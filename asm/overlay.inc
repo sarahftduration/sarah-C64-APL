@@ -21,6 +21,8 @@ OVID_REPL = 5
 OVID_FDEF = 6
 OVID_FLOOR = 7
 OVID_INNER = 8
+OVID_CATM = 9
+OVID_TRANSP = 10
 
 E_NOREU   = 11
 
@@ -50,11 +52,12 @@ s_rev: .ovstub p_rev, OVID_RESHAPE
 s_drop: .ovstub p_drop, OVID_RESHAPE
 s_rot: .ovstub p_rot, OVID_RESHAPE
 s_take: .ovstub p_take, OVID_RESHAPE
-s_transpose: .ovstub p_transpose, OVID_RESHAPE
-s_transax: .ovstub p_transax, OVID_RESHAPE
-s_axis: .ovstub p_axis, OVID_RESHAPE
+s_transpose: .ovstub p_transpose, OVID_TRANSP
+s_transax: .ovstub p_transax, OVID_TRANSP
+s_axis: .ovstub p_axis, OVID_TRANSP
 s_repl: .ovstub p_repl, OVID_REPL
 s_expand: .ovstub p_expand, OVID_REPL
+s_catm: .ovstub p_catm, OVID_CATM
 s_begin_def: .ovstub begin_def, OVID_FDEF
 s_def_line: .ovstub def_line, OVID_FDEF
 s_ceil: .ovstub p_ceil, OVID_FLOOR
@@ -132,7 +135,7 @@ ov_init:
         jmp reu_stash
 
 ; where each image is in the REU, and how long it is; indexed by id
-ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG), <(OVP_SEARCH-OVL_IMG), <(OVP_RESHAPE-OVL_IMG), <(OVP_REPL-OVL_IMG), <(OVP_FDEF-OVL_IMG), <(OVP_FLOOR-OVL_IMG), <(OVP_INNER-OVL_IMG)
-ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG), >(OVP_SEARCH-OVL_IMG), >(OVP_RESHAPE-OVL_IMG), >(OVP_REPL-OVL_IMG), >(OVP_FDEF-OVL_IMG), >(OVP_FLOOR-OVL_IMG), >(OVP_INNER-OVL_IMG)
-ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK, <OVN_SEARCH, <OVN_RESHAPE, <OVN_REPL, <OVN_FDEF, <OVN_FLOOR, <OVN_INNER
-ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK, >OVN_SEARCH, >OVN_RESHAPE, >OVN_REPL, >OVN_FDEF, >OVN_FLOOR, >OVN_INNER
+ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG), <(OVP_SEARCH-OVL_IMG), <(OVP_RESHAPE-OVL_IMG), <(OVP_REPL-OVL_IMG), <(OVP_FDEF-OVL_IMG), <(OVP_FLOOR-OVL_IMG), <(OVP_INNER-OVL_IMG), <(OVP_CATM-OVL_IMG), <(OVP_TRANSP-OVL_IMG)
+ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG), >(OVP_SEARCH-OVL_IMG), >(OVP_RESHAPE-OVL_IMG), >(OVP_REPL-OVL_IMG), >(OVP_FDEF-OVL_IMG), >(OVP_FLOOR-OVL_IMG), >(OVP_INNER-OVL_IMG), >(OVP_CATM-OVL_IMG), >(OVP_TRANSP-OVL_IMG)
+ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK, <OVN_SEARCH, <OVN_RESHAPE, <OVN_REPL, <OVN_FDEF, <OVN_FLOOR, <OVN_INNER, <OVN_CATM, <OVN_TRANSP
+ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK, >OVN_SEARCH, >OVN_RESHAPE, >OVN_REPL, >OVN_FDEF, >OVN_FLOOR, >OVN_INNER, >OVN_CATM, >OVN_TRANSP

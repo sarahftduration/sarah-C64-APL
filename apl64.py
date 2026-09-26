@@ -1634,6 +1634,8 @@ class Interp:
             if pg not in ('⌽', ','):
                 raise AplError('NONCE ERROR')
             fn, pos = PRIMS[pg], j - 1
+            if cat:
+                fn = (_nonce, fn[1])                             # ,[k]v is not the ravel
         val = self._apply(axis_fn(fn, k, cat), toks, pos - 1, val)
         return val, self._pos
 

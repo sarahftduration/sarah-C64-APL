@@ -606,6 +606,7 @@ prs_ws: lda #E_WSFULL
 prsx:   rts
 
 ; --- dyadic , : catenate ---------------------------------------------------------------
+pc_mat: jmp s_catm              ; a matrix among them: the overlay
 p_catenate:
         jsr topcell
         jsr getval
@@ -629,10 +630,10 @@ p_catenate:
         sta qbn+1
         lda qar
         cmp #2
-        bcs pc_nonce
+        bcs pc_mat
         lda qbr
         cmp #2
-        bcs pc_nonce
+        bcs pc_mat
         lda qan
         ora qan+1
         bne pcn1

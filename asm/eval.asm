@@ -57,7 +57,8 @@ K_LEFTU   = 5                   ; like K_LEFT, for a user-defined function (its 
 K_LEFTI   = 6                   ; like K_LEFT, for an inner product (pfn = f*16 + g)
 K_AXIS    = 7                   ; the value of an axis [k] after a function: check it, then go on with the function
 AX_GIVEN  = $10                 ; flags in the kind of a pending function: an axis was given ...
-AX_FLIP   = $20                 ; ... and the matrix was transposed to make it the last one (transpose the result back)
+AX_FLIP   = $20                 ; ... it was axis 1 (so matrices are transposed to make it the last: the result goes back) ...
+AX_K2     = $40                 ; ... or axis 2
 T_FN      = $0b                 ; a name of a function that takes arguments (see classify)
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
@@ -410,7 +411,7 @@ op4:    jmp ev_syn
 ; dyadically, K_GRP evaluate the next index group, K_IDX index the array with the groups
 ; and then carry on with the kind saved in the index frame below.
 cont:   lda ev_pkind
-        and #$cf                ; (without the axis flags)
+        and #$8f                ; (without the axis flags)
         beq ct_init
         cmp #K_LEFT
         beq ct_left
@@ -453,9 +454,13 @@ ct_pop: bcc *+3
         jmp cont
 ct_left:
         lda ev_pkind
-        and #AX_GIVEN+AX_FLIP
+        and #AX_GIVEN+AX_FLIP+AX_K2
         sta ev_axc
-        lda ev_pfn
+        beq ctl_go
+        jsr axpre
+        bcc ctl_go
+        rts
+ctl_go: lda ev_pfn
         jsr apply_dy
         bcc *+3
         rts
@@ -463,7 +468,14 @@ ct_left:
 ct_init:
         jmp evloop
 
-ct_ax:  jsr s_axis              ; the axis on top of the array: checked and taken off, the array transposed if need be
+ct_ax:  ldx ev_i1               ; (the token before the '[') catenation checks the axis later: both arguments count
+        lda TC-1,x
+        ldx #0
+        cmp #$8c
+        bne ct_ax1
+        inx
+ct_ax1: txa
+        jsr s_axis              ; the axis on top of the array: checked and taken off, the array transposed if need be
         bcc *+3
         rts
         stx ev_axn
@@ -478,8 +490,41 @@ axfin:  lda ev_axc
         rts
 af_go:  jmp evloop
 
+
+; a dyadic function with an axis, before it is applied: catenation needs the axis in one of its arguments, and for
+; axis 1 a matrix on the left is transposed, like the one on the right. Carry set: A = an error.
+axpre:
+        lda ev_pfn              ; with an axis: for catenation it must exist in one of the two arguments
+        cmp #$8c
+        bne ctl_f
+        jsr topcell
+        ldy #0
+        lda (cptr),y
+        sta ev_ax2
+        jsr secondcell
+        lda (cptr),y
+        ora ev_ax2              ; (the rank bits: a rank 2 is bit 3)
+        ldx #$0c                ; axis 1: any rank at all
+        ldy ev_axc
+        cpy #AX_K2+AX_GIVEN
+        bne ctl_k
+        ldx #$08                ; axis 2: a matrix
+ctl_k:  stx ev_ax2
+        and ev_ax2
+        bne ctl_f
+        lda #E_INDEX
+        sec
+        rts
+ctl_f:  lda ev_axc              ; axis 1: a matrix on the left is transposed, like the one on the right
+        and #AX_FLIP
+        beq axp_r
+        jmp s_transpose
+axp_r:  clc
+        rts
+
 ev_axn: .byte 0                 ; the axis flags of a function about to be applied
 ev_axc: .byte 0                 ; ... those of the function being applied
+ev_ax2: .byte 0
 
 ev_syn: lda #E_SYNTAX
         sec
@@ -679,11 +724,17 @@ rl_fn2: ldx ev_axn              ; an axis was given: only reduce, scan and ⌽ t
         lda #0
         sta ev_axn
         lda ev_tok
-        cmp #$93
+        cmp #$93                ; ⌽ , (the catenate) reduce scan and the $7f $7e of compress and expand
+        beq rf_go
+        cmp #$8c
         beq rf_go
         cmp #$c0
         beq rf_go
         cmp #$c1
+        beq rf_go
+        cmp #$7f
+        beq rf_go
+        cmp #$7e
         beq rf_go
         jmp rl_nonce
 rf_go:  lda ev_i1
@@ -712,8 +763,15 @@ rf_go:  lda ev_i1
         bcc rf_opnd
 rf_mon: lda ev_tok
         cmp #T_FN
-        bne rf_m1
+        bne rf_m0
         jmp udf_mon
+rf_m0:  lda ev_axc              ; ,[k]v is not the ravel
+        beq rf_m2
+        lda ev_tok
+        cmp #$8c
+        bne rf_m2
+        jmp rl_nonce
+rf_m2:  lda ev_tok
 rf_m1:  cmp #$c0
         bcs rf_red
         jsr apply_mon

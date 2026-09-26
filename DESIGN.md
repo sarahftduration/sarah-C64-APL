@@ -425,8 +425,8 @@ repeated as many times as the matching element of `a` says, so 0s and 1s select 
 `a` is non-negative whole numbers (RANK ERROR above a vector, DOMAIN ERROR for anything else,
 negative counts included); it has one element per element of `b`, or one element for all of `b`
 (`3/5` is `5 5 5`), or `b` has one element for all of `a`; any other lengths are LENGTH ERROR. A
-matrix `b` is NONCE ERROR (no axis or last-axis version yet), WS FULL if the result is too big. The
-result is a vector with `b`'s type. A count of a single element applied to an empty `b` is not
+matrix `b` is done a row at a time (its columns are repeated; `a/[1]M` does its rows), WS FULL if the result is too big. The
+result has `b`'s type and, for a matrix, `b`'s row count. A count of a single element applied to an empty `b` is not
 looked at. `x f/ y` and the other operators after a value are still NONCE ERROR.
 
 ## Scan and outer product
@@ -456,7 +456,9 @@ gives the axis, `k` a scalar whole number from 1 to the rank of the array to its
 ERROR, in that order); any other function or operator (`+[1]`, `⍳[1]`, `a/[1]b`, `f.g[1]` ...) is NONCE ERROR, and
 so is a user-defined function. These functions work along the last axis, so axis 1 of a matrix is done by
 transposing the matrix, applying the function, and transposing the result back if it is a matrix (`axis_fn`); axis
-2 of a matrix and axis 1 of a vector are the ordinary function. `⌿ ⍀ ⊖` (the first-axis glyphs) are not added.
+2 of a matrix and axis 1 of a vector are the ordinary function. `⌿ ⍀ ⊖` (the first-axis glyphs) are not added. Also with an axis: compress and expand (`a/[k]M`, `a\\[k]M`, `p_repl` and `p_expand` do a matrix a row at a time) and catenation (`A,[k]B`), for which the axis may be one of the
+left argument's, checked when both arguments are known (INDEX ERROR); monadic `,[k]` is NONCE ERROR. The flags are `AX_FLIP` for axis 1 (matrices among
+the arguments, on either side, are transposed and a matrix result is transposed back) and `AX_K2` for axis 2.
 
 On the 6502 (`rl_axis`, `ct_ax`, `axfin` in `eval.asm`, `p_axis` in `reshape.inc`): the group in the brackets is a
 range of its own (frame kind `K_AXIS`); when its value is done `p_axis` checks it against the array below it,
@@ -466,6 +468,15 @@ and `AX_FLIP` in `ev_axn`. The next function token picks them up in `rl_fn2` (`e
 inside the left operand cannot disturb them. After the function is applied `axfin` transposes the result if
 `AX_FLIP` is set. A `]` whose `[` follows a function is an axis, never the end of an indexed left operand: `+/[1]⍳4`
 applies `⍳` monadically.
+
+## Catenate on matrices
+
+`A,B` when one of them is a matrix (`asm/catm.inc`, an overlay of 714 bytes, entered from the resident `p_catenate`; model
+`_catenate_rows`): the columns of `B` follow those of `A` in every row. A vector needs one element per row and
+is a single column (LENGTH ERROR otherwise); a scalar is repeated for each row; two matrices need the same number of
+rows. An empty argument gives way to the other for the type, as in vectors; a character and a number do not mix
+(DOMAIN ERROR); more than 65535 elements is WS FULL. `A,[1]B` stacks rows (it is `A,B` on the transposes), so a vector
+there is a row. `a/M` and `a\M` (compress, expand) apply the counts to each row of `M`, `a/[1]M` to each column.
 
 ## Transpose, without and expand
 
@@ -830,7 +841,7 @@ at `SYMTAB`.
 `f/` and `f\` for scalar dyadic `f` (including `⌈ ⌊ |`), `a∘.f b`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
 NONCE: `¨ ⍤`, `∘.` with a function that is not scalar dyadic, an axis on anything but reduce, scan and `⌽`, `→` outside a function,
-catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
+user-defined functions.
 
 ## REU: overlays, then array spill
 
@@ -864,7 +875,7 @@ test now runs the overlaid code through the real dispatcher (py65 loads the imag
 start-up does), and the disk and key tests do so in VICE.
 
 Overlays so far (sizes in bytes; the window is the largest, 1,891): `)` command handlers (`sysov.inc`, 636),
-disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒ ~` (1,613), reshape `⌽ ↑ ↓ ⍉` (1,776), replicate and expand (927), the del
+disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒ ~` (1,613), reshape `⌽ ↑ ↓` (1,316), transpose and axis (593), matrix catenation (714), replicate and expand, also of matrices (1,385), the del
 editor (`fdef.inc`, 1,086), monadic floor and ceiling (`floor.inc`, 388) and inner product (`inner.inc`, 1,472). Their entry points in resident
 code are stubs (`s_x` runs `p_x`, in `overlay.inc`). Start-up data that is read once (the character shapes,
 `glyphs.inc`) sits after the images in the PRG and is not copied anywhere; nothing may write to that RAM
