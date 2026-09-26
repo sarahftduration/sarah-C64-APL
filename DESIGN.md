@@ -449,6 +449,26 @@ higher rank is LIMIT ERROR (checked first), then more than 65535 elements WS FUL
 and the size, in the order of the other scalar functions. Monadic `∘.f` is SYNTAX ERROR; any other `f` is
 NONCE ERROR. The evaluator marks the function as an outer product by adding `$60` to its token.
 
+## Inner product
+
+`a f.g b` (`make_inner` in the model, `asm/inner.inc`, an overlay of 1,472 bytes; `f` and `g` are scalar dyadic
+functions, otherwise NONCE ERROR; monadic use is SYNTAX ERROR): `f/` of `a g b` over the last axis of `a` and
+the first axis of `b`. The result has the shape of `a` without its last axis followed by the shape of `b`
+without its first, so vector and vector give a scalar and matrix and matrix a matrix. A scalar operand
+extends to the other's inner length; other inner lengths that differ are LENGTH ERROR; a result with a
+zero dimension is NONCE ERROR (an empty inner axis is fine: `f/` of nothing is the identity). Each element is
+what the model's reduce gives for the row of `g` results, so types, DOMAIN ERROR and the single-element rules
+are those of the scalar functions and of reduce.
+
+On the 6502 the evaluator marks `f.g` with a frame kind of its own (`K_LEFTI`, the function code
+`f*16 + g` in the engine's operation numbers) and calls `p_inner` through `s_inner`. For each element it
+copies row `i` of `a` and column `j` of `b` into two new vectors (a scalar is repeated), runs `p_sdyad` for
+`g` and `p_reduce` for `f`, and stores the scalar it gets. The result array is allocated when the first
+element has given its type and is widened (what is there is converted and copied) when a later element needs
+a wider one. A result that does not fit is not an error yet: the remaining elements are still computed so that
+a DOMAIN ERROR anywhere wins over WS FULL, as in the model. It costs time, not memory, in the number of
+elements times the inner length: about 8,000 6502 cycles per element and a little per inner element.
+
 ## User-defined functions
 
 `∇` (typed as pound `g`) starts a definition when it is the first non-blank character of a
@@ -813,10 +833,10 @@ start-up does), and the disk and key tests do so in VICE.
 
 Overlays so far (sizes in bytes; the window is the largest, 1,891): `)` command handlers (`sysov.inc`, 636),
 disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒` (1,312), reshape `⌽ ↑ ↓` (1,316), replicate (570), the del
-editor (`fdef.inc`, 1,086) and monadic floor and ceiling (`floor.inc`, 388). Their entry points in resident
+editor (`fdef.inc`, 1,086), monadic floor and ceiling (`floor.inc`, 388) and inner product (`inner.inc`, 1,472). Their entry points in resident
 code are stubs (`s_x` runs `p_x`, in `overlay.inc`). Start-up data that is read once (the character shapes,
 `glyphs.inc`) sits after the images in the PRG and is not copied anywhere; nothing may write to that RAM
-before `build_charset` has read it. The heap went from 15,364 to 20,717 bytes.
+before `build_charset` has read it. The heap went from 15,364 to 20,717 bytes (20,625 with the inner product's stub and evaluator changes).
 
 What stays resident is what loops use all the time (the scalar engine and its kernels, `⍳ ⍴ ,`, indexing,
 reduce, the evaluator, calls and branches, the heap and the formatter), so that a user function's loop does

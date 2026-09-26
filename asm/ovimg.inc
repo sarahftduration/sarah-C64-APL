@@ -45,11 +45,18 @@ OVP_FLOOR = *
         .here
 OVN_FLOOR = * - OVP_FLOOR
 
+OVP_INNER = *
+        .logical OVWIN
+        .include "inner.inc"
+        .here
+OVN_INNER = * - OVP_INNER
+
 OVL_TOT = * - OVL_IMG
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
         .cerror OVN_FDEF > OVWIN_SIZE, "the window is too small for the function editor overlay"
         .cerror OVN_FLOOR > OVWIN_SIZE, "the window is too small for the floor overlay"
+        .cerror OVN_INNER > OVWIN_SIZE, "the window is too small for the inner product overlay"
         .cerror OVL_TOT > $ffff, "the overlay images must fit one 64 KB REU bank"
         .cerror OVN_SEARCH > OVWIN_SIZE, "the window is too small for the search overlay"
         .cerror OVN_RESHAPE > OVWIN_SIZE, "the window is too small for the reshape overlay"

@@ -54,6 +54,7 @@ K_GRP     = 2                   ; an index group: go on to the next group to its
 K_IDX     = 3                   ; the indexed array: apply p_index, then the outer kind
 K_IASG    = 4                   ; the assigned variable: apply p_iasg, then the outer kind
 K_LEFTU   = 5                   ; like K_LEFT, for a user-defined function (its symbol in the frame)
+K_LEFTI   = 6                   ; like K_LEFT, for an inner product (pfn = f*16 + g)
 T_FN      = $0b                 ; a name of a function that takes arguments (see classify)
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
@@ -416,10 +417,17 @@ ct_idx: cmp #K_IDX
         jsr p_index
         jmp ct_pop
 ct_i2:  cmp #K_LEFTU
-        bne ct_ia
+        bne ct_i3
         lda ev_pfn
         sta ev_us
         jmp udf_dy
+ct_i3:  cmp #K_LEFTI
+        bne ct_ia
+        lda ev_pfn
+        jsr s_inner
+        bcc *+3
+        rts
+        jmp evloop
 ct_ia:  ldx ev_i1               ; the name token of A[i]<-v
         cpx ev_slo
         bne ci_x
@@ -578,16 +586,32 @@ rl_fn:  dec ev_i1
         bne rl_fn2
         lda TC-2,x
         cmp #$c4
-        bne rl_fn2
-        lda ev_tok
-        sec
-        sbc #$80
-        cmp #10
-        bcc ro_ok               ; only the scalar dyadic functions
-        cmp #13
-        bcc ro_no
-        cmp #18
+        beq ro_outer
+        cmp #$80                ; f.g: an inner product, the function f before the dot
+        bcc rl_fn2
+        cmp #$c0
+        bcs rl_fn2
+        jsr tokop
         bcs ro_no
+        asl
+        asl
+        asl
+        asl
+        sta ev_pg
+        lda ev_tok
+        jsr tokop
+        bcs ro_no
+        ora ev_pg
+        sta ev_pg               ; f*16 + g
+        dec ev_i1
+        dec ev_i1
+        lda #$d0                ; (a function code of its own: token + $60 is $e0 or more)
+        sta ev_tok
+        jmp rl_fn2
+ro_outer:
+        lda ev_tok
+        jsr tokop
+        bcs ro_no               ; only the scalar dyadic functions
 ro_ok:  dec ev_i1
         dec ev_i1
         lda ev_tok
@@ -596,6 +620,27 @@ ro_ok:  dec ev_i1
         sta ev_tok
         jmp rl_fn2
 ro_no:  jmp rl_nonce
+
+; A = a function token: the scalar engine's operation number (reduce and the inner product use the same),
+; carry set if it is not one of the scalar dyadic functions
+tokop:  sec
+        sbc #$80
+        cmp #10
+        bcc to_ok
+        cmp #13
+        bcc to_no
+        cmp #18
+        bcs to_no
+        cmp #16                 ; ⌈ ⌊ | are 13-15, engine 10-12; ∧ ∨ are 16 and 17, engine 14 and 15
+        bcs to_2
+        sbc #3-1                ; (carry is clear: a subtract of one more)
+        clc
+        rts
+to_2:   sbc #2                  ; (carry is set)
+to_ok:  clc
+        rts
+to_no:  sec
+        rts
 rl_fn2: lda ev_i1
         cmp ev_lo
         beq rf_mon
@@ -622,8 +667,8 @@ rf_m1:  cmp #$c0
         rts
         jmp evloop
 rf_red: lda ev_tok
-        cmp #$e0
-        bcs rf_syn              ; ∘.f with no left argument
+        cmp #$d0
+        bcs rf_syn              ; ∘.f and f.g with no left argument
         cmp #$c1
         beq rf_scan
         lda ev_pg
@@ -646,7 +691,14 @@ rf_opnd:
         lda ev_us
         sta ev_pfn
         jmp opnd
-rf_o1:  lda #K_LEFT
+rf_o1:  cmp #$d0
+        bne rf_o2
+        lda #K_LEFTI
+        sta ev_pkind
+        lda ev_pg
+        sta ev_pfn
+        jmp opnd
+rf_o2:  lda #K_LEFT
         sta ev_pkind
         lda ev_tok
         sta ev_pfn
