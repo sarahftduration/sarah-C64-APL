@@ -33,6 +33,7 @@ E_INTR   = 10
         .include "reshape.inc"
         .include "search.inc"
         .include "reu.inc"
+        .include "overlay.inc"
         .include "funcs.inc"
         .include "format.inc"
         .include "startup.inc"
@@ -1209,3 +1210,4 @@ el_data:
         rts
 
         .include "bss.inc"
+        .include "ovimg.inc"

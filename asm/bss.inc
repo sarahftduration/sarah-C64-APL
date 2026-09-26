@@ -142,6 +142,8 @@ lw      = STV+61
 osa     = STV+62                ; secondary address for open_sa
 lcnt    = STV+63                ; )LIB: lines listed on this page
 FV      .fill 80                ; user-defined functions: definition and call state (see funcs.inc)
+OVWIN_SIZE = 1891               ; the overlay window: as big as the biggest overlay (checked in ovimg.inc)
+OVWIN   .fill OVWIN_SIZE
 HEAP_BASE = *
         .endv
 

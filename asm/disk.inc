@@ -910,9 +910,3 @@ lb_full:
         rts
 lb_io:  lda #3
         rts
-
-; --- start-up value ---------------------------------------------------------------------------------------
-disk_init:
-        lda #8
-        sta DEVNUM
-        rts

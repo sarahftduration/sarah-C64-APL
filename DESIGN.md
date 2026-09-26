@@ -796,14 +796,30 @@ length in `$DF07`, and the call returns when the transfer, which stops the CPU, 
 `tests/harness.py Reu`, which performs the transfer when the program reaches `reu_trig`, and VICE with
 real REUs of 128 KB to 16 MB and with none. All the VICE tests now start VICE with `-reu -reusize 512`.
 
-**Next: overlays.** One window in main RAM, sized for the largest overlay; every overlay is assembled to
-run at the window's address and kept in the REU (the images travel in the PRG, in the space that becomes
-heap, and are copied out at start-up). A resident dispatcher makes the right overlay resident before
-running a routine; errors still come back as carry and a code. An overlay may call resident code but not
-another overlay (the build checks). Candidates, by payoff: disk and `)` commands, the function editor,
-search, reshape, replicate, floor and ceiling, and each new feature. Then array spill (below).
+**Built: overlays (`asm/overlay.inc`, `asm/ovimg.inc`).** Each overlay is a `.logical` block assembled to
+run at `OVWIN`, and its image sits in the PRG after the resident code, in the RAM the tables and heap later
+take over; the tables' first byte is where the images begin (`OVL_IMG`). `startup` calls `reu_detect` and
+`ov_init` before anything else, which stashes all the images to REU offset 0. `ov_ensure` (A = id) fetches
+an overlay into the window unless it is already there (`ov_cur`); with no REU it fails with error 11,
+`NO REU`. A routine in an overlay is reached either through a table that carries the overlay id (the
+`)` command table: `.byte 0, id, .word handler`) or through a resident stub, `name: .ovstub routine, id`
+(`jsr ov_call` followed by the id and the routine's address; the registers arrive intact and the routine's
+`rts` returns to the stub's caller). The window is `OVWIN_SIZE` bytes, the length of the biggest overlay
+(checked at build time and by `test_layout.py`, which wants it within 64 bytes). Rules: an overlay may call
+resident code, but nothing it calls may load another overlay while it is still running; the test harness
+(`Reu.check_switch`, at `ov_fetch`) fails any test that does. Tests: `tests/test_overlay.py`; every other
+test now runs the overlaid code through the real dispatcher (py65 loads the images into its REU as
+start-up does), and the disk and key tests do so in VICE.
 
-**Array spill (after overlays).** Each handle is either resident in the heap or held in the REU, and
+Overlays so far: the `)` command handlers (`sysov.inc`, 636 bytes; the parser, the table and the small
+helpers the disk commands share stay in `syscmd.inc`) and the disk commands (`disk.inc`, 1,891 bytes;
+`disk_init` stays resident). The heap went from 15,364 to 15,801 bytes. The gain is the smaller overlays
+only, so it grows with each one moved: anything up to the size of the window is free.
+
+**Next:** move more code into overlays (search, reshape, replicate, indexing, the function editor, floor and
+ceiling, `dyadic` rarely used paths), then the new features, then array spill.
+
+**Array spill (after that).** Each handle is either resident in the heap or held in the REU, and
 `getval` (the one place an array's data address is derived) makes an array resident before use. When the
 heap is full, instead of WS FULL, live arrays that are not the operands of the current operation (the top
 one or two stack cells) or its pinned result are moved out. Marking needs no change, since `gcmark` reads

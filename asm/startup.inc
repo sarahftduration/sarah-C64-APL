@@ -15,6 +15,10 @@ startup:
         cld
         ldx #$ff
         txs
+        jsr reu_detect          ; first of all: the overlay images sit where the tables go
+        bcs su_nr
+        jsr ov_init
+su_nr:
         lda #1                  ; the KERNAL must not draw its cursor (it thinks the screen is $0400)
         sta $cc
         lda #$80                ; nor switch character sets on SHIFT+C=, which would re-point ours
@@ -55,8 +59,8 @@ su2:    sta (cd),y
         jsr eval_init           ; (sets the test log pointer, which the cursor shares)
         jsr disk_init
         jsr scr_clear
-        jsr reu_detect
-        bcc su_reu
+        lda reu_banks
+        bne su_reu
         lda #<msg_noreu         ; runs, but only with what is not in an overlay
         sta mp
         lda #>msg_noreu
@@ -343,7 +347,7 @@ print_z:
         jmp print_z
 pz2:    rts
 
-; A = error code 1..10: print its name and a newline
+; A = error code 1..11: print its name and a newline
 print_error:
         sec
         sbc #1
@@ -357,7 +361,7 @@ print_error:
         lda #CHNL
         jmp scr_put
 
-errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9, err10
+errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9, err10, err11
 err1:   .text "SYNTAX ERROR"
         .byte 0
 err2:   .text "DOMAIN ERROR"
@@ -377,6 +381,8 @@ err8:   .text "WS FULL"
 err9:   .text "INDEX ERROR"
         .byte 0
 err10:  .text "INTERRUPT"
+        .byte 0
+err11:  .text "NO REU"
         .byte 0
 msg_noreu: .text "NO REU: LIMITED FEATURES"
         .byte 0
@@ -481,6 +487,5 @@ selftest_done:
 
         .include "editor.inc"
         .include "syscmd.inc"
-        .include "disk.inc"
         .include "keys.inc"
         .include "glyphs.inc"

@@ -28,8 +28,12 @@ def scratch(name=""):
     return os.path.join(_SCRATCH, name)
 
 
-def load(name):
-    """Load build/<name>.bin at its ORG label and return (mpu, labels)."""
+def load(name, reu_kb=512):
+    """Load build/<name>.bin at its ORG label and return (mpu, labels).
+
+    An image with overlays (label OVL_IMG) gets what start-up gives it on the real machine: the overlay
+    images are copied to a modelled REU of reu_kb KB (0: none) and the RAM they were loaded into is
+    cleared, since the tables take it over. mpu.reu is the REU."""
     mpu = MPU()
     with open(f"build/{name}.bin", "rb") as f:
         data = f.read()
@@ -42,6 +46,14 @@ def load(name):
                 labels[m.group(1)] = int(v[1:], 16) if v[0] == "$" else int(v)
     origin = labels.get("ORG", 0xC000)
     mpu.memory[origin:origin + len(data)] = list(data)
+    mpu.reu = None
+    if "OVL_IMG" in labels and "reu_trig" in labels:
+        img, tot = labels["OVL_IMG"], labels["OVL_TOT"]
+        if reu_kb:
+            mpu.reu = Reu(mpu, labels, reu_kb * 1024)
+            mpu.reu.mem[0:tot] = bytes(mpu.memory[img:img + tot])
+            mpu.memory[labels["reu_banks"]] = min(255, reu_kb // 64)
+        mpu.memory[img:img + tot] = [0] * tot
     return mpu, labels
 
 
@@ -79,6 +91,10 @@ class Reu:
         if not hasattr(mpu, "hooks"):
             mpu.hooks = {}
         mpu.hooks[labels["reu_trig"]] = self.trigger
+        self.labels = labels
+        self.loads = []                 # the overlay ids fetched, in order
+        if "ov_fetch" in labels:
+            mpu.hooks[labels["ov_fetch"]] = self.check_switch
 
     def trigger(self, mpu):
         m = mpu.memory
@@ -95,3 +111,14 @@ class Reu:
                 self.mem[r] = m[(c64 + i) & 0xFFFF]
             else:
                 m[(c64 + i) & 0xFFFF] = self.mem[r]
+
+    def check_switch(self, mpu):
+        """An overlay is about to be fetched into the window: no return address on the stack may point into it
+        (the routine that called us would come back to other code)."""
+        L = self.labels
+        lo, hi = L["OVWIN"], L["OVWIN"] + L["OVWIN_SIZE"]
+        m = mpu.memory
+        for a in range(0x100 + mpu.sp + 1, 0x1FF):
+            ret = (m[a] | m[a + 1] << 8) + 1
+            assert not lo <= ret < hi, f"an overlay is loaded while code in the window is still active (stack ${a:03x}: ${ret:04x})"
+        self.loads.append(mpu.x)

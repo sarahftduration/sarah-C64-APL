@@ -7,7 +7,7 @@ sys.path.insert(0, os.getcwd())
 from harness import ZP_ALLOWED, load
 
 _, L = load("eval")
-code_end = L["ORG"] + os.path.getsize("build/eval.bin")
+code_end = L["OVL_IMG"]                 # the resident code; the overlay images follow it in the PRG
 
 
 def test_layout():
@@ -19,8 +19,9 @@ def test_layout():
     # the tables lie between the code and the heap and never overlap. Those that need a page start on one; the
     # rest may sit in the gap before the first page boundary (bss.inc), so the space left over is under a page.
     sizes = {"HTL": 256, "HTH": 256, "HM": 256, "VARS": 1024, "VSTACK": 512, "FSTK": 256, "SYMTAB": 2048,
-             "OUTBUF": 1024, "SBUF": 512, "SDV": 8, "RV": 64, "FACC": 40, "FMT": 96, "DIGS": 40, "FR": 24,
-             "COLW": 256, "STV": 96, "HIST": 256, "FNBUF": 32, "FNPFX": 4, "CMDBUF": 12, "WSNAME": 20, "NAMETMP": 20}
+             "OUTBUF": 1024, "SBUF": 512, "SDV": 8, "RV": 76, "FACC": 40, "FMT": 96, "DIGS": 40, "FR": 24,
+             "COLW": 256, "STV": 96, "HIST": 256, "FNBUF": 32, "FNPFX": 4, "CMDBUF": 12, "WSNAME": 20, "NAMETMP": 20,
+             "OVWIN": L["OVWIN_SIZE"]}
     spans = sorted((L[n], L[n] + size, n) for n, size in sizes.items())
     assert spans[0][0] >= code_end and spans[-1][1] <= L["HEAP_BASE"]
     wasted = spans[0][0] - code_end + L["HEAP_BASE"] - spans[-1][1]
@@ -37,6 +38,11 @@ def test_layout():
     assert L["VSTACK"] % 256 == 0 and L["VSTACK_END"] == L["VSTACK"] + 512
     assert L["SYMTAB"] % 256 == 0 and L["SYMEND_HI"] == (L["SYMTAB"] + 2048 >> 8) - 1
     assert L["FK"] == L["FSTK"] and L["FFN"] + 64 == L["FSTK"] + 256
+    # overlays: the images follow the resident code in the PRG and fit the window, which the tables place last
+    assert L["ORG"] + os.path.getsize("build/eval.bin") == L["OVL_IMG"] + L["OVL_TOT"]
+    assert L["OVL_TOT"] < 0x10000 and L["OVWIN"] + L["OVWIN_SIZE"] == L["HEAP_BASE"]
+    biggest = max(L[n] for n in L if n.startswith("OVN_"))
+    assert biggest <= L["OVWIN_SIZE"] and L["OVWIN_SIZE"] - biggest < 64, "the window should be as small as the biggest overlay allows"
     # the heap: at least 12 KB (the floor DESIGN.md sets), ending under the screen; the test log lives above the machine's RAM map
     assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x3000
     assert L["LOGBUF"] >= 0xD000
@@ -77,7 +83,7 @@ def test_layout():
             if a2 > b:
                 break
             assert frozenset((n, n2)) in alias_ok, f"zero-page variables overlap: {n} ${a:02X}-${b:02X} and {n2} ${a2:02X}"
-    print(f"layout: code ${L['ORG']:04X}-${code_end - 1:04X} ({code_end - L['ORG']} bytes), tables to "
+    print(f"layout: code ${L['ORG']:04X}-${code_end - 1:04X} ({code_end - L['ORG']} bytes) and {L['OVL_TOT']} bytes of overlays, tables to "
           f"${L['HEAP_BASE'] - 1:04X}, heap {L['HEAP_LIMIT'] - L['HEAP_BASE']} bytes; all invariants hold")
 
 
