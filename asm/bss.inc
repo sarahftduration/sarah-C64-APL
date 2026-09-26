@@ -95,6 +95,7 @@ cu_p    = FV+61
 cu_na   = FV+62
 cu_m    = FV+63
 cu_a    = FV+64
+lsmode  = FV+65                 ; )VARS (0) or )FNS (TAG_FN)
 scr_row = STV
 scr_col = STV+1
 gtp     = STV+2                 ; charset builder: glyph table pointer

@@ -8,6 +8,7 @@ import sys
 
 sys.path.insert(0, os.getcwd())
 import apl64
+from harness import call
 from test_eval import Session, check
 
 D = "∇"
@@ -217,6 +218,62 @@ def test_call_heap_full():
     check(s, "F 1")
     check(s, "F F 1")
 
+
+def test_fn_check():
+    """The loader's check of a function block (fn_check) agrees with wsfile.function_valid on real
+    functions and on thousands of damaged ones."""
+    sys.path.insert(0, "tools")
+    import wsfile
+    s = Session()
+    s.reset()
+    for line in [D + "R←F X;T", "T←X+1 2 3", "R←T×'ab'[1]", "(1 2 3)[2]", "2 3⍴⍳6", "1.5 ¯2 40000 1e10", D,
+                 D + "R←A G B", "R←A+B", D, D + "H", D]:
+        check(s, line)
+    m, L = s.m, s.L
+    nsym = len(s.model.names)
+
+    def block_of(sym):
+        h = m.memory[L["VARS"] + 4 * sym + 1]
+        a = m.memory[L["HTL"] + h] | m.memory[L["HTH"] + h] << 8
+        return a, m.memory[a + 1] | m.memory[a + 2] << 8
+
+    def run_check():
+        for sym in range(nsym):
+            m.memory[L["VARS"] + 4 * sym] = m.memory[L["VARS"] + 4 * sym]     # (cells unchanged)
+        call(m, L["fn_check"], max_steps=2_000_000)
+        return not (m.p & 1)
+
+    def one(sym, data, syms=nsym):
+        a, n = block_of(sym)
+        assert len(data) == n
+        m.memory[a + 5:a + 5 + n] = list(data)
+        m.memory[L["symcnt"]] = syms & 255
+        m.memory[L["symcnt"] + 1] = syms >> 8
+        return run_check()
+
+    funcs = [i for i in sorted(s.model.funcs)]
+    cells = {i: bytes(m.memory[L["VARS"] + 4 * i:L["VARS"] + 4 * i + 4]) for i in funcs}
+    rng = random.Random(3)
+    tested = valid = 0
+    for sym in funcs:
+        for other in funcs:                     # only this function is looked at
+            m.memory[L["VARS"] + 4 * other] = cells[other][0] if other == sym else 0x80
+        a, n = block_of(sym)
+        orig = bytes(m.memory[a + 5:a + 5 + n])
+        assert wsfile.function_valid(orig, nsym) and one(sym, orig)
+        for k in range(1500):
+            d = bytearray(orig)
+            for _ in range(rng.choice([1, 1, 2, 3])):
+                d[rng.randrange(len(d))] = rng.choice([0, 1, 2, 3, 5, 6, 11, 0x80, 0xFF, rng.randrange(256)])
+            syms = rng.choice([nsym, nsym, sym + 1, 200, 256])
+            want = wsfile.function_valid(bytes(d), syms)
+            got = one(sym, bytes(d), syms)
+            assert got == want, (sym, bytes(d).hex(), syms, got, want)
+            tested += 1
+            valid += want
+        one(sym, orig)
+    print(f"functions: fn_check agrees with the checker on {tested} damaged blocks ({valid} of them still valid)")
+
 def test_line_limit():
     """255 lines fit, the 256th is LIMIT ERROR (the model and the 6502 agree)."""
     s = Session()
@@ -251,6 +308,7 @@ if __name__ == "__main__":
     test_definitions()
     test_calls()
     test_fuzz_functions()
+    test_fn_check()
     test_line_limit()
     test_heap_full()
     test_call_heap_full()

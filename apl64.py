@@ -795,6 +795,27 @@ class Func:
             data += len(ln).to_bytes(2, 'little') + ln
         return data
 
+    @staticmethod
+    def from_bytes(d):
+        """The inverse of to_bytes for data that passed the loader's checks."""
+        nargs, hasres, nsyms, nlines = d[:4]
+        syms = list(d[4:4 + nsyms])
+        p = 0
+        res = larg = rarg = None
+        if hasres:
+            res, p = syms[0], 1
+        if nargs == 2:
+            larg, p = syms[p], p + 1
+        if nargs >= 1:
+            rarg, p = syms[p], p + 1
+        f = Func(nargs, res, larg, rarg, syms[p:])
+        pos = 4 + nsyms
+        for _ in range(nlines):
+            ln = d[pos] | d[pos + 1] << 8
+            f.lines.append(bytes(d[pos + 2:pos + 2 + ln]))
+            pos += 2 + ln
+        return f
+
     def block_bytes(self):
         """...and its heap block: a CHAR vector holding those bytes."""
         d = self.to_bytes()

@@ -1,9 +1,12 @@
 ; )SAVE and )LOAD: workspace files on the disk drive (KERNAL file I/O, device DEVNUM).
 ; Spec: DESIGN.md, Workspace files. The file is:
-;   "APLW", version 1, number of variables (2 bytes), then for each defined variable
-;   its name (length byte, then the characters), its value, and finally "E".
+;   "APLW", version 2, number of symbols (2 bytes), then for each symbol, in symbol order (the
+;   token streams of functions name symbols by number), its name (length byte, then the
+;   characters), its value, and finally "E".
 ;   A value is its tag byte (type | rank<<2) and, for a scalar, its 1-3 data bytes; for
-;   an array the heap layout: count (2), a 2-byte length per axis, then the data.
+;   an array the heap layout: count (2), a 2-byte length per axis, then the data. A symbol
+;   with no value has the tag $80 alone; a function has the tag $15 (a CHAR vector, plus $10)
+;   and the layout of funcs.inc as its data.
 
 K_SETNAM = $ffbd
 K_SETLFS = $ffba
@@ -16,7 +19,7 @@ K_CHRIN  = $ffcf
 K_CHROUT = $ffd2
 K_READST = $ffb7
 LFN      = 2
-WS_VERSION = 1
+WS_VERSION = 2
 
 msg_saved:  .text "SAVED"
         .byte 0
@@ -294,34 +297,11 @@ sv_badname:
 
 ; write the workspace to the open channel; carry set on an I/O error
 save_body:
-        lda symcnt              ; count the defined variables
-        sta vcnt2
+        lda symcnt              ; every symbol is written, defined or not: the functions refer to
+        sta nvars               ; symbols by number, so the numbering must survive a load
         lda symcnt+1
-        sta vcnt2+1
-        lda #0
-        sta nvars
         sta nvars+1
-        lda #0
-        sta svi
-d_sb1:    lda vcnt2
-        ora vcnt2+1
-        beq d_sb3
-        lda svi
-        jsr varcell
-        ldy #0
-        lda (cptr),y
-        cmp #$80
-        beq d_sb2
-        inc nvars
-        bne d_sb2
-        inc nvars+1
-d_sb2:    inc svi
-        lda vcnt2
-        bne sb2a
-        dec vcnt2+1
-sb2a:   dec vcnt2
-        jmp d_sb1
-d_sb3:    ldx #0                  ; header
+d_sb3:  ldx #0                  ; header
 d_sb4:    lda wshead,x
         stx kidx
         jsr wbyte
@@ -359,12 +339,6 @@ sb5:    lda vcnt2
         ldy #0
         lda (mp),y
         sta svl
-        lda svi
-        jsr varcell
-        ldy #0
-        lda (cptr),y
-        cmp #$80
-        beq sb7
         lda svl                 ; the name
         jsr wbyte
         bcs sb_err
@@ -381,9 +355,16 @@ sb6:    lda svl
         sta wcnt+1
         jsr wblock
         bcs sb_err
-        lda svi                 ; the value
+        lda svi                 ; the value, or the tag of an undefined symbol
         jsr varcell
-        jsr save_value
+        ldy #0
+        lda (cptr),y
+        cmp #$80
+        bne sb_v
+        jsr wbyte
+        bcs sb_err
+        jmp sb7
+sb_v:   jsr save_value
         bcs sb_err
 sb7:    lda sympp               ; on to the next symbol
         sta mp
@@ -656,6 +637,9 @@ lb2:    lda nvars
         cmp #'E'
         beq *+5
         jmp lb_notws
+        jsr fn_check            ; the functions must be ones the evaluator can run
+        bcc *+5
+        jmp lb_notws
         lda #0
         rts
 lb3:    jsr rbyte               ; a name: length, characters
@@ -702,10 +686,15 @@ lb3:    jsr rbyte               ; a name: length, characters
         and #3
         sta nrk
         lda ldtag
+        cmp #$80                ; an undefined symbol has no value to read
+        bne lb_t1
+        jmp lb_next
+lb_t1:  cmp #TAG_FN|5           ; a function is a CHAR vector with one more bit
+        beq lb_t2
         and #$f0                ; no other bits may be set
-        beq *+5
+        beq lb_t2
         jmp lb_notws
-        lda nrk
+lb_t2:  lda nrk
         cmp #3
         bcc *+5
         jmp lb_notws
@@ -784,10 +773,12 @@ lb_chk2:
         jsr mul16
         lda p2
         ora p3
-        bne lb_bad
+        beq *+5
+        jmp lb_bad
         lda p0
         cmp nn
-        bne lb_bad
+        beq *+5
+        jmp lb_bad
         lda p1
         cmp nn+1
         bne lb_bad
@@ -828,6 +819,10 @@ lb_chk3:
 lb_a3:  jsr rblock
         bcs lb_io
 lb_store:
+        lda ldtag
+        and #TAG_FN
+        ora cv
+        sta cv
         lda svi
         jsr varcell
         ldy #3
@@ -835,6 +830,7 @@ lb_s1:  lda cv,y
         sta (cptr),y
         dey
         bpl lb_s1
+lb_next:
         lda nvars
         bne lb_s2
         dec nvars+1

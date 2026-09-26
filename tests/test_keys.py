@@ -64,8 +64,9 @@ class EditorModel:
             i += 1
         word, arg = t[:i].upper(), t[i:].lstrip(" ")
         m = self.model
-        if word == "VARS":
-            names = sorted((n for k, n in enumerate(m.names) if k in m.vars), key=apl64.encode_line)
+        if word in ("VARS", "FNS"):
+            have = m.vars if word == "VARS" else m.funcs
+            names = sorted((n for k, n in enumerate(m.names) if k in have), key=apl64.encode_line)
             for n in names:
                 b = apl64.encode_line(n)
                 if self.scr.col != 0:
@@ -84,6 +85,7 @@ class EditorModel:
                 return
             for _, k in toks:
                 m.vars.pop(k, None)
+                m.funcs.pop(k, None)
         elif word == "CLEAR":
             self.model = apl64.Interp()
             self.wsname = ""
@@ -92,6 +94,7 @@ class EditorModel:
             base, limit = self.heap
             seen = {id(v): v for v in m.vars.values() if v.rank > 0}
             live = sum(1 + len(v.to_bytes()) for v in seen.values())
+            live += sum(1 + len(f.block_bytes()) for f in m.funcs.values())
             self.say(f"{limit - base - live} BYTES FREE")
         elif word == "WSID":
             if not arg:
@@ -106,7 +109,7 @@ class EditorModel:
             self.say("BAD COMMAND")
 
     def prompt(self):
-        self.scr.write(b" " * 6)
+        self.scr.write(apl64.encode_line(self.model.prompt()))
 
     def insert(self, c):
         if len(self.line) < 255:
@@ -141,7 +144,7 @@ class EditorModel:
             s.put(10)
             text = "".join(INV.get(c, chr(c)) for c in self.line)
             self.line = []
-            if text.lstrip(" ").startswith(")"):
+            if text.lstrip(" ").startswith(")") and self.model.defining is None:
                 self.syscmd(text.lstrip(" ")[1:])
                 self.prompt()
                 return
@@ -149,6 +152,8 @@ class EditorModel:
                 for v in self.model.run_values(text):
                     s.write(text_bytes(v) + b"\n")
             except apl64.AplError as e:
+                for v in getattr(e, "outs", []):
+                    s.write(text_bytes(v) + b"\n")
                 s.write(e.kind.encode() + b"\n")
             self.prompt()
         elif k == K.DEL:
@@ -253,7 +258,20 @@ SESSIONS = [
     "a{LA}{P}i3{RET}{P}i3{RET}a{P}-a{RET}",
 ]
 
+def typed_lines(*lines):
+    """APL lines as the keys that type them: the glyphs are digraphs after the pound key."""
+    keys = {"←": "{LA}", "⍳": "{P}i", "⍴": "{P}r", "×": "{P}-", "÷": "{P}=", "∇": "{P}g", "⋄": "{P}."}
+    return "".join("".join(keys.get(c, c) for c in ln) + "{RET}" for ln in lines)
+
+
 CMD_SESSIONS = [
+    typed_lines("∇R←SQ X", "R←X×X", "∇", "∇SHOW X", "X", "∇", "a←1") + ")fns{RET})vars{RET}",       # functions are not variables
+    typed_lines("∇R←SQ X", "R←X×X", "∇", "∇R←ZED", "R←0", "∇", "b←SQ 5") + ")fns{RET})erase SQ{RET})fns{RET}SQ 2{RET})vars{RET}",
+    typed_lines("∇R←F X", "R←X", "∇", "∇R←F X", "R←X+1", "∇", "F 1", "F←3") + ")free{RET})clear{RET})fns{RET})free{RET}",
+    typed_lines("∇F", "1", "2", "∇", "F", "∇R←G", "R←F", "∇", "G", "1+G") + ")fns{RET}",                 # echoes inside functions
+    typed_lines("∇R←F X", "R←X÷0", "∇", "F 1", "F 2", "∇G", "F 5", "∇", "G", "1") + ")fns{RET}",
+    typed_lines("∇F", "1") + ")fns{RET})vars{RET}" + typed_lines("∇", ")fns"),                            # ) lines are body lines
+    ")fns{RET}  )FNS extra{RET})Fns{RET}",
     ")vars{RET}",                                                      # nothing defined: nothing printed
     "b{LA}1{RET}a{LA}2 3{RET}zz{LA}'x'{RET}Ab{LA}5{RET})vars{RET}",    # sorted: Ab a b zz
     "b{LA}1{RET}a{LA}2{RET})VARS{RET}  )Vars extra words{RET}",         # case, spaces, extra words

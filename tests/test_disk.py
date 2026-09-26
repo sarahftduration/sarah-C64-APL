@@ -245,7 +245,7 @@ def test_save():
     typed = "".join(v.replace("←", "{LA}") + "{RET}" for v in VALUES)
     typed = typed.replace("⍳", "{P}i").replace("⍬", "{P}'").replace("⍴", "{P}r")
     ed, after = session(typed + ")save t1{RET})wsid{RET}")
-    assert after["t1"][:7] == b"APLW\x01" + (len(VALUES)).to_bytes(2, "little")
+    assert after["t1"][:7] == b"APLW\x02" + (len(VALUES)).to_bytes(2, "little")
     session("a{LA}1{RET})save{RET})wsid foo{RET})save{RET}a{LA}2{RET})save{RET})save FOO{RET})wsid{RET}")   # no name; replacing
     session("a{LA}1{RET})save a-b.c{RET}")
     session(")save e{RET}")                                     # an empty workspace
@@ -253,6 +253,27 @@ def test_save():
     session("{P}h{LA}1{RET}{P}H{LA}2{RET})save deltas{RET})clear{RET})load deltas{RET})vars{RET}")   # ∆ and ⍙ in names
     session("a{LA}1{RET})save x{RET})wsid bad{P}{LA}name{RET})wsid{RET})save{RET})wsid{RET}")   # a bad name must not disturb the good one
     print("disk: )SAVE writes the files the encoder predicts; names, replace, empty workspace, shared arrays")
+
+
+def test_functions():
+    """Functions survive )SAVE and )LOAD (the symbol numbers in their token streams too), and a damaged
+    function makes the file NOT A WORKSPACE, the workspace left as far as it was loaded."""
+    from test_keys import typed_lines
+    defs = typed_lines("z←9", "∇R←SQ X", "R←X×X", "∇", "y←SQ z", "∇R←A ADD B;T", "T←A+B", "R←T×w", "∇", "w←2",
+                       "∇SHOW X", "X", "'done'", "∇", "∇R←K", "R←SQ 3", "∇")
+    session(defs + ")save fw{RET})fns{RET})clear{RET})fns{RET})load fw{RET})fns{RET})vars{RET}" +
+            typed_lines("SQ 5", "1 ADD 2", "SHOW 1 2", "K", "y", "w←10", "3 ADD 4", "K+1"))
+    session(defs + ")save fw{RET})erase SQ{RET})load fw{RET}" + typed_lines("K", "SQ 2"))          # a function loaded over a function
+    m, good = ws(["∇R←SQ X", "R←X×X", "∇", "∇F", "1", "SQ 2", "∇", "q←3"])                       # symbols with no value, too
+    session(")load ff{RET})fns{RET})vars{RET}" + typed_lines("SQ 4", "F", "q"), {"ff": good})
+    i = good.index(b"\x15")                                   # the first function's block
+    for name, data in {
+        "fnbadsym": good[:i + 9] + bytes([200]) + good[i + 10:],
+        "fnbadtok": good[:i + 20] + bytes([0x20]) + good[i + 21:],
+        "fnbadcnt": good[:i + 8] + bytes([9]) + good[i + 9:],
+    }.items():
+        session(")load " + name + "{RET})fns{RET})vars{RET})wsid{RET}", {name: data})
+    print("disk: functions round-trip through )SAVE and )LOAD; damaged functions are refused as the model says")
 
 
 def test_readonly():
@@ -329,7 +350,8 @@ def test_corrupt():
     head = good[:5]
     cases = {
         "badmagic": b"NOPE" + good[4:],
-        "version2": good[:4] + bytes([2]) + good[5:],
+        "version1": good[:4] + bytes([1]) + good[5:],
+        "version3": good[:4] + bytes([3]) + good[5:],
         "empty": b"",
         "onlymagic": good[:5],
         "nocount": good[:6],
@@ -366,6 +388,7 @@ if __name__ == "__main__":
         print("disk: skipped (x64sc not installed)")
     else:
         test_save()
+        test_functions()
         test_readonly()
         test_load()
         test_lib()

@@ -66,6 +66,9 @@ sc_bad: lda #<msg_badcmd
 cmdtab: .text "VARS"
         .byte 0
         .word cmd_vars
+        .text "FNS"
+        .byte 0
+        .word cmd_fns
         .text "ERASE"
         .byte 0
         .word cmd_erase
@@ -284,8 +287,14 @@ ce7:    lda OUTBUF,x
 ce8:    rts
 
 ; --- )VARS: the defined variables, sorted, wrapped to the screen ------------------------------------------
-; SBUF gets the address of each symbol, OUTBUF a list of the defined ones.
+; SBUF gets the address of each symbol, OUTBUF a list of the defined ones. )FNS lists the functions.
+cmd_fns:
+        lda #TAG_FN
+        bne cmd_list
 cmd_vars:
+        lda #0
+cmd_list:
+        sta lsmode
         lda #<SYMTAB
         sta mp
         lda #>SYMTAB
@@ -332,6 +341,9 @@ cv3:    lda svcnt
         lda (cptr),y
         cmp #$80
         beq cv4
+        and #TAG_FN             ; 0: a variable, TAG_FN: a function
+        cmp lsmode
+        bne cv4
         ldx svnv
         lda kidx
         sta OUTBUF,x

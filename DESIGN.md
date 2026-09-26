@@ -365,6 +365,50 @@ No parse tree. Scan tokens right to left:
 3. `⋄` splits statements. A statement whose leftmost tokens are `name ←` is
    not echoed.
 
+## User-defined functions
+
+`∇` (typed as pound `g`) starts a definition when it is the first non-blank character of a
+line; the rest of the line is the header, `[R←][A ]FN[ B][;L1;L2...]`: an optional result name,
+a function name with no, one or two argument names (niladic, monadic, dyadic; a monadic
+function has the right argument only), and localised names after semicolons. Every name must
+differ from the others and from the function's; the function's name must not be a variable
+(SYNTAX ERROR otherwise; an existing function is simply replaced). The prompt becomes `[n]`, the
+number of the next line, and every line typed is tokenised and added to the body (a line the
+tokenizer or the bracket check refuses is reported and not added; 255 lines at most, LIMIT
+ERROR); a line holding only `∇` ends the definition. There is no editor for existing
+functions: retype them. `)` lines are body lines while defining.
+
+Calling: a name of a function that takes arguments is a function in an expression, applied
+monadically or dyadically by what is to its left (a dyadic call of a monadic function is a
+SYNTAX ERROR; a monadic call of a dyadic one leaves the left argument undefined); a niladic
+function's name is a value that is computed wherever it stands. The header's names (result,
+arguments, locals) are *localised* by the call: they are undefined on entry (the arguments then get
+their values) and get their old values back however the call ends, an error included, so
+assignments to any other name are global and the called function sees its caller's names
+(dynamic scoping). The result is the result name's value at the end (VALUE ERROR if it has
+none). Every line runs as if typed; a value that is not assigned is printed. A function with no
+result may only end a statement (`F 3`, not `1+F 3`, `A←F 3`, `(F 3)`): nothing is printed for
+it. A function's name cannot be assigned to or indexed for assignment. Calls nest 16 deep
+(LIMIT ERROR); the value stack (128 cells, each call takes one plus one per localised name)
+may give LIMIT ERROR sooner. There is no branching yet (`→` is NONCE ERROR), so a recursive
+function cannot stop: recursion is only useful once control flow exists.
+
+A function is a variable cell with tag `$15` (a CHAR vector, plus `$10` for "function") whose
+block is (`Func.to_bytes()` in the model): nargs, hasres, nsyms, nlines, then nsyms symbol
+numbers (result, left argument, right argument, locals, the ones that exist), then each line as a
+2-byte size and its token stream. While it is being defined its block is the last in the heap and each
+line is appended in place; the variable is set at the header.
+
+The evaluator makes a call without recursion of the hardware stack (`asm/funcs.inc`).
+`classify`, run whenever a line is loaded, turns names of functions with arguments into `T_FN`
+tokens, so a name is a function or a value without further lookup. A call saves the calling line in a
+heap block (17 register bytes, the evaluator's frames, the token stream), pushes a record on
+the value stack (that block's cell, then the old values of the localised names) and runs the
+lines through the ordinary statement loop; `udf_return` restores everything, replaces the operands by
+the result and carries on at the same point. An error leaves through the normal error returns
+(each nested call added one return address to the hardware stack, which the chain of `rts`
+unwinds) and `eval_line` then gives the names back (`unwind`).
+
 ## Errors
 
 `DOMAIN ERROR, LENGTH ERROR, RANK ERROR, SYNTAX ERROR, VALUE ERROR,
@@ -390,7 +434,8 @@ case-insensitive.
 | Command | Effect |
 |---|---|
 | `)VARS` | the defined variables, sorted by character code, separated by spaces, wrapped at column 40 (a name that would end past column 40 starts a new line) |
-| `)ERASE a b ...` | undefine variables; the argument is tokenized as APL, so it must be names only (`BAD COMMAND` otherwise, unknown names are ignored) |
+| `)FNS` | the same for the user-defined functions |
+| `)ERASE a b ...` | undefine variables or functions; the argument is tokenized as APL, so it must be names only (`BAD COMMAND` otherwise, unknown names are ignored) |
 | `)CLEAR` | empty the workspace, symbol table and workspace name; prints `CLEAR WS` |
 | `)FREE` | collect, then print the heap bytes free (`n BYTES FREE`) |
 | `)WSID [name]` | show (or `CLEAR WS`) or set the workspace name: 1-16 of `A-Z 0-9 - .`, lower case folded; `BAD NAME` otherwise, leaving the old name alone |
@@ -405,14 +450,19 @@ a bad file prints `NOT A WORKSPACE` (or `WS FULL`).
 **Workspace file** (`tools/wsfile.py` is the reference encoder and decoder):
 
 ```
-"APLW", version 1, number of variables (2 bytes, little endian)
-for each defined variable, in symbol order:
+"APLW", version 2, number of symbols (2 bytes, little endian)
+for each symbol, in symbol order (defined or not):
     name: a length byte, then the characters (our codes)
     value: the tag byte (type | rank<<2), then
         rank 0: the 1-3 data bytes
         rank 1-2: count (2), a length per axis (2 each), the data
+      or the tag $80 alone: the symbol has no value
+      or the tag $15 (a CHAR vector plus $10) and the data of a function (see User-defined functions)
 "E"
 ```
+
+Every symbol is written because the token streams of functions name symbols by number: loading
+recreates the symbols in the same order, so the numbers stay right.
 
 It is a logical format, not a memory image, so saved workspaces survive rebuilds of the
 program. It is streamed through the KERNAL (`OPEN`, `CHROUT`, `CHRIN`); after each
@@ -425,7 +475,10 @@ successful `)SAVE`, and by `)LOAD` even if it then fails.
 cleared. It then reads the variables one at a time, recreating each name by running it
 through the tokenizer (so symbol indexes are rebuilt, and a name must tokenize to
 exactly one name). An array's count must equal its lengths' product and its size must
-fit the per-array limit. A failure part-way (truncated file, bad trailer, bad tag) leaves
+fit the per-array limit. After the trailer, every function is checked (`fn_check`, the same
+rules as `function_valid` in `tools/wsfile.py`: sizes add up, symbols exist, every token is
+known and whole, at most 255 tokens and 1536 bytes a line); a function that fails makes the
+file `NOT A WORKSPACE`, with everything loaded left in place. A failure part-way (truncated file, bad trailer, bad tag) leaves
 the variables read so far in place, and reports the error. An empty file is `NOT A
 WORKSPACE`: DOS returns one garbage byte for it, indistinguishable from a bad first byte.
 
