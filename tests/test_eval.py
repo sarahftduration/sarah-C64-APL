@@ -76,14 +76,7 @@ class Session:
                 for i in range(len(self.model.names))]
 
 
-def unimplemented(line):
-    return re.search(r"\]\s*←", line) is not None     # indexed assignment: in the model only so far
-
-
 def check(s, line):
-    if unimplemented(line):
-        s.reset()
-        return 'nonce'
     got = s.run6502(line)
     want = s.run_model(line)
     if got == ('err', 'NONCE ERROR') and want != got:
@@ -131,6 +124,18 @@ FIXED = [
     "A←M[2;] ⋄ A", "B←M[;2] ⋄ B←B[2 3] ⋄ B", "N←M[2 3;1 2] ⋄ N[2;2]", "A←A[4 3 2 1] ⋄ A", "X←,5 ⋄ X[1]", "X←5 ⋄ X[1]", "S←⍬ ⋄ S[1]",
     "E←3 0⍴1 ⋄ E[1;1]", "E[⍳0;]", "M[;⍳0]", "1000⍴1 ⋄ (1000⍴1)[500]", "V←⍳1000 ⋄ V[1000 1]", "V[⍳500]", "V[2 3⍴⍳6]", "V[V]",
     "V[1000+1]", "K←100 100⍴⍳100 ⋄ K[100;100]", "K[;1]", "K[2 2⍴1;2 2⍴1]", "K[⍳100;⍳100]", "K[1 2;⍳100]",
+    # indexed assignment
+    "P←1 2 3 4 5 ⋄ P[2]←9", "P", "P[2 4]←0", "P", "P[1 3]←7 8", "P", "P[1 2]←1 2 3", "P[1]←1 2", "P[1 2]←3 3⍴1", "P[6]←1",
+    "P[1;1]←1", "P[1]←'a'", "P", "Q←P ⋄ P[1]←99 ⋄ Q", "P", "P[1]+P[2]←3", "1+P[2]←5", "P[1 1]←4 5", "P[1]", "P[⍳0]←1", "P[⍳0]←1 2",
+    "P[⍳0]←'a'", "P[2]←1.5", "P", "R←'hello' ⋄ R[1]←'j' ⋄ R", "R[1]←1", "R[2 3]←'ab' ⋄ R", "R[2]←'xy'", "B←1 0 1 ⋄ B[2]←1 ⋄ B",
+    "B[2]←5 ⋄ B", "B[1]←1.5 ⋄ B", "N←2 3⍴⍳6 ⋄ N[2;3]←0 ⋄ N", "N[;1]←7 8 ⋄ N", "N[1;]←9 ⋄ N", "N[1 2;1 2]←2 2⍴1 2 3 4 ⋄ N",
+    "N[1 2;1 2]←1 2 3 4", "N[1 2;1 2]←2 3⍴1", "N[;]←0 ⋄ N", "N[1]←1", "N[3;1]←1", "N[2 2⍴1;1 2]←1", "N[1;2]←2.5 ⋄ N", "ZZ[1]←1",
+    "(P)[1]←1", "P[1][1]←1", "[1]←1", "P[QQ]←1", "P[1]←QQ", "P[1←2", "P[1]←2 ⋄ P[2]←3 ⋄ P", "P[P[1]]←4 ⋄ P", "P[1 2]←P[2 1] ⋄ P",
+    "SS←5 ⋄ SS[1]←2", "P[1]←", "P[]←0 ⋄ P", "P[]←⍳5 ⋄ P", "P[⍳5]←5-⍳5 ⋄ P", "P[2 3]←'a'", "P[2]←3 ⋄ P[3]←P[2]", "T←⍳5 ⋄ T[3]←1e10 ⋄ T",
+    "U←1 2 3 ⋄ U[2]←40000 ⋄ U", "U[2]←¯1 ⋄ U", "V←2 2⍴'abcd' ⋄ V[1;2]←'z' ⋄ V", "V[;1]←'xy' ⋄ V", "V[1;1]←5", "V[⍳0;1]←'a'",
+    "W←⍳10 ⋄ W[W]←11-W ⋄ W", "X←3 ⍴ 1.5 ⋄ X[2]←1 ⋄ X", "X[1 2 3]←1 2 3 ⋄ X", "Y←⍳3 ⋄ Y[1]←Y[3] ⋄ Y", "Y[2]←Y ⋄ Y", "Y[1 2]←Y",
+    "A←⍳3 ⋄ B←A ⋄ A[1]←5 ⋄ A ⋄ B", "A[1]←5 ⋄ ⍴A", "A[1]←A[2]←9 ⋄ A", "A←⍳3 ⋄ A[1]←A[1]+1 ⋄ A", "A[1]←1 ⋄ A[2]←2 ⋄ A[3]←3 ⋄ A",
+    "K←100 100⍴0 ⋄ K[1;1]←1 ⋄ K[100;100]←2 ⋄ +/,K", "K[;1]←⍳100 ⋄ +/K[;1]", "K[1;]←⍳100 ⋄ K[1;100]",
     "W←2 2⍴1 ⋄ W[1000⍴1;1000⍴1]", "W[300⍴1;100⍴1]", "W[30⍴1;10⍴1]", "⍴W[30⍴1;10⍴1]", "W[1000⍴1;1]", "W[1;3000⍴1]", "W[256⍴1;256⍴1]", "W[256⍴1;255⍴1]",
     "⍳3 ⋄ ⍴⍳3 ⋄ ,⍳3", "A←2 3⍴⍳6 ⋄ ⍴A ⋄ ,A ⋄ (⍴A)⍴0", "A←'hello' ⋄ B←'world' ⋄ A,' ',B",
     "1+2", "+/1 2 3", "1 2 3+4 5 6", "-1", "×2", "÷2", "1=1", "1 2 3=1 2 4", "3-1", "⍴1+2", "1⍴2+3",
@@ -178,6 +183,10 @@ def gen_line(rng, defined):
             return left + rng.choice("⍴,+-×÷=≠<≤>≥") + expr(d - 1)
         if r < .82:
             return "(" + expr(d - 1) + ")"
+        if r < .86:                                     # indexed assignment
+            groups = [rng.choice(["", operand(), rng.choice(["1", "2", "1 2", "⍳3", "2 1", "3"])])
+                      for _ in range(rng.choice([1, 1, 2]))]
+            return rng.choice(names) + "[" + ";".join(groups) + "]←" + expr(d - 1)
         if r < .92:                                     # indexing
             base = rng.choice(names) if rng.random() < .7 else "(" + expr(d - 1) + ")"
             groups = [rng.choice(["", expr(d - 1), operand(), rng.choice(["1", "2", "1 2", "⍳3", "2 1"])])
@@ -230,7 +239,8 @@ def test_gc_pressure():
         n = rng.choice([300, 700, 1200, 1400])
         line = rng.choice([f"{a}←⍳{n}", f"{a}←,{b}", f"{a}←{b},{b}", f"{a}←{n}⍴{rng.choice(['1', '1 2 3', '2.5'])}",
                            f"{a}←(⍳{n}),⍳{n}", f"⍴{a}", f"{a}←⍴{b}", f"{a}←2 3⍴{b}",
-                           f"{a}←{b}[⍳{n // 2}]", f"{a}←{b}[{b}]", f"{a}←(2 {n // 4}⍴{b})[2;]", f"{a}←(⍳{n})[⍳{n // 3}]"])
+                           f"{a}←{b}[⍳{n // 2}]", f"{a}←{b}[{b}]", f"{a}←(2 {n // 4}⍴{b})[2;]", f"{a}←(⍳{n})[⍳{n // 3}]",
+                           f"{a}←⍳{n} ⋄ {a}[⍳{n // 2}]←{n}", f"{a}←⍳{n} ⋄ {b}←{a} ⋄ {a}[1]←0.5", f"{a}←{n}⍴1 ⋄ {a}[2]←'a'"])
         check(s, line)
         lines += 1
     assert s.m.memory[s.L["htop"]] | s.m.memory[s.L["htop"] + 1] << 8 <= s.L["HEAP_LIMIT"]

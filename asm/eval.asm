@@ -48,6 +48,7 @@ K_INIT    = 0                   ; frame kinds: what to do with a parenthesised v
 K_LEFT    = 1
 K_GRP     = 2                   ; an index group: go on to the next group to its left
 K_IDX     = 3                   ; the indexed array: apply p_index, then the outer kind
+K_IASG    = 4                   ; the assigned variable: apply p_iasg, then the outer kind
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
 FLO     = FSTK+128
@@ -244,6 +245,32 @@ el_ok:  lda ev_shi              ; echo unless the statement starts with name ←
         lda TC+1,x
         cmp #T_ASSIGN
         beq el_pop
+        cmp #T_LBRK             ; name[...]<- is not echoed either
+        bne el_echo
+        lda #1
+        sta ev_dep
+el_ix:  inx
+        lda TC+1,x
+        cmp #T_LPAR
+        beq el_ix1
+        cmp #T_LBRK
+        bne el_ix2
+el_ix1: inc ev_dep
+        jmp el_ix
+el_ix2: cmp #T_RPAR
+        beq el_ix3
+        cmp #T_RBRK
+        bne el_ix
+el_ix3: dec ev_dep
+        bne el_ix
+        txa                     ; the token after the matching ']', if the statement has one
+        clc
+        adc #2
+        cmp ev_shi
+        bcs el_echo
+        lda TC+2,x
+        cmp #T_ASSIGN
+        beq el_pop
 el_echo:
         jsr callecho
 el_pop: sec
@@ -358,8 +385,15 @@ cont:   lda ev_pkind
         cmp #K_GRP
         bne ct_idx
         jmp gstep
-ct_idx: jsr p_index
-        bcc *+3
+ct_idx: cmp #K_IDX
+        bne ct_ia
+        jsr p_index
+        jmp ct_pop
+ct_ia:  ldx ev_i1               ; the name token of A[i]<-v
+        jsr nameidx
+        sta xvar
+        jsr p_iasg
+ct_pop: bcc *+3
         rts
         dec ev_fsp
         ldx ev_fsp
@@ -404,7 +438,14 @@ rl_asg: cpx ev_lo
         dex
         lda TC,x
         cmp #T_RBRK
-        beq rl_nonce            ; indexed assignment
+        bne ra_name
+        dec ev_i1               ; A[i]<-v: index groups first (fetch_rbrk wants a name before '[')
+        lda #$80                ; K_INIT plus the assignment flag
+        sta ev_pkind
+        lda #0
+        sta ev_pfn
+        jmp fetch_rbrk
+ra_name:
         cmp #T_NAME
         bne ev_syn
         jsr nameidx
@@ -517,7 +558,12 @@ fetch_rbrk:
         bcc fr_syn
         dex
         lda TC,x
-        cmp #T_LIT
+        ldy ev_pkind
+        bpl fr_val
+        cmp #T_NAME             ; an assignment needs a name before the '['
+        beq fr_ok
+        bne fr_syn
+fr_val: cmp #T_LIT
         beq fr_ok
         cmp #T_NAME
         beq fr_ok
@@ -578,8 +624,16 @@ gs_empty:
         jmp gstep
 gs_base:
         dec ev_i1
+        ldx ev_fsp              ; the frame below says whether this is an assignment
+        dex
+        lda FK,x
+        bmi gb_asg
         lda #K_IDX
-        sta ev_pkind
+        bne gb_go
+gb_asg: and #$7f
+        sta FK,x
+        lda #K_IASG
+gb_go:  sta ev_pkind
         lda #0
         sta ev_pfn
         jmp opnd

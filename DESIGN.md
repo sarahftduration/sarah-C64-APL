@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **18,782 bytes** (`$0801`-`$515E`, including the start-up
+Code and read-only tables **19,288 bytes** (`$0801`-`$5358`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 23,512 bytes** (`$7028` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 23,000 bytes** (`$7228` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -50,7 +50,7 @@ bytes. The tables are sized by proven worst cases (6 bytes of tokens per input b
 nesting, 256 handles and names), so shrinking them means lowering a limit. Code that is only
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
-in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512 (23,000). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -351,8 +351,15 @@ No parse tree. Scan tokens right to left:
    groups between the brackets are evaluated right to left, then the
    indexed value; an empty group means the whole axis. `A[i]` has the shape
    of `i` (a scalar index gives a scalar), `M[i;j]` the shapes of `i` and `j`
-   joined (a result of rank 3 or more is LIMIT ERROR). Indexed assignment
-   and axis brackets (`+/[1]A`) are NONCE ERROR.
+   joined (a result of rank 3 or more is LIMIT ERROR). Axis brackets
+   (`+/[1]A`) are NONCE ERROR.
+   `A[i;j]←v` (only on a plain name) evaluates `v`, then the groups right to
+   left, then looks `A` up; `v` is a scalar or has exactly the shape of the
+   selection (RANK ERROR, else LENGTH ERROR), the type is the join of the two
+   (DOMAIN ERROR for characters with numbers, unless the selection is empty,
+   which changes nothing), and the result is a new array (other names keep the
+   old one; with repeated indices the last write wins). It is not echoed, like
+   `name←`, and its value is `v`.
 3. `⋄` splits statements. A statement whose leftmost tokens are `name ←` is
    not echoed.
 
@@ -510,12 +517,12 @@ value is the initial value or the left operand of a pending function. A
 dyadic primitive finds its left operand on top of the value stack and its right
 one below.
 
-Implemented so far: literals, names, assignment, parentheses, read-only indexing (`asm/index.inc`), `⋄`, the
+Implemented so far: literals, names, assignment, parentheses, indexing and indexed assignment (`asm/index.inc`), `⋄`, the
 structural primitives `⍳`, `⍴` and `,` (monadic and dyadic), the scalar
 functions in `asm/scalar.inc` (dyadic `+ - × ÷ = ≠ < ≤ > ≥`, monadic `+ - × ÷`),
 and reduce `f/` for those ten functions (`asm/reduce.inc`). Everything else
 returns NONCE ERROR: other operators, and `f/` for other functions, which are
-NONCE ERROR in the model too, and `→`, indexed assignment, axis brackets and dyadic `⍳` likewise. `x f/ y`
+NONCE ERROR in the model too, and `→`, axis brackets and dyadic `⍳` likewise. `x f/ y`
 evaluates `x` first (so its errors come first) and then gives NONCE ERROR.
 
 Scalar functions share one engine. Shapes are conformed first (equal, or one
@@ -599,9 +606,9 @@ at `SYMTAB`.
 
 `+ - × ÷` (monadic: identity, negate, signum, reciprocal), `= ≠ < ≤ > ≥`,
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
-`f/` for scalar dyadic `f`, assignment, `( )`, `⋄`, `⍬`, read-only indexing `A[i]`, `A[i;j]`.
+`f/` for scalar dyadic `f`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
-NONCE: `\ ¨ . ∘ ⍤`, replicate (`n/x`), indexed assignment, axis brackets, branch `→`,
+NONCE: `\ ¨ . ∘ ⍤`, replicate (`n/x`), axis brackets, branch `→`,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## Plan: optional extra RAM (REU) as a storage tier
@@ -641,8 +648,8 @@ functions, reduce and the output formatter.
 
 1. Memory map: implement the plan above (three decisions to confirm first).
 2. Trimming code (see the heap figure above; `)LIB` is done) and a drive selector; then the
-   language features the model still lacks (indexed assignment, more operators, user-defined
+   language features the model still lacks (more operators, user-defined
    functions).
-3. Model: matrix catenate, indexed assignment, `∘.`, `\`, user functions, control flow.
+3. Model: matrix catenate, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).

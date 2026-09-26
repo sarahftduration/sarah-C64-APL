@@ -1,10 +1,13 @@
-; Indexing: A[i], A[i;j]. Spec: apl64.py index_value. Included by eval.asm.
+; Indexing: A[i], A[i;j] and A[i;j]<-v. Spec: apl64.py index_value, index_assign.
+; Included by eval.asm.
 ;
-; The evaluator leaves, on the value stack from the bottom: a marker cell (tag $81), the
-; index groups from the last to the first (an elided axis is a cell with tag $82), then the
-; indexed array on top. p_index replaces all of them with the result. Checks run in the
-; model's order: axis count (RANK), then per axis the index type (DOMAIN) and range
-; (INDEX), then the result rank (LIMIT), then the size (WS FULL).
+; The evaluator leaves, on the value stack from the bottom: (for an assignment, the value v),
+; a marker cell (tag $81), the index groups from the last to the first (an elided axis is a
+; cell with tag $82), then the indexed array on top. p_index replaces the marker, the groups
+; and the array by the result. p_iasg builds the changed array, stores it in the variable
+; xvar and leaves v. Checks run in the model's order: axis count (RANK), then per axis the
+; index type (DOMAIN) and range (INDEX), then the selection's rank (LIMIT); then p_index
+; checks the size (WS FULL) and p_iasg the shape of v (RANK, LENGTH) and the types (DOMAIN).
 ;
 ; Variables are in the cassette-buffer scratch, in bytes no other routine here uses;
 ; per-axis tables have a stride of 2 so that X = 2 * axis indexes them all.
@@ -24,6 +27,13 @@ xp1i    = WS+$e0                ; (2) start of axis 1's cursor
 xlin    = WS+$e2                ; (2) element number in the indexed array
 xrow    = WS+$e4                ; (2) start of the current row
 xov     = xpt+1
+xtmp    = WS+$c9                ; (3) one element of v in the type of the result
+xvar    = WS+$cc                ; the variable being assigned
+xvt     = WS+$cd                ; type of v
+xvsc    = WS+$ce                ; v is a scalar
+xemp    = WS+$cf                ; the selection is empty
+xmode   = WS+$ea                ; 0 gather (index), 1 scatter (assignment)
+xbig    = WS+$ec                ; the selection has 65536 or more elements
 xcur    = qsrc                  ; axis cursors: qsrc for axis 0, mp for axis 1 (stride 2)
 xbase   = sp                    ; data pointer of the indexed array
 
@@ -66,7 +76,9 @@ ad2:    lda #1
 ad3:    inc nrk
         rts
 
-p_index:
+; Validate the indices against the array on top of the stack and work out the selection:
+; nrk, nd0, nd1 its shape, nn its count (low 16 bits), xbig, xemp, xmk, xk, xt, xrk, xd.
+ix_prep:
         jsr topcell
         jsr getval
         lda vt
@@ -219,14 +231,17 @@ px_done:
         lda #E_LIMIT
         sec
         rts
-px_n:   lda xk                  ; result count
+px_n:   lda #0
+        sta xbig
+        lda xk                  ; selection count
         cmp #2
         beq px_mul
         lda xpn
         sta nn
         lda xpn+1
         sta nn+1
-        jmp px_alloc
+        ora nn
+        jmp px_e
 px_mul: lda xpn
         sta p0
         lda xpn+1
@@ -238,14 +253,33 @@ px_mul: lda xpn
         jsr mul16
         lda p2
         ora p3
-        beq px_m1
-        lda #E_WSFULL
-        sec
-        rts
-px_m1:  lda p0
+        sta xbig
+        lda p0
         sta nn
         lda p1
         sta nn+1
+        ora p0
+        ora p2
+        ora p3
+px_e:   ldx #0                  ; A = 0 iff the selection is empty
+        cmp #0
+        bne px_e1
+        inx
+px_e1:  stx xemp
+        clc
+        rts
+
+p_index:
+        jsr ix_prep
+        bcc pi_1
+        rts
+pi_1:   lda xbig
+        beq pi_2
+        lda #E_WSFULL
+        sec
+        rts
+pi_2:   lda #0
+        sta xmode
 px_alloc:
         ldx xt
         lda WIDTHT,x
@@ -271,9 +305,8 @@ px_new: lda xt
 
 ; phase 2: gather. Nothing here allocates, so the addresses derived now stay valid.
 px_fill:
-        lda nn
-        ora nn+1
-        bne px_go
+        lda xemp
+        beq px_go
         jmp px_fin
 px_go:  jsr topcell
         jsr getval
@@ -281,6 +314,28 @@ px_go:  jsr topcell
         sta xbase
         lda vp+1
         sta xbase+1
+        jsr fill_run
+px_fin: lda xmk                 ; the result replaces the marker, the groups and the array
+        sta cptr
+        clc
+        adc #4
+        sta vsp
+        lda xmk+1
+        sta cptr+1
+        adc #0
+        sta vsp+1
+        ldy #3
+px_f1:  lda cv,y
+        sta (cptr),y
+        dey
+        bpl px_f1
+        clc
+        rts
+
+; Visit the selection in order, calling act for each element with xrow + im - 1 the
+; element number in the indexed array. The cursors are re-derived here, so this may only
+; run when nothing allocates.
+fill_run:
         lda #0
         sta xa
 px_i:   lda xa
@@ -324,10 +379,10 @@ px_i2:  inc xa
         beq px_mat
 px_vec: ldx #0
         jsr ax_next
-        jsr gather
+        jsr act
         jsr dec_rem0
         bne px_vec
-        jmp px_fin
+        rts
 px_mat: ldx #0
         jsr ax_next             ; row r: xrow = (r-1) * columns
         sec
@@ -356,7 +411,7 @@ px_mat: ldx #0
         sta xrem+3
 px_col: ldx #2
         jsr ax_next
-        jsr gather
+        jsr act
         lda xrem+2
         bne px_c1
         dec xrem+3
@@ -366,21 +421,6 @@ px_c1:  dec xrem+2
         bne px_col
         jsr dec_rem0
         bne px_mat
-px_fin: lda xmk                 ; the result replaces the marker, the groups and the array
-        sta cptr
-        clc
-        adc #4
-        sta vsp
-        lda xmk+1
-        sta cptr+1
-        adc #0
-        sta vsp+1
-        ldy #3
-px_f1:  lda cv,y
-        sta (cptr),y
-        dey
-        bpl px_f1
-        clc
         rts
 
 ; the group number in A -> cptr (X is preserved as 2 * A)
@@ -432,8 +472,26 @@ an1:    sta vt
         inc xcur+1,x
         rts
 
-; copy the element (xrow + im - 1) of the indexed array to dp
-gather: clc
+act:    lda xmode
+        bne scatter
+        jsr elemaddr
+        ldy #0
+ga_c:   lda (cs),y
+        sta (dp),y
+        iny
+        cpy xw
+        bne ga_c
+        clc
+        lda dp
+        adc xw
+        sta dp
+        bcc ga_r
+        inc dp+1
+ga_r:   rts
+
+; cs = xbase + (xrow + im - 1) * xw
+elemaddr:
+        clc
         lda xrow
         adc im
         sta xlin
@@ -470,16 +528,168 @@ ga_a:   clc
         lda cs+1
         adc xbase+1
         sta cs+1
+        rts
+
+; assignment: the next element of v (or the scalar v) goes to the selected element
+scatter:
+        lda xvsc
+        bne sx1
+        jsr conv1
+        ldx xvt
+        clc
+        lda op
+        adc WIDTHT,x
+        sta op
+        bcc sx1
+        inc op+1
+sx1:    jsr elemaddr
         ldy #0
-ga_c:   lda (cs),y
-        sta (dp),y
+sx2:    lda xtmp,y
+        sta (cs),y
         iny
         cpy xw
-        bne ga_c
-        clc
-        lda dp
-        adc xw
+        bne sx2
+        rts
+
+; the element of v at op, converted to the result's type nt, into xtmp
+conv1:  lda op
+        sta vp
+        lda op+1
+        sta vp+1
+        lda xvt
+        sta vt
+        lda #1
+        sta vn
+        lda #0
+        sta vn+1
+        lda #<xtmp
         sta dp
-        bcc ga_r
-        inc dp+1
-ga_r:   rts
+        lda #>xtmp
+        sta dp+1
+        jmp cvcopy
+
+; A[i;j]<-v: see the top of the file. xvar = the variable's symbol index.
+p_iasg: jsr ix_prep
+        bcc ia_1
+        rts
+ia_1:   sec                     ; v is just below the marker
+        lda xmk
+        sbc #4
+        sta cptr
+        lda xmk+1
+        sbc #0
+        sta cptr+1
+        jsr getval
+        lda vt
+        sta xvt
+        lda vrk
+        beq ia_conf
+        cmp nrk
+        beq ia_c1
+        lda #E_RANK
+        sec
+        rts
+ia_c1:  lda vs0
+        cmp nd0
+        bne ia_len
+        lda vs0+1
+        cmp nd0+1
+        bne ia_len
+        lda vrk
+        cmp #2
+        bne ia_conf
+        lda vs1
+        cmp nd1
+        bne ia_len
+        lda vs1+1
+        cmp nd1+1
+        beq ia_conf
+ia_len: lda #E_LENGTH
+        sec
+        rts
+ia_conf:
+        lda xemp                ; nothing selected: nothing changes
+        beq ia_go
+        jmp ia_fin
+ia_go:  lda xt                  ; the type of the result
+        cmp xvt
+        beq ia_nt
+        lda xt
+        cmp #1
+        beq ia_dom
+        lda xvt
+        cmp #1
+        beq ia_dom
+        lda xt
+        cmp xvt
+        bcs ia_nt
+        lda xvt
+ia_nt:  sta nt
+        jsr topcell             ; a new array shaped like A
+        jsr getval
+        lda vrk
+        sta nrk
+        lda vn
+        sta nn
+        lda vn+1
+        sta nn+1
+        lda vs0
+        sta nd0
+        lda vs0+1
+        sta nd0+1
+        lda vs1
+        sta nd1
+        lda vs1+1
+        sta nd1+1
+        jsr newarr
+        bcc ia_2
+        rts
+ia_dom: lda #E_DOMAIN
+        sec
+        rts
+ia_2:   lda dp
+        sta xbase
+        lda dp+1
+        sta xbase+1
+        jsr topcell             ; A's elements, converted, into it
+        jsr getval
+        jsr cvcopy
+        ldx nt
+        lda WIDTHT,x
+        sta xw
+        sec                     ; v (its address may have moved)
+        lda xmk
+        sbc #4
+        sta cptr
+        lda xmk+1
+        sbc #0
+        sta cptr+1
+        jsr getval
+        lda vp
+        sta op
+        lda vp+1
+        sta op+1
+        lda #1
+        sta xmode
+        ldx #0
+        lda vrk
+        bne ia_3
+        inx
+ia_3:   stx xvsc
+        txa
+        beq ia_5
+        jsr conv1               ; a scalar v is converted once
+ia_5:   jsr fill_run
+        lda xvar                ; the variable now holds the new array
+        jsr varcell
+        ldy #3
+ia_6:   lda cv,y
+        sta (cptr),y
+        dey
+        bpl ia_6
+ia_fin: lda xmk                 ; drop the marker, the groups and the array; v stays
+        sta vsp
+        lda xmk+1
+        sta vsp+1
+        clc
+        rts
