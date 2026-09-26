@@ -525,11 +525,92 @@ def _nonce(*_):
     raise AplError('NONCE ERROR')
 
 
-SCALAR_DYADIC = '+-×÷=≠<≤>≥'
-_DY = {'+': _arith('+'), '-': _arith('-'), '×': _arith('×'), '÷': _div}
+def f_floor(p):
+    """The greatest whole number not above p, as a float24 (always exact)."""
+    if p >> 16 == 0:
+        return 0
+    return f_from_fraction(Fraction(math.floor(f_to_fraction(p))))
+
+
+def f_ceil(p):
+    return f_neg(f_floor(f_neg(p)))
+
+
+def _floorlike(fn):
+    """Monadic floor and ceiling: whole numbers stay as they are; FLOAT becomes INT if every
+    result fits int16, else stays FLOAT (with the whole values)."""
+    def run(t, xs):
+        if t == CHAR:
+            raise AplError('DOMAIN ERROR')
+        if t != FLOAT:
+            return t, list(xs)
+        fs = [fn(x) for x in xs]
+        ns = [f_whole(f) for f in fs]
+        if all(_in16(n) for n in ns):
+            return INT, ns
+        return FLOAT, fs
+    return run
+
+
+def _m_abs(t, xs):
+    """|x: BOOL and INT give INT (FLOAT for the whole array if -32768 turns up), FLOAT clears the sign."""
+    if t == CHAR:
+        raise AplError('DOMAIN ERROR')
+    if t == FLOAT:
+        return FLOAT, [x & ~0x8000 if x >> 16 else 0 for x in xs]
+    out = [abs(x) for x in xs]
+    if all(_in16(v) for v in out):
+        return INT, out
+    return FLOAT, [f_from_int(v) for v in out]
+
+
+def _maxmin(name):
+    """A max B and A min B: exact comparison (no tolerance); INT unless a FLOAT is involved."""
+    def run(ta, xs, tb, ys):
+        if ta == CHAR or tb == CHAR:
+            raise AplError('DOMAIN ERROR')
+        if ta != FLOAT and tb != FLOAT:
+            return INT, [max(x, y) if name == '⌈' else min(x, y) for x, y in zip(xs, ys)]
+        out = []
+        for x, y in zip(xs, ys):
+            fx, fy = to_f(ta, x), to_f(tb, y)
+            if name == '⌈':
+                out.append(fx if _fkey(fx) >= _fkey(fy) else fy)
+            else:
+                out.append(fx if _fkey(fx) <= _fkey(fy) else fy)
+        return FLOAT, out
+    return run
+
+
+def f_residue(a, b):
+    """A|B for float24: B - A * floor(B / A), each step rounded, then moved into [0, A) (or (A, 0]) if
+    the roundings left it outside.  A = 0 gives B."""
+    if a >> 16 == 0:
+        return b
+    r = f_sub(b, f_mul(a, f_floor(f_div(b, a))))
+    if r >> 16:
+        if (r >> 15 & 1) != (a >> 15 & 1):
+            r = f_add(r, a)
+        elif (r & 0xFF7FFF) >= (a & 0xFF7FFF):
+            r = f_sub(r, a)
+    return r
+
+
+def _residue(ta, xs, tb, ys):
+    if ta == CHAR or tb == CHAR:
+        raise AplError('DOMAIN ERROR')
+    if ta != FLOAT and tb != FLOAT:
+        return INT, [y % x if x else y for x, y in zip(xs, ys)]
+    return FLOAT, [f_residue(to_f(ta, x), to_f(tb, y)) for x, y in zip(xs, ys)]
+
+
+SCALAR_DYADIC = '+-×÷=≠<≤>≥⌈⌊|'
+_DY = {'+': _arith('+'), '-': _arith('-'), '×': _arith('×'), '÷': _div,
+       '⌈': _maxmin('⌈'), '⌊': _maxmin('⌊'), '|': _residue}
 for _g in '=≠<≤>≥':
     _DY[_g] = _cmp(_g)
-_MON = {'+': _m_id, '-': _m_neg, '×': _m_sign, '÷': _m_recip}
+_MON = {'+': _m_id, '-': _m_neg, '×': _m_sign, '÷': _m_recip,
+        '⌈': _floorlike(f_ceil), '⌊': _floorlike(f_floor), '|': _m_abs}
 
 
 # =========================================================================
@@ -678,11 +759,13 @@ def index_assign(a, idxs, v):
 # =========================================================================
 _IDENT = {'+': (INT, 0), '-': (INT, 0), '×': (INT, 1), '÷': (FLOAT, ONE),
           '=': (BOOL, 1), '≠': (BOOL, 0), '<': (BOOL, 0), '≤': (BOOL, 1),
-          '>': (BOOL, 0), '≥': (BOOL, 1)}
+          '>': (BOOL, 0), '≥': (BOOL, 1), '⌈': None, '⌊': None, '|': (INT, 0)}
 
 
 def _reduce_row(glyph, dy, t, xs):
     if not xs:
+        if _IDENT[glyph] is None:
+            raise AplError('DOMAIN ERROR')              # no identity: the largest and smallest numbers do not exist
         it, iv = _IDENT[glyph]
         return scalar(it, iv)
     if glyph == '+':
@@ -693,7 +776,7 @@ def _reduce_row(glyph, dy, t, xs):
         s = sum(xs)
         return scalar(INT, s) if _in16(s) else scalar(FLOAT, f_from_int(s))
     if len(xs) == 1:
-        if glyph in '-×÷' and t == CHAR:
+        if glyph in '-×÷⌈⌊|' and t == CHAR:
             raise AplError('DOMAIN ERROR')
         if glyph == '÷' and t != FLOAT:
             return scalar(FLOAT, f_from_int(xs[0]))
@@ -772,12 +855,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
@@ -1536,6 +1619,17 @@ def selftest():
         ('⍬/⍬', ''),
         ('1 1 1/⍬', '!LENGTH ERROR'),
         ('⍳¯1', '!DOMAIN ERROR'),
+        ('3⌈5', '5'), ('3⌊5', '3'), ('1 5 3⌈4', '4 5 4'), ('1 5 3⌊4', '1 4 3'), ('1.5⌈2', '2'), ('1.5⌊2', '1.5'),
+        ("'a'⌈1", '!DOMAIN ERROR'), ('(2 3⍴⍳6)⌈3', '3 3 3|4 5 6'), ('1 0⌈0 1', '1 1'),
+        ('⌈2.5', '3'), ('⌊2.5', '2'), ('⌈¯2.5', '¯2'), ('⌊¯2.5', '¯3'), ('⌊1e10', '1E10'), ('⌊1e10 1.5', '1E10 1'),
+        ('⌊1.5 ¯1.5 3', '1 ¯2 3'), ('⌊¯0.3', '¯1'), ('⌈¯0.3', '0'), ("⌊'a'", '!DOMAIN ERROR'), ('⌈1 2 3', '1 2 3'),
+        ('|¯5', '5'), ('|5 ¯3 0', '5 3 0'), ('|¯32768', '32768'), ('|1.5 ¯2.5', '1.5 2.5'), ("|'a'", '!DOMAIN ERROR'),
+        ('3|7', '1'), ('3|¯7', '2'), ('¯3|7', '¯2'), ('¯3|¯7', '¯1'), ('0|5', '5'), ('3|0', '0'),
+        ('1|2.5', '0.5'), ('1|¯2.5', '0.5'), ('¯1|2.5', '¯0.5'), ('0.5|1.3', '0.3'), ('3|7.5', '1.5'),
+        ('¯32768|1', '¯32767'), ('5|1 2 3 4 5 6 7', '1 2 3 4 0 1 2'), ('1 2 3|10', '0 0 1'), ("3|'a'", '!DOMAIN ERROR'),
+        ('1E¯30|1E30', '!DOMAIN ERROR'), ('1E30|1E¯30', '1E¯30'),
+        ('⌈/1 5 3', '5'), ('⌊/1 5 3', '1'), ('⌈/⍬', '!DOMAIN ERROR'), ('|/⍬', '0'), ('⌊/2 3⍴4 1 5 9 2 7', '1 2'),
+        ('5|⌈/3 9 7', '4'), ("⌈/'ab'", '!DOMAIN ERROR'),
         ('A←10 20 30 40 ⋄ A[2]', '20'),
         ('A[3 1]', '30 10'),
         ('A[⍳0]', ''),
