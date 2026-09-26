@@ -21,11 +21,13 @@ E_VALUE  = 5
 E_RANK   = 6
 E_LENGTH = 7
 E_WSFULL = 8
+E_INDEX  = 9
 
         .include "heap.inc"
         .include "prims.inc"
         .include "scalar.inc"
         .include "reduce.inc"
+        .include "index.inc"
         .include "format.inc"
         .include "startup.inc"
 
@@ -44,6 +46,8 @@ T_SEMI    = 10
 
 K_INIT    = 0                   ; frame kinds: what to do with a parenthesised value
 K_LEFT    = 1
+K_GRP     = 2                   ; an index group: go on to the next group to its left
+K_IDX     = 3                   ; the indexed array: apply p_index, then the outer kind
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
 FLO     = FSTK+128
@@ -64,6 +68,7 @@ ev_shi  = $8b
 ev_ix   = WS+$f7
 ev_hb   = WS+$f8
 ev_px   = WS+$f9
+ev_sf   = WS+$f5                ; find_delim: stop at semicolons
 echov   = WS+$fa
 ev_pg   = WS+$fe
 
@@ -126,7 +131,8 @@ mi_lit: stx ev_ix
 mi_end: stx ev_ntok
         rts
 
-; parentheses must balance across the whole line, checked before any evaluation
+; parentheses and brackets must nest properly across the whole line, checked before any
+; evaluation. FK is used as the stack of open tokens (evaluation has not started).
 balance:
         ldx #0
         stx ev_dep
@@ -134,14 +140,26 @@ bl1:    cpx ev_ntok
         beq bl_end
         lda TC,x
         cmp #T_LPAR
-        bne bl2
-        inc ev_dep
-        jmp bl3
-bl2:    cmp #T_RPAR
+        beq bl_push
+        cmp #T_LBRK
+        beq bl_push
+        cmp #T_RPAR
+        beq bl_pop
+        cmp #T_RBRK
         bne bl3
-        lda ev_dep
+bl_pop: ldy ev_dep
         beq bl_bad
-        dec ev_dep
+        dey
+        sty ev_dep
+        sec
+        sbc #1                  ; the opener that matches this closer
+        cmp FK,y
+        bne bl_bad
+        jmp bl3
+bl_push:
+        ldy ev_dep
+        sta FK,y
+        inc ev_dep
 bl3:    inx
         jmp bl1
 bl_end: lda ev_dep
@@ -190,12 +208,16 @@ el_scan:
         beq el_end
         lda TC,x
         cmp #T_LPAR
+        beq el_in
+        cmp #T_LBRK
         bne el_s1
-        inc ev_dep
+el_in:  inc ev_dep
         jmp el_adv
 el_s1:  cmp #T_RPAR
+        beq el_out
+        cmp #T_RBRK
         bne el_s2
-        dec ev_dep
+el_out: dec ev_dep
         jmp el_adv
 el_s2:  cmp #T_DIAMOND
         bne el_adv
@@ -254,13 +276,7 @@ eval_stmt:
 es1:    cpx ev_shi
         beq es2
         lda TC,x
-        cmp #T_LBRK
-        beq es_nonce
-        cmp #T_RBRK
-        beq es_nonce
         cmp #T_BRANCH
-        beq es_nonce
-        cmp #T_SEMI
         beq es_nonce
         inx
         jmp es1
@@ -283,40 +299,86 @@ es2:    lda ev_slo
 ; used as the initial value (K_INIT) or as the left operand (K_LEFT).
 rstart: lda ev_i1
         cmp ev_lo
-        beq ev_syn
-        bcc ev_syn
+        beq rs_bad
+        bcc rs_bad
         ldx ev_i1
         dex
         lda TC,x
         cmp #T_LIT
-        beq rs_lit
+        beq rs_op
         cmp #T_NAME
-        beq rs_name
+        beq rs_op
         cmp #T_RPAR
-        beq rs_par
-ev_syn: lda #E_SYNTAX
-        sec
-        rts
-rs_lit: jsr pushlit
-        bcc *+3
-        rts
-        dec ev_i1
-        jmp evloop
-rs_name:
-        jsr pushname
-        bcc *+3
-        rts
-        dec ev_i1
-        jmp evloop
-rs_par: lda #K_INIT
+        beq rs_op
+        cmp #T_RBRK
+        beq rs_op
+rs_bad: jmp ev_syn
+rs_op:  lda #K_INIT
         sta ev_pkind
         lda #0
         sta ev_pfn
+        ; falls into opnd
+
+; The operand ending at token ev_i1-1 (a literal, name, ')' or ']'), to be followed by the
+; continuation ev_pkind/ev_pfn (see cont). Literals and names are pushed at once; a
+; parenthesised group or an index expression suspends the current range in a frame.
+opnd:   ldx ev_i1
+        dex
+        lda TC,x
+        cmp #T_LIT
+        bne op1
+        jsr pushlit
+        jmp op_pushed
+op1:    cmp #T_NAME
+        bne op2
+        jsr pushname
+op_pushed:
+        bcc *+3
+        rts
+        dec ev_i1
+        jmp cont
+op2:    cmp #T_RPAR
+        bne op3
         jsr enterparen
         bcc *+3
         rts
         jmp rstart
-ev_ret: rts
+op3:    cmp #T_RBRK
+        bne op4
+        jmp fetch_rbrk
+op4:    jmp ev_syn
+
+; What to do with a finished operand: K_INIT continue, K_LEFT apply the function ev_pfn
+; dyadically, K_GRP evaluate the next index group, K_IDX index the array with the groups
+; and then carry on with the kind saved in the index frame below.
+cont:   lda ev_pkind
+        beq ct_init
+        cmp #K_LEFT
+        beq ct_left
+        cmp #K_GRP
+        bne ct_idx
+        jmp gstep
+ct_idx: jsr p_index
+        bcc *+3
+        rts
+        dec ev_fsp
+        ldx ev_fsp
+        lda FK,x
+        sta ev_pkind
+        lda FFN,x
+        sta ev_pfn
+        jmp cont
+ct_left:
+        lda ev_pfn
+        jsr apply_dy
+        bcc *+3
+        rts
+ct_init:
+        jmp evloop
+
+ev_syn: lda #E_SYNTAX
+        sec
+        rts
 
 evloop: lda ev_i1
         cmp ev_lo
@@ -332,12 +394,17 @@ evloop: lda ev_i1
         bcs rl_op
         cmp #$80
         bcs rl_fn
-        jmp ev_syn
+        cmp #T_RBRK
+        bne rl_bad
+        jmp rl_axis
+rl_bad: jmp ev_syn
 rl_asg: cpx ev_lo
         beq ev_syn
         bcc ev_syn
         dex
         lda TC,x
+        cmp #T_RBRK
+        beq rl_nonce            ; indexed assignment
         cmp #T_NAME
         bne ev_syn
         jsr nameidx
@@ -354,6 +421,8 @@ rl_op:  cpx ev_lo               ; operators: only f/ on a scalar dyadic is imple
         cmp #T_NAME
         beq rl_nonce
         cmp #T_RPAR
+        beq rl_nonce
+        cmp #T_RBRK
         beq rl_nonce
         cmp #$80
         bcs *+5
@@ -387,11 +456,13 @@ rl_fn2: lda ev_i1
         dex
         lda TC,x
         cmp #T_LIT
-        beq rf_lit
+        beq rf_opnd
         cmp #T_NAME
-        beq rf_name
+        beq rf_opnd
         cmp #T_RPAR
-        beq rf_par
+        beq rf_opnd
+        cmp #T_RBRK
+        beq rf_opnd
 rf_mon: lda ev_tok
         cmp #$c0
         bcs rf_red
@@ -404,33 +475,12 @@ rf_red: lda ev_pg
         bcc *+3
         rts
         jmp evloop
-rf_lit: jsr pushlit
-        bcc *+3
-        rts
-        dec ev_i1
-        lda ev_tok
-        jsr apply_dy
-        bcc *+3
-        rts
-        jmp evloop
-rf_name:
-        jsr pushname
-        bcc *+3
-        rts
-        dec ev_i1
-        lda ev_tok
-        jsr apply_dy
-        bcc *+3
-        rts
-        jmp evloop
-rf_par: lda #K_LEFT
+rf_opnd:
+        lda #K_LEFT
         sta ev_pkind
         lda ev_tok
         sta ev_pfn
-        jsr enterparen
-        bcc *+3
-        rts
-        jmp rstart
+        jmp opnd
 
 rl_end: lda ev_fsp
         bne rl_pop
@@ -445,15 +495,148 @@ rl_pop: dec ev_fsp
         lda FFN,x
         sta ev_pfn
         lda FK,x
-        cmp #K_LEFT
-        beq rl_left
-        jmp evloop
-rl_left:
-        lda ev_pfn
-        jsr apply_dy
+        sta ev_pkind
+        jmp cont
+
+; --- index expressions ----------------------------------------------------------------------
+; X = index of a ']' that ends an operand, to be followed by ev_pkind/ev_pfn. Spec:
+; apl64.py Interp._operand. A marker cell goes on the value stack, then a frame that remembers
+; the outer kind; the groups between the brackets are evaluated right to left, each
+; leaving its value (or an elided-axis cell) above the marker; the indexed array comes last
+; and p_index replaces the marker, the groups and the array by the result.
+fr_lim: lda #E_LIMIT
+        sec
+        rts
+
+fetch_rbrk:
+        lda #0
+        sta ev_sf
+        jsr find_delim          ; X = the matching '['
+        cpx ev_lo
+        beq fr_syn
+        bcc fr_syn
+        dex
+        lda TC,x
+        cmp #T_LIT
+        beq fr_ok
+        cmp #T_NAME
+        beq fr_ok
+        cmp #T_RPAR
+        beq fr_ok
+        cmp #T_RBRK
+        beq fr_ok
+fr_syn: jmp ev_syn
+fr_ok:  lda #$81
+        jsr pushtag
         bcc *+3
         rts
-        jmp evloop
+        ldx ev_fsp
+        cpx #128
+        bcs fr_lim
+        lda ev_pkind
+        sta FK,x
+        lda ev_pfn
+        sta FFN,x
+        inc ev_fsp
+        lda #1
+        sta ev_sf
+
+; ev_i1-1 is the delimiter to the right of the next group to evaluate (']' or ';').
+gstep:  ldx ev_i1
+        dex
+        lda TC,x
+        cmp #T_LBRK
+        beq gs_base
+        jsr find_delim          ; X = the delimiter to its left
+        inx
+        stx ev_jm               ; the group starts here
+        lda ev_i1
+        sec
+        sbc #1
+        cmp ev_jm
+        beq gs_empty
+        ldx ev_fsp
+        cpx #128
+        bcs fr_lim
+        lda #K_GRP
+        sta FK,x
+        lda ev_lo
+        sta FLO,x
+        lda ev_jm
+        sta FRS,x
+        inc ev_fsp
+        sta ev_lo
+        dec ev_i1
+        jmp rstart
+gs_empty:
+        lda #$82                ; an elided axis
+        jsr pushtag
+        bcc *+3
+        rts
+        lda ev_jm
+        sta ev_i1
+        jmp gstep
+gs_base:
+        dec ev_i1
+        lda #K_IDX
+        sta ev_pkind
+        lda #0
+        sta ev_pfn
+        jmp opnd
+
+; push a cell whose tag is A and whose other bytes are zero
+pushtag:
+        sta cv
+        lda #0
+        sta cv+1
+        sta cv+2
+        sta cv+3
+        jmp pushcv
+
+; X = index of a delimiter; scan left from it, skipping nested groups, to the '[' that opens
+; its bracket or (if ev_sf) to a ';' at the same level. Returns X.
+find_delim:
+        lda #0
+        sta ev_dep
+fd1:    dex
+        lda TC,x
+        cmp #T_RPAR
+        beq fd_in
+        cmp #T_RBRK
+        beq fd_in
+        cmp #T_LPAR
+        beq fd_out
+        cmp #T_LBRK
+        beq fd_out
+        cmp #T_SEMI
+        bne fd1
+        lda ev_sf
+        beq fd1
+        lda ev_dep
+        bne fd1
+        rts
+fd_in:  inc ev_dep
+        jmp fd1
+fd_out: lda ev_dep
+        beq fd_ret
+        dec ev_dep
+        jmp fd1
+fd_ret: rts
+
+; an axis bracket after a function: +/[1] A (not implemented)
+rl_axis:
+        lda #0
+        sta ev_sf
+        jsr find_delim
+        cpx ev_lo
+        beq ra_syn
+        bcc ra_syn
+        dex
+        lda TC,x
+        cmp #$80
+        bcc ra_syn
+        jmp rl_nonce
+ra_syn: jmp ev_syn
 
 ; X = index of a ')'. Find its '(' and enter the group as a new range.
 enterparen:

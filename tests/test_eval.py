@@ -8,10 +8,10 @@ import apl64
 from harness import call, load
 
 ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
-       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL'}
+       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL', 9: 'INDEX ERROR'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
-UNIMPLEMENTED = set('[];')       # indexing is in the model only so far
+UNIMPLEMENTED = set()
 
 
 class Session:
@@ -77,9 +77,6 @@ class Session:
 
 
 def check(s, line):
-    if UNIMPLEMENTED & set(line):
-        s.reset()               # the 6502 does not know this syntax yet
-        return 'nonce'
     got = s.run6502(line)
     want = s.run_model(line)
     if got == ('err', 'NONCE ERROR') and want != got:
@@ -112,6 +109,22 @@ FIXED = [
     "⍴", ",", "⍳", "⍴⍳", "1 2 3 ⍴⍳", "(1 2)(3)", "1 (2)", "(1) 2", "A←(B←3)", "1⍴(2)", "(⍳2)(⍳3)",
     "1 ⋄", "⋄", "⋄ 1", "1 ⋄⋄ 2", "(1 ⋄ 2)", "A←1 ⋄ A←A,2 ⋄ A", "A←⍳3 ⋄ A←A,A ⋄ A←A,A ⋄ ⍴A",
     "A[1]", "A[1;2]", "→1", "1;2", "[", "]", "1[", "A←1 ⋄ B←A[", "1 ⋄ [",
+    # indexing
+    "A←10 20 30 40 ⋄ A[2]", "A[3 1]", "A[⍳0]", "A[2 2⍴1 2 3 4]", "A[1]+A[4]", "A[A[1]÷10]", "A[2.0]", "A[]", "A[5]", "A[0]",
+    "A[¯1]", "A[1.5]", "A['a']", "A[1;2]", "5[1]", "M←3 4⍴⍳12 ⋄ M[2;3]", "M[2;]", "M[;2]", "M[;]", "M[1 3;2 4]", "M[3 1;1]",
+    "M[2 2⍴1 2 3 1;1]", "M[1]", "M[1;2;3]", "M[4;1]", "M[1;5]", "M[1 2;1 2]", "M[2 2⍴1;1 2]", "(⍳5)[3]", "(2 3⍴⍳6)[2;2]",
+    "'hello'[1 5]", "1 2 3[2]", "B←2 3⍴⍳6 ⋄ ⍴B[;1]", "⍴A[2 2⍴1]", "A[1][1]", "A[1 2][2]", "M[2;][3]", "+/M[;1]", "A[QQ]", "QQ[1]",
+    "A[1", "A[1)", "(A[1)]", "A]", "[1]", "+[1]", "1;2", "A[1;]", "A[1]←5", "+/[1]A", "A[1⋄2]", "A[(1)]", "A[(⍳2)]", "(A)[2]",
+    "A[1 2 3;]", "M[;;]", "M[;1;]", "M[(1);(2)]", "M[⍳0;1]", "M[1;⍳0]", "⍴M[⍳0;1]", "⍴M[1;⍳0]", "A[1.0 2]", "A[1 2.5]", "A[1 ¯1]",
+    "A[1 5]", "A['a' 5]", "A[5 'a']", "A[40000]", "A[1e10]", "A[1e¯10]", "A[⍬]", "A[0 0]", "A[1 1 1 1]", "M[1 1;1 1]", "M[3;4]",
+    "F←1.5 2.5 3.5 ⋄ F[2]", "F[3 1]", "F[2 2⍴1 2 3 1]", "C←'abcdef' ⋄ C[6 1]", "C[2 3⍴1]", "L←1 0 1 1 ⋄ L[3]", "L[⍳4]", "A[L]", "A[1+L]",
+    "G←2 3⍴1.5 2.5 3.5 4.5 5.5 6.5 ⋄ G[2;3]", "G[;2]", "G[2;]", "G[1 2;3 1]", "H←2 3⍴'abcdef' ⋄ H[2;3]", "H[;2]", "H[2;1 3]",
+    "A[1]+A[2]+A[3]", "A[3]-A[2]-A[1]", "1+A[2]", "A[2]+1", "(A[2])+1", "⍴A[1 2]", "⍳A[1]÷10", "A[⍳A[1]÷10]", "+/A[⍳4]", "-/A[1 2]",
+    "A[1]+/A[1 2]", "A+/[1]A", "(⍳3)[2]+A[3]", "A[M[1;1]]", "A[M[1;1 2]]", "A[M[1 2;1]]", "A[A[A[1]÷10]]", "M[A[1]÷10;A[2]÷10]",
+    "A←M[2;] ⋄ A", "B←M[;2] ⋄ B←B[2 3] ⋄ B", "N←M[2 3;1 2] ⋄ N[2;2]", "A←A[4 3 2 1] ⋄ A", "X←,5 ⋄ X[1]", "X←5 ⋄ X[1]", "S←⍬ ⋄ S[1]",
+    "E←3 0⍴1 ⋄ E[1;1]", "E[⍳0;]", "M[;⍳0]", "1000⍴1 ⋄ (1000⍴1)[500]", "V←⍳1000 ⋄ V[1000 1]", "V[⍳500]", "V[2 3⍴⍳6]", "V[V]",
+    "V[1000+1]", "K←100 100⍴⍳100 ⋄ K[100;100]", "K[;1]", "K[2 2⍴1;2 2⍴1]", "K[⍳100;⍳100]", "K[1 2;⍳100]",
+    "W←2 2⍴1 ⋄ W[1000⍴1;1000⍴1]", "W[300⍴1;100⍴1]", "W[30⍴1;10⍴1]", "⍴W[30⍴1;10⍴1]", "W[1000⍴1;1]", "W[1;3000⍴1]", "W[256⍴1;256⍴1]", "W[256⍴1;255⍴1]",
     "⍳3 ⋄ ⍴⍳3 ⋄ ,⍳3", "A←2 3⍴⍳6 ⋄ ⍴A ⋄ ,A ⋄ (⍴A)⍴0", "A←'hello' ⋄ B←'world' ⋄ A,' ',B",
     "1+2", "+/1 2 3", "1 2 3+4 5 6", "-1", "×2", "÷2", "1=1", "1 2 3=1 2 4", "3-1", "⍴1+2", "1⍴2+3",
     "1+2×3", "(1+2)×3", "10÷4", "10÷0", "0÷0", "1 2 3-1", "A←1 2 3 ⋄ A×A", "A←⍳5 ⋄ A=3", "2 3⍴⍳6 ⋄ 1+2 3⍴⍳6",
@@ -158,6 +171,11 @@ def gen_line(rng, defined):
             return left + rng.choice("⍴,+-×÷=≠<≤>≥") + expr(d - 1)
         if r < .82:
             return "(" + expr(d - 1) + ")"
+        if r < .92:                                     # indexing
+            base = rng.choice(names) if rng.random() < .7 else "(" + expr(d - 1) + ")"
+            groups = [rng.choice(["", expr(d - 1), operand(), rng.choice(["1", "2", "1 2", "⍳3", "2 1"])])
+                      for _ in range(rng.choice([1, 1, 1, 2, 2, 3]))]
+            return base + "[" + ";".join(groups) + "]"
         return rng.choice(names) + "←" + expr(d - 1)
 
     stmts = [expr(rng.choice([1, 2, 3, 3, 4])) for _ in range(rng.choice([1, 1, 1, 2, 3]))]
@@ -204,7 +222,8 @@ def test_gc_pressure():
         a, b = rng.sample("ABCD", 2)
         n = rng.choice([300, 700, 1200, 1400])
         line = rng.choice([f"{a}←⍳{n}", f"{a}←,{b}", f"{a}←{b},{b}", f"{a}←{n}⍴{rng.choice(['1', '1 2 3', '2.5'])}",
-                           f"{a}←(⍳{n}),⍳{n}", f"⍴{a}", f"{a}←⍴{b}", f"{a}←2 3⍴{b}"])
+                           f"{a}←(⍳{n}),⍳{n}", f"⍴{a}", f"{a}←⍴{b}", f"{a}←2 3⍴{b}",
+                           f"{a}←{b}[⍳{n // 2}]", f"{a}←{b}[{b}]", f"{a}←(2 {n // 4}⍴{b})[2;]", f"{a}←(⍳{n})[⍳{n // 3}]"])
         check(s, line)
         lines += 1
     assert s.m.memory[s.L["htop"]] | s.m.memory[s.L["htop"] + 1] << 8 <= s.L["HEAP_LIMIT"]
