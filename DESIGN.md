@@ -40,7 +40,7 @@ the video and start-up code that uses it.
 Code and read-only tables **25,289 bytes** (`$0801`-`$6AC9`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
 7,832 bytes; **heap 17,680 bytes** (`$86F0` to `$CBFF`; it starts where the tables
-end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
+end). **The heap has a floor of 12 KB** (it was 16 KB until 2026-09-26, when more operators were preferred to room; the REU tier may give heap back; the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
 now costs heap byte for byte: the tables that need a page (`VARS`, `VSTACK`, `SYMTAB`) start on a
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). `⌈ ⌊ |` then cost about 1,120 (19,280): the kernels for INT and FLOAT (about 460, residue being the largest), floor and ceiling (about 500) and the glue; `∧ ∨ ~` about 220 more (19,064); `⌽ ↑ ↓` about 1,400 (17,680), which leaves 1,300 bytes above the 16 KB floor. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). `⌈ ⌊ |` then cost about 1,120 (19,280): the kernels for INT and FLOAT (about 460, residue being the largest), floor and ceiling (about 500) and the glue; `∧ ∨ ~` about 220 more (19,064); `⌽ ↑ ↓` about 1,400 (17,680), which left 1,300 bytes above the old 16 KB floor. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -137,7 +137,7 @@ harness will fail any write outside the allowed set.
 1. **Video: bank 3 with the charset in the RAM under I/O** (recommended) or bank 0
    with a hole. Bank 3 costs some start-up code and needs checking in VICE.
 2. **The per-array limit falls from 45,000 bytes to about 16,000** (`WS_BYTES` in
-   the model, `wsmax` on the 6502), about three quarters of the old 24 KB minimum heap. With the 16 KB floor the heap itself
+   the model, `wsmax` on the 6502), about three quarters of the old 24 KB minimum heap. With the 12 KB floor the heap itself
    is the tighter limit on a plain machine, and WS FULL is reported by whichever comes first.
    Arrays as large as the model allows today cannot exist in 22 KB. Larger
    arrays would need more heap, and the only big source left is banking the

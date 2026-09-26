@@ -37,8 +37,8 @@ def test_layout():
     assert L["VSTACK"] % 256 == 0 and L["VSTACK_END"] == L["VSTACK"] + 512
     assert L["SYMTAB"] % 256 == 0 and L["SYMEND_HI"] == (L["SYMTAB"] + 2048 >> 8) - 1
     assert L["FK"] == L["FSTK"] and L["FFN"] + 64 == L["FSTK"] + 256
-    # the heap: at least 16 KB (the floor DESIGN.md sets), ending under the screen; the test log lives above the machine's RAM map
-    assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x4000
+    # the heap: at least 12 KB (the floor DESIGN.md sets), ending under the screen; the test log lives above the machine's RAM map
+    assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x3000
     assert L["LOGBUF"] >= 0xD000
     # zero page: every pool pointer is inside the allowed range and none overlap
     ptrs = ["op", "tp", "sp", "ep", "qsrc", "mp", "fp", "sdpa", "sdpb", "hadr", "gsrc", "gp", "cs", "cd", "vsp",

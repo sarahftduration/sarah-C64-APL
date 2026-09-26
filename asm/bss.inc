@@ -146,5 +146,5 @@ HEAP_BASE = *
         .endv
 
         .if !SELFTEST && !KEYTEST     ; test builds embed their scripts
-        .cerror HEAP_LIMIT - HEAP_BASE < $4000, "less than 16 KB of heap"
+        .cerror HEAP_LIMIT - HEAP_BASE < $3000, "less than 12 KB of heap"
         .endif
