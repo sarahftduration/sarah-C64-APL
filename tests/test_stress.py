@@ -95,7 +95,7 @@ def test_functions():
     import test_funcs as F
     s = StressSession()
     n = 0
-    for lines in F.DEFS + F.CALLS:
+    for lines in F.DEFS + F.CALLS + F.FLOW:
         s.reset()
         for line in lines:
             T.check(s, line)

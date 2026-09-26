@@ -260,7 +260,7 @@ SESSIONS = [
 
 def typed_lines(*lines):
     """APL lines as the keys that type them: the glyphs are digraphs after the pound key."""
-    keys = {"←": "{LA}", "⍳": "{P}i", "⍴": "{P}r", "×": "{P}-", "÷": "{P}=", "∇": "{P}g", "⋄": "{P}."}
+    keys = {"≤": "{P}4", "≥": "{P}6", "≠": "{P}8", "→": "{P}]", "←": "{LA}", "⍳": "{P}i", "⍴": "{P}r", "×": "{P}-", "÷": "{P}=", "∇": "{P}g", "⋄": "{P}."}
     return "".join("".join(keys.get(c, c) for c in ln) + "{RET}" for ln in lines)
 
 
@@ -270,7 +270,8 @@ CMD_SESSIONS = [
     typed_lines("∇R←F X", "R←X", "∇", "∇R←F X", "R←X+1", "∇", "F 1", "F←3") + ")free{RET})clear{RET})fns{RET})free{RET}",
     typed_lines("∇F", "1", "2", "∇", "F", "∇R←G", "R←F", "∇", "G", "1+G") + ")fns{RET}",                 # echoes inside functions
     typed_lines("∇R←F X", "R←X÷0", "∇", "F 1", "F 2", "∇G", "F 5", "∇", "G", "1") + ")fns{RET}",
-    typed_lines("∇F", "1") + ")fns{RET})vars{RET}" + typed_lines("∇", ")fns"),                            # ) lines are body lines
+    typed_lines("∇F", "1") + ")fns{RET})vars{RET}" + typed_lines("∇", ")fns"),
+    typed_lines("∇R←F N", "R←0", "L:R←R+N", "N←N-1", "→L×⍳N>0", "∇", "F 4", "→1", "F 100") + ")fns{RET}",     # labels, loops                            # ) lines are body lines
     ")fns{RET}  )FNS extra{RET})Fns{RET}",
     ")vars{RET}",                                                      # nothing defined: nothing printed
     "b{LA}1{RET}a{LA}2 3{RET}zz{LA}'x'{RET}Ab{LA}5{RET})vars{RET}",    # sorted: Ab a b zz

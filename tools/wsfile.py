@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import apl64
 
-MAGIC = b"APLW" + bytes([2])
+MAGIC = b"APLW" + bytes([3])
 UNDEFINED = 0x80
 FUNCTION = 0x15               # a function: the tag of a CHAR vector, plus $10
 WIDTH = (1, 1, 2, 3)

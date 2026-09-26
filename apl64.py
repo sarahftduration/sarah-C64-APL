@@ -771,10 +771,19 @@ def encode_line(line):
 
 
 NAME_RE = re.compile(r'[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*')
+LABEL_RE = re.compile(r'[ \t]*[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*:')
 
 
 MAX_DEPTH = 16          # nested calls of user-defined functions
 MAX_LINES = 255         # lines in a function
+
+
+class _Jump(Exception):
+    """A branch: the number of the line to go on with (checked by the call)."""
+
+    def __init__(self, line):
+        super().__init__(line)
+        self.line = line
 
 
 class Func:
@@ -784,13 +793,19 @@ class Func:
     def __init__(self, nargs, res, larg, rarg, locs):
         self.nargs, self.res, self.larg, self.rarg, self.locs = nargs, res, larg, rarg, locs
         self.lines = []
-        self.syms = [x for x in (res, larg, rarg) if x is not None] + locs
+        self.labels = []        # (symbol, line number): names for lines, set on entry
+
+    @property
+    def syms(self):
+        """Every name a call localises: result, arguments, locals, then the labels."""
+        return ([x for x in (self.res, self.larg, self.rarg) if x is not None] + self.locs +
+                [s for s, _ in self.labels])
 
     def to_bytes(self):
-        """The function as the 6502 keeps it: nargs, hasres, nsyms, nlines, the symbols,
-        then each line's size (2 bytes) and its token stream."""
+        """The function as the 6502 keeps it: nargs, hasres, nsyms, nlines, nlabels, the symbols,
+        the line number of each label, then each line's size (2 bytes) and its token stream."""
         data = bytes([self.nargs, 0 if self.res is None else 1, len(self.syms),
-                      len(self.lines)] + self.syms)
+                      len(self.lines), len(self.labels)] + self.syms + [n for _, n in self.labels])
         for ln in self.lines:
             data += len(ln).to_bytes(2, 'little') + ln
         return data
@@ -798,8 +813,8 @@ class Func:
     @staticmethod
     def from_bytes(d):
         """The inverse of to_bytes for data that passed the loader's checks."""
-        nargs, hasres, nsyms, nlines = d[:4]
-        syms = list(d[4:4 + nsyms])
+        nargs, hasres, nsyms, nlines, nlabels = d[:5]
+        syms = list(d[5:5 + nsyms])
         p = 0
         res = larg = rarg = None
         if hasres:
@@ -808,8 +823,9 @@ class Func:
             larg, p = syms[p], p + 1
         if nargs >= 1:
             rarg, p = syms[p], p + 1
-        f = Func(nargs, res, larg, rarg, syms[p:])
-        pos = 4 + nsyms
+        f = Func(nargs, res, larg, rarg, syms[p:nsyms - nlabels])
+        f.labels = list(zip(syms[nsyms - nlabels:], d[5 + nsyms:5 + nsyms + nlabels]))
+        pos = 5 + nsyms + nlabels
         for _ in range(nlines):
             ln = d[pos] | d[pos + 1] << 8
             f.lines.append(bytes(d[pos + 2:pos + 2 + ln]))
@@ -1042,7 +1058,7 @@ class Interp:
         a function without a result gives None, which is only allowed to end a
         statement: nothing is echoed then."""
         if any(c == T_BRANCH for c, _ in toks):
-            raise AplError('NONCE ERROR')
+            raise AplError('SYNTAX ERROR')          # a branch only starts a statement
         i = len(toks) - 1
         if i < 0 or not self._isv(toks[i]):
             raise AplError('SYNTAX ERROR')
@@ -1180,9 +1196,32 @@ class Interp:
         for st in stmts:
             if not st:
                 continue
+            branches = [k for k, (c, _) in enumerate(st) if c == T_BRANCH]
+            if branches:
+                if branches[0] != 0:
+                    raise AplError('SYNTAX ERROR')
+                if self.depth == 0:
+                    raise AplError('NONCE ERROR')       # only functions branch
+                if len(branches) > 1:
+                    raise AplError('SYNTAX ERROR')
+                self._branch(self.eval_tokens(st[1:]))
+                continue
             val = self.eval_tokens(st, top=True)
             if val is not None and not self._is_assignment(st):
                 self._outs.append(val)
+
+    def _branch(self, v):
+        """->v: the first element is the number of the next line; nothing (an empty v)
+        goes on with the next statement; 0 or a number outside the lines leaves the function."""
+        if v.t == CHAR:
+            raise AplError('DOMAIN ERROR')
+        if v.count == 0:
+            return
+        x = v.data[0]
+        n = f_whole(x) if v.t == FLOAT else x
+        if n is None:
+            raise AplError('DOMAIN ERROR')
+        raise _Jump(n)
 
     # ---- user-defined functions ---------------------------------------------
     def prompt(self):
@@ -1228,11 +1267,24 @@ class Interp:
             self.funcs[fn] = f
             self.defining = None
             return
+        m = LABEL_RE.match(line)
+        if m:                                           # NAME: at the start: a label
+            line = line[:m.end() - 1] + ' ' + line[m.end():]
         toks = self.tokenize(line)
+        label = None
+        if m:
+            label = self.decode(toks)[0][1]             # (the tokeniser made the symbol)
+            if label in f.syms or label == fn:
+                raise AplError('SYNTAX ERROR')
+            if len(f.syms) >= 99:
+                raise AplError('LIMIT ERROR')
+            toks = toks[2:]
         self._statements(self.decode(toks))             # brackets must nest
         if len(f.lines) >= MAX_LINES:
             raise AplError('LIMIT ERROR')
         f.lines.append(toks)
+        if label is not None:
+            f.labels.append((label, len(f.lines)))
 
     def call(self, f, left, right):
         """Call f.  Names it uses (result, arguments, locals) are localised: they
@@ -1249,8 +1301,15 @@ class Interp:
                 self.vars[f.larg] = left
             if right is not None:
                 self.vars[f.rarg] = right
-            for line in f.lines:
-                self._run_statements(self._statements(self.decode(line)))
+            for sym, n in f.labels:
+                self.vars[sym] = scalar(INT, n)
+            i = 0
+            while i < len(f.lines):
+                try:
+                    self._run_statements(self._statements(self.decode(f.lines[i])))
+                    i += 1
+                except _Jump as j:
+                    i = j.line - 1 if 1 <= j.line <= len(f.lines) else len(f.lines)
             if f.res is None:
                 return None
             return self.lookup(f.res)
@@ -1585,7 +1644,7 @@ def selftest():
         ([D + 'R\u2190F X', 'R\u2190X', '(1', D, 'F 1'],
          ['', '', '!SYNTAX ERROR', '', '1']),
         ([D + 'R\u2190F X', 'R\u2190X\u2192', D, 'F 1'],
-         ['', '', '', '!NONCE ERROR']),
+         ['', '', '', '!SYNTAX ERROR']),
         ([D + 'F X', 'Y\u2190X', D, 'F 3', 'Y', '(F 4)'],
          ['', '', '', '', '3', '!VALUE ERROR']),
         ([D + 'R\u2190F X', 'R\u2190X', D, 'F', 'A\u21901 ⋄ F A'],
@@ -1608,6 +1667,37 @@ def selftest():
          ['', '', '', '', '|1 2 3', '!SYNTAX ERROR']),
     ]
     for lines, want in fn_cases:
+        got = session(lines)
+        assert got == want, (lines, got, want)
+    n += 1
+
+    # control flow (see test_funcs.FLOW for more)
+
+    # control flow (test_funcs.FLOW has more, compared with the 6502)
+    A_ = '\u2192'
+    flow_cases = [
+        ([A_ + '1', '1' + A_ + '1', A_], ['!NONCE ERROR', '!SYNTAX ERROR', '!NONCE ERROR']),
+        ([D + 'F', '1', A_ + '0', '2', D, 'F'], ['', '', '', '', '', '1']),
+        ([D + 'F', '1', A_ + '4', '2', D, 'F'], ['', '', '', '', '', '1']),
+        ([D + 'F', A_ + '3', '1', '2', '3', D, 'F'], ['', '', '', '', '', '', '2|3']),
+        ([D + 'F', A_ + '\u23730', '1', D, 'F'], ['', '', '', '', '1']),
+        ([D + 'F', A_ + '2 1', '1', '2', D, 'F'], ['', '', '', '', '', '1|2']),
+        ([D + 'F', A_ + '2.5', D, 'F', D + 'G', A_ + "'a'", D, 'G'],
+         ['', '', '', '!DOMAIN ERROR', '', '', '', '!DOMAIN ERROR']),
+        ([D + 'F', '1 \u22c4 ' + A_ + '3 \u22c4 2', '3', D, 'F'], ['', '', '', '', '1']),
+        ([D + 'F', A_ + '1+', D, 'F', D + 'G', A_ + 'Q', D, 'G', D + 'H', A_ + '1' + A_ + '2', D, 'H'],
+         ['', '', '', '!SYNTAX ERROR', '', '', '', '!VALUE ERROR', '', '', '', '!SYNTAX ERROR']),
+        ([D + 'F', 'L:1', 'M: 2', 'N :3', D, 'F'], ['', '', '', '!SYNTAX ERROR', '', '1|2']),
+        ([D + 'F', 'L:L', 'M:M+L', D, 'F'], ['', '', '', '', '1|3']),
+        ([D + 'F', 'L:1', 'L:2', 'F:1', D, 'F'], ['', '', '!SYNTAX ERROR', '!SYNTAX ERROR', '', '1']),
+        ([D + 'F', "L:'x:y'", "'a:b'", '\u235d z: comment', 'K:\u235d c', D, 'F'], ['', '', '', '', '', '', 'x:y|a:b']),
+        ([D + 'R\u2190SUMTO N;I', 'R\u21900', 'I\u21901', 'TOP:R\u2190R+I', 'I\u2190I+1', A_ + 'TOP\u00d7\u2373I\u2264N', D,
+          'SUMTO 10', 'SUMTO 100'], ['', '', '', '', '', '', '', '55', '5050']),
+        ([D + 'R\u2190FACT N', 'R\u21901', A_ + '0\u00d7\u2373N<2', 'R\u2190N\u00d7FACT N-1', D, 'FACT 1', 'FACT 5', 'FACT 7'],
+         ['', '', '', '', '', '1', '120', '5040']),
+        ([D + 'R\u2190F X', A_ + '3', 'R\u21901', 'R\u21902', D, 'F 0'], ['', '', '', '', '', '2']),
+    ]
+    for lines, want in flow_cases:
         got = session(lines)
         assert got == want, (lines, got, want)
     n += 1

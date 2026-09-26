@@ -3,8 +3,9 @@
 ;
 ; A function is a variable cell with tag $15 (a CHAR vector, plus $10 = function) whose block is
 ; the model's Func.to_bytes():
-;   nargs, hasres, nsyms, nlines, then nsyms symbol numbers (result, left argument, right
-;   argument, locals; the ones that exist), then for each line its size (2 bytes) and its tokens.
+;   nargs, hasres, nsyms, nlines, nlabels, then nsyms symbol numbers (result, left argument,
+;   right argument, locals; the ones that exist; then the labels), then the line number of each
+;   label, then for each line its size (2 bytes) and its tokens.
 ; While a function is being defined its block is the last one in the heap and each body line
 ; is appended in place (nothing else allocates then).
 
@@ -157,9 +158,9 @@ bd_c2:  lda hfn                 ; a variable of that name is in the way
         beq bd_b
         and #TAG_FN
         beq bd_syn
-bd_b:   lda hn                  ; the block: 4 + hn bytes
+bd_b:   lda hn                  ; the block: 5 + hn bytes
         clc
-        adc #4
+        adc #5
         sta nn
         sta nd0
         lda #0
@@ -186,6 +187,8 @@ bd_b:   lda hn                  ; the block: 4 + hn bytes
         iny
         lda #0
         sta (dp),y
+        iny
+        sta (dp),y              ; no labels yet
         ldx #0
 bd_w:   cpx hn
         beq bd_v
@@ -235,7 +238,8 @@ dfl_1:  lda INBUF,x
         bne dfl_3
 dfl_2:  inx
         bne dfl_1
-dfl_3:  cmp #DEL                ; a lone del ends the definition
+dfl_3:  stx dfx
+        cmp #DEL                ; a lone del ends the definition
         bne dfl_b
         inx
 dfl_4:  lda INBUF,x
@@ -250,7 +254,23 @@ dfl_e:  lda #0
         sta defmode
         clc
         rts
-dfl_b:  jsr tokenize
+dfl_b:  lda #0                  ; NAME: at the start is a label: the colon becomes a blank and the
+        sta dlab                ; name is the line's first token
+        ldx dfx
+        lda INBUF,x
+        jsr isalpha
+        bcc dfl_t
+dfl_l1: inx
+        lda INBUF,x
+        jsr isnamec
+        bcs dfl_l1
+        lda INBUF,x
+        cmp #':'
+        bne dfl_t
+        lda #' '
+        sta INBUF,x
+        inc dlab
+dfl_t:  jsr tokenize
         bcc *+3
         rts
         sec                     ; the size of the token stream
@@ -260,7 +280,58 @@ dfl_b:  jsr tokenize
         lda op+1
         sbc #>OUTBUF
         sta dtl+1
-        jsr mkindex
+        lda dlab
+        beq dfl_nl
+        ldx defh                ; the label must be a new name
+        lda HTL,x
+        sta gp
+        lda HTH,x
+        sta gp+1
+        lda OUTBUF+1
+        sta dlsym
+        cmp deffn
+        beq dfl_ls
+        ldy #7
+        lda (gp),y
+        tax
+        ldy #10
+dfl_l3: dex
+        bmi dfl_l4
+        lda (gp),y
+        cmp OUTBUF+1
+        beq dfl_ls
+        iny
+        bne dfl_l3
+dfl_l4: ldy #7                  ; (at most 98 symbols and labels)
+        lda (gp),y
+        cmp #99
+        bcc dfl_l5
+        lda #E_LIMIT
+        sec
+        rts
+dfl_l5: lda #<(OUTBUF+2)        ; take the label off the front of the tokens
+        sta cs
+        lda #>(OUTBUF+2)
+        sta cs+1
+        lda #<OUTBUF
+        sta cd
+        lda #>OUTBUF
+        sta cd+1
+        sec
+        lda dtl
+        sbc #2
+        sta dtl
+        sta t0
+        lda dtl+1
+        sbc #0
+        sta dtl+1
+        sta t0+1
+        jsr memcpy_cs_cd
+        jmp dfl_nl
+dfl_ls: lda #E_SYNTAX
+        sec
+        rts
+dfl_nl: jsr mkindex
         jsr balance
         bcc *+3
         rts
@@ -276,19 +347,27 @@ dfl_b:  jsr tokenize
         lda #E_LIMIT
         sec
         rts
-dfl_g:  clc                     ; room for the size and the tokens?
+dfl_g:  clc                     ; room for the size and the tokens (and the label)?
         lda dtl
         adc #2
         sta t0
         lda dtl+1
         adc #0
         sta t0+1
+        lda dlab
+        asl
         clc
-        lda htop
         adc t0
         sta cd
+        lda t0+1
+        adc #0
+        sta cd+1
+        clc
+        lda htop
+        adc cd
+        sta cd
         lda htop+1
-        adc t0+1
+        adc cd+1
         sta cd+1
         bcs dfl_f
         lda #<HEAP_LIMIT
@@ -299,7 +378,17 @@ dfl_g:  clc                     ; room for the size and the tokens?
 dfl_f:  lda #E_WSFULL
         sec
         rts
-dfl_h:  ldy #0                  ; the size, then the tokens, go at the end of the heap
+dfl_h:  lda dlab
+        beq dfl_i
+        jsr add_label
+        clc                     ; (it used t0)
+        lda dtl
+        adc #2
+        sta t0
+        lda dtl+1
+        adc #0
+        sta t0+1
+dfl_i:  ldy #0                  ; the size, then the tokens, go at the end of the heap
         lda dtl
         sta (htop),y
         iny
@@ -359,6 +448,193 @@ dfl_h:  ldy #0                  ; the size, then the tokens, go at the end of th
         clc
         rts
 
+; The label whose symbol is OUTBUF+1 names the line about to be added. The label symbols end the
+; symbol list and the line numbers of the labels follow it, so both grow by a byte and the
+; lines move up by two. gp = the block. (Fewer than 99 symbols, checked by the caller.)
+add_label:
+        clc                     ; tp = the data
+        lda gp
+        adc #5
+        sta tp
+        lda gp+1
+        adc #0
+        sta tp+1
+        ldy #2
+        lda (tp),y
+        sta cu_n                ; symbols
+        ldy #4
+        lda (tp),y
+        sta cu_i                ; labels
+        lda cu_n                ; gsrc = the label table (Ts), gdst = the first line (Ls)
+        clc
+        adc #5
+        adc tp
+        sta gsrc
+        lda tp+1
+        adc #0
+        sta gsrc+1
+        clc
+        lda gsrc
+        adc cu_i
+        sta gdst
+        lda gsrc+1
+        adc #0
+        sta gdst+1
+        sec                     ; the lines, htop - Ls bytes, move up by two
+        lda htop
+        sbc gdst
+        sta t0
+        lda htop+1
+        sbc gdst+1
+        sta t0+1
+        lda htop
+        sta cs
+        lda htop+1
+        sta cs+1
+        clc
+        lda htop
+        adc #2
+        sta cd
+        lda htop+1
+        adc #0
+        sta cd+1
+        jsr memcpy_dn
+        lda gdst                ; the table moves up by one
+        sta cs
+        lda gdst+1
+        sta cs+1
+        clc
+        lda gdst
+        adc #1
+        sta cd
+        lda gdst+1
+        adc #0
+        sta cd+1
+        lda cu_i
+        sta t0
+        lda #0
+        sta t0+1
+        jsr memcpy_dn
+        ldy #0                  ; the symbol goes where the table began
+        lda dlsym
+        sta (gsrc),y
+        ldy #3                  ; and the line number, the number of the line to come, at its end
+        lda (tp),y
+        clc
+        adc #1
+        ldy #1
+        sta (gdst),y
+        ldy #2                  ; one more symbol, one more label
+        lda (tp),y
+        clc
+        adc #1
+        sta (tp),y
+        ldy #4
+        lda (tp),y
+        clc
+        adc #1
+        sta (tp),y
+        ldy #1                  ; the count and the dimension grow by two
+        clc
+        lda (gp),y
+        adc #2
+        sta (gp),y
+        ldy #3
+        sta (gp),y
+        ldy #2
+        lda (gp),y
+        adc #0
+        sta (gp),y
+        ldy #4
+        sta (gp),y
+        clc
+        lda htop
+        adc #2
+        sta htop
+        bcc *+4
+        inc htop+1
+        rts
+
+; copy t0 bytes downward: from the bytes ending just below cs to the bytes ending just below cd
+memcpy_dn:
+        lda t0
+        ora t0+1
+        beq md_r
+        lda cs
+        bne md_1
+        dec cs+1
+md_1:   dec cs
+        lda cd
+        bne md_2
+        dec cd+1
+md_2:   dec cd
+        ldy #0
+        lda (cs),y
+        sta (cd),y
+        lda t0
+        bne md_3
+        dec t0+1
+md_3:   dec t0
+        jmp memcpy_dn
+md_r:   rts
+
+; ->v in a function (the value is on the value stack): the first element is the number of the next
+; line; an empty v goes on with the next statement; 0 or a number outside the lines leaves.
+do_branch:
+        jsr topcell
+        jsr getval
+        lda vt
+        cmp #1
+        bne db_1
+        lda #E_DOMAIN
+        sec
+        rts
+db_1:   lda vn
+        ora vn+1
+        bne db_2
+        jmp el_pop
+db_2:   lda vp
+        sta ep
+        lda vp+1
+        sta ep+1
+        jsr elem_to_int
+        bcc db_3
+        lda #E_DOMAIN
+        sec
+        rts
+db_3:   ldx cfh
+        lda HTL,x
+        sta gp
+        lda HTH,x
+        sta gp+1
+        ldy #8
+        lda (gp),y
+        sta cu_n                ; the number of lines
+        lda ineg
+        ora ihuge
+        bne db_x
+        lda im+1
+        bne db_x
+        lda im
+        beq db_x
+        cmp cu_n
+        beq db_4
+        bcs db_x
+db_4:   sec
+        sbc #1
+        sta cln
+        jmp db_p
+db_x:   lda cu_n                ; out of range: the function has no more lines
+        sta cln
+db_p:   sec                     ; the value goes
+        lda vsp
+        sbc #4
+        sta vsp
+        lda vsp+1
+        sbc #0
+        sta vsp+1
+        jmp fn_nextline
+
 ; --- calls -------------------------------------------------------------------------------------
 ; The evaluator applies a user-defined function like any other: the operands are on the value
 ; stack (dyadic: left on top, right below). udf_mon/udf_dy/udf_ni are entered with ev_us = the
@@ -397,7 +673,7 @@ fnptr:  ldx cu_h
 
 ; A = index into the symbols of the function at sp -> A = the symbol
 symat:  clc
-        adc #4
+        adc #5
         tay
         lda (sp),y
         rts
@@ -591,7 +867,44 @@ uc_a:   jsr cellfrom
         jsr varcell
         lda #4
         jsr cellfrom
-uc_9:   lda cu_h
+uc_9:   jsr fnptr               ; the labels get their line numbers
+        ldy #4
+        lda (sp),y
+        beq uc_l9
+        sta cu_n
+        lda #0
+        sta cu_i
+uc_l1:  ldy #2
+        lda (sp),y
+        sec
+        sbc cu_n
+        clc
+        adc cu_i
+        jsr symat
+        jsr varcell
+        ldy #2
+        lda (sp),y
+        clc
+        adc cu_i
+        adc #5
+        tay
+        lda (sp),y
+        sta cv+1
+        lda #2                  ; an INT scalar
+        sta cv
+        lda #0
+        sta cv+2
+        sta cv+3
+        ldy #3
+uc_l2:  lda cv,y
+        sta (cptr),y
+        dey
+        bpl uc_l2
+        inc cu_i
+        lda cu_i
+        cmp cu_n
+        bne uc_l1
+uc_l9:  lda cu_h
         sta cfh
         lda #0
         sta cln
@@ -609,10 +922,12 @@ fn_nextline:
         cmp (gp),y
         bcc fl_1
         jmp udf_return
-fl_1:   ldy #7                  ; the lines start after the symbols
+fl_1:   ldy #7                  ; the lines start after the symbols and the label table
         lda (gp),y
+        ldy #9
         clc
-        adc #9
+        adc (gp),y
+        adc #10
         adc gp
         sta cs
         lda gp+1
@@ -737,7 +1052,7 @@ udf_return:
         ldy #6
         lda (gp),y
         beq ur_1
-        ldy #9                  ; the result name's value, before the names are given back
+        ldy #10                 ; the result name's value, before the names are given back
         lda (gp),y
         jsr varcell
         ldy #0

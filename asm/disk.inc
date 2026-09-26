@@ -1,6 +1,6 @@
 ; )SAVE and )LOAD: workspace files on the disk drive (KERNAL file I/O, device DEVNUM).
 ; Spec: DESIGN.md, Workspace files. The file is:
-;   "APLW", version 2, number of symbols (2 bytes), then for each symbol, in symbol order (the
+;   "APLW", version 3, number of symbols (2 bytes), then for each symbol, in symbol order (the
 ;   token streams of functions name symbols by number), its name (length byte, then the
 ;   characters), its value, and finally "E".
 ;   A value is its tag byte (type | rank<<2) and, for a scalar, its 1-3 data bytes; for
@@ -19,7 +19,7 @@ K_CHRIN  = $ffcf
 K_CHROUT = $ffd2
 K_READST = $ffb7
 LFN      = 2
-WS_VERSION = 2
+WS_VERSION = 3
 
 msg_saved:  .text "SAVED"
         .byte 0

@@ -259,7 +259,17 @@ el_end: stx ev_shi
         jsr eval_stmt
         bcc el_ok
         rts
-el_ok:  lda ev_nv               ; a call that gave no value: nothing to echo or pop
+el_ok:  ldx ev_slo
+        lda TC,x
+        cmp #T_BRANCH
+        bne el_o1
+        lda ev_nv               ; a branch: the value says where to go (none is not a value)
+        beq el_o0
+        lda #E_VALUE
+        sec
+        rts
+el_o0:  jmp do_branch
+el_o1:  lda ev_nv               ; a call that gave no value: nothing to echo or pop
         bne el_empty
         lda ev_na               ; echo unless the statement starts with name ← or name[...]←
         bne el_pop
@@ -298,10 +308,17 @@ eval_stmt:
 es1:    cpx ev_shi
         beq es2
         lda TC,x
-        cmp #T_BRANCH
+        cmp #T_BRANCH           ; only a statement's first token can be a branch, and only in a function
+        bne es_n
+        cpx ev_slo
+        bne es_syn
+        lda cdepth
         beq es_nonce
-        inx
+es_n:   inx
         jmp es1
+es_syn: lda #E_SYNTAX
+        sec
+        rts
 es_nonce:
         lda #E_NONCE
         sec
@@ -309,8 +326,12 @@ es_nonce:
 es2:    lda #0
         sta ev_na
         sta ev_nv
-        lda ev_slo
-        sta ev_lo
+        ldx ev_slo              ; a branch: the expression after the arrow is the statement
+        lda TC,x
+        cmp #T_BRANCH
+        bne es3
+        inx
+es3:    stx ev_lo
         lda ev_shi
         sta ev_i1
         lda #0

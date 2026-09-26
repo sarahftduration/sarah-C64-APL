@@ -166,7 +166,25 @@ def gen_function_session(rng):
                 lines.append(e)
         if hasres and rng.random() < .85:
             lines.append("R←" + gen_expr(rng, names, funcs, 2))
+        body_start = len(lines) - sum(1 for _ in range(0))       # (index of the first body line is found below)
         lines.append(D)
+        head_at = max(i for i, ln in enumerate(lines) if ln.startswith(D + ("R←" if hasres else "")) and ln != D)
+        body = lines[head_at + 1:-1]
+        used = set(names) | {fname}
+        labs = [n for n in ("LA", "LB", "LC") if n not in used]
+        for i in range(len(body)):                          # forward branches and labels only: no loops
+            r = rng.random()
+            if r < .25 and i + 2 <= len(body):
+                target = rng.choice([str(rng.randrange(i + 2, len(body) + 2)), "0"] +
+                                    [lb for lb in labs if False])
+                cond = gen_expr(rng, names, funcs, 1)
+                body[i] = rng.choice(["→" + target, "→" + target + "×⍳" + cond, "→⍳0", "→" + cond, "→" + target + " " + target])
+            elif r < .4 and labs and i + 1 < len(body):
+                lb = labs.pop(0)
+                body[i] = lb + ":" + body[i]
+                if rng.random() < .7 and i > 0 and not body[i - 1].startswith("→"):
+                    body[i - 1] = "→" + lb + "×⍳" + gen_expr(rng, names, funcs, 1)
+        lines[head_at + 1:-1] = body
         funcs.append((fname, nargs, hasres))
     for _ in range(rng.choice([2, 3, 4])):
         f = rng.choice(funcs)
@@ -218,6 +236,64 @@ def test_call_heap_full():
     check(s, "F F 1")
 
 
+A = "→"
+FLOW = [
+    [D + "F", "1", A + "0", "2", D, "F"],
+    [D + "F", "1", A + "4", "2", D, "F"],
+    [D + "F", A + "3", "1", "2", "3", D, "F"],
+    [D + "F", A + "⍳0", "1", D, "F"],
+    [D + "F", A + "2 1", "1", "2", D, "F"],
+    [D + "F", A + "2.0", "1", "2", D, "F", D + "G", A + "2.5", D, "G", D + "H", A + "'a'", D, "H", D + "K", A + "''", D, "K"],
+    [D + "F", A + "¯1", "1", D, "F", D + "G", A + "1 ⋄ 5", "7", D, "G"][:5] + [D + "G", A + "3 ⋄ 5", "7", "8", D, "G"],
+    [D + "F", "1 ⋄ " + A + "3 ⋄ 2", "3", D, "F"],
+    [D + "F", A + "⍳0 ⋄ 7", D, "F"],
+    [D + "F", A + "1+", D, D + "G", "(" + A + "1)", D, D + "H", "1+" + A + "1", D, "F", "G", "H"],
+    [D + "F", A + "Q", D, D + "G", A + "1" + A + "2", D, "F", "G"],
+    [D + "F X", A + "X÷0", D, "F 1"],
+    [D + "F", A + "F", D, D + "G", A + "G G", D, D + "H", A + "1 2", D, "H"][:3] + [D + "H", A + "2 3", "1", "2", D, "H"],
+    [A + "1", "1" + A + "1", A, "A←" + A + "1", "(" + A + "1)", "⍳" + A + "1"],
+    [D + "F", "L:1", "M: 2", "N :3", D, "F", "L", "M"],
+    [D + "F", "L:L", "M:M+L", D, "F"],
+    [D + "F", "L:", "M:", A + "M+2", "Z", D, "F"],
+    [D + "F", "L:1", "L:2", D + "F", "F:1", D + "F X", "X:1", D + "R←F X;L", "L:1", D + "F", "A1:5", "B_2:A1", D, "F"],
+    [D + "F", "L:1 2", "M:(", D, "F"],
+    [D + "F", "L:'x:y'", "'a:b'", "⍝ z: comment", "K:⍝ c", D, "F"],
+    [D + "R←F X", "R←L", "L:R←R+1", D, D + "G", "F 1", D, "G", "L"],
+    [D + "R←F", "R←M", "M:R←R,M", D, D + "R←G", "R←F", D, "F", "G", "M"],
+    [D + "R←SUMTO N;I", "R←0", "I←1", "TOP:R←R+I", "I←I+1", A + "TOP×⍳I≤N", D, "SUMTO 10", "SUMTO 0", "SUMTO 100", "SUMTO 1000"],
+    [D + "R←FACT N", "R←1", A + "0×⍳N<2", "R←N×FACT N-1", D, "FACT 1", "FACT 5", "FACT 7", "FACT 8", "FACT ⍳5"],
+    [D + "R←FIB N", "R←N", A + "0×⍳N<2", "R←(FIB N-1)+FIB N-2", D, "FIB 0", "FIB 1", "FIB 10", "FIB 12"],
+    [D + "R←F X", A + "3", "R←1", "R←2", D, "F 0", "1+F 1"],
+    [D + "R←F X;A", "A←X", "L1:A←A+1", "→L3×⍳A>5", "→L1", "L3:R←A", D, "F 1", "F 3", "F 9"],
+    [D + "R←A DIV B", "R←A÷B", D, "6 DIV 3", "1 DIV 0"],
+    [D + "F", "L1:'a'", "L2:'b'", A + "L2+2", "'skip'", "'c'", D, "F"],
+    [D + "R←F X", "R←X", A + "3×⍳X>0", "R←-X", "R←R,R", D, "F 1", "F ¯1", "F 0"],
+    [D + "F X;Y", "Y←0", "N:Y←Y+1", "Y", A + "N×⍳Y<X", D, "F 3", "F 1", "F 0"],
+    [D + "F", "A←1", A + "4", "A←2", "A", D, "F", "A"],
+    [D + "F", A + "1+1", "'skipped'", "'here'", D, "F"],
+    [D + "G", "1", "'x'", D, "G"],
+    # a function calling another that branches out early
+    [D + "R←G X", "R←1", A + "0", "R←2", D, D + "R←F X", "R←G X", "R←R+G X", D, "F 1", "F F 1"],
+    # branch out of a called function does not leave the caller
+    [D + "G", "1", A + "0", "2", D, D + "F", "G", "'after'", D, "F"],
+    # many lines and a label on the last
+    [D + "R←F", "R←0"] + ["R←R+1"] * 40 + ["END:R←R+END", D, "F"],
+    [D + "F X", "X", D, D + "G", "→F 3", "1", D, "G"],
+    [D + "F" + "".join(f";L{i}" for i in range(60))] + [f"K{i}:{i}" for i in range(42)] + [D, "F"],       # the 99-symbol limit
+    [D + "F" + "".join(f";L{i}" for i in range(59))] + [f"K{i}:{i}" for i in range(42)] + [D, "F"],
+    # a name that is a label in one function and a variable in another
+    ["L←5", D + "F", "L:L", D, "F", "L", D + "R←G", "R←L", D, "G"],
+]
+
+
+def test_flow():
+    n = 0
+    for lines in FLOW:
+        run(lines)
+        n += len(lines)
+    print(f"functions: {len(FLOW)} control-flow sessions ({n} lines: branches, labels, loops, recursion) match the model")
+
+
 def test_line_limit():
     """255 lines fit, the 256th is LIMIT ERROR (the model and the 6502 agree)."""
     s = Session()
@@ -245,12 +321,13 @@ def test_heap_full():
     assert err == "WS FULL", err
     assert s.run6502(D) == ("ok", b"")
     assert s.run6502("1")[0] == "ok"
-    assert s.run6502(D + "F")[0] == "ok"
+    assert s.run6502(D + "F")[0] in ("ok", "err")       # a header needs a few bytes: it may not fit either
 
 
 if __name__ == "__main__":
     test_definitions()
     test_calls()
+    test_flow()
     test_fuzz_functions()
     test_line_limit()
     test_heap_full()
