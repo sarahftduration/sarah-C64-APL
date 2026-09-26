@@ -49,7 +49,7 @@ HM      .fill 256               ; mark bytes
 VARS    .fill 1024              ; 256 variable cells
 VSTACK  .fill 512               ; value stack: 128 cells
 VSTACK_END = *
-FSTK    .fill 512               ; evaluator frames: 4 arrays of 128
+FSTK    .fill 256               ; evaluator frames: 4 arrays of 64
 SYMTAB  .fill SYMTAB_SIZE       ; symbol table
 OUTBUF  .fill 1536              ; token stream: 6 bytes per input byte
 SBUF    .fill 512               ; number strand scratch

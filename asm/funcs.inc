@@ -1026,7 +1026,7 @@ cf_4:   clc
         inc dp+1
         clc
         lda tp
-        adc #$80
+        adc #64
         sta tp
         bcc *+4
         inc tp+1

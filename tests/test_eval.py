@@ -242,6 +242,17 @@ def test_fuzz():
     print(f"evaluator fuzz: {sum(kinds.values())} lines {dict(sorted(kinds.items()))}")
 
 
+def test_nesting_limit():
+    """Frames are 64 deep: 64 nested parentheses work, 65 are a LIMIT ERROR (the model has no limit)."""
+    s = Session()
+    s.reset()
+    ok = s.run6502("(" * 64 + "1" + ")" * 64)
+    assert ok[0] == "ok" and ok[1] == s.run_model("1")[1], ok
+    assert s.run6502("(" * 65 + "1" + ")" * 65) == ("err", "LIMIT ERROR")
+    assert s.run6502("1+1")[0] == "ok"
+    print("evaluator: 64 nested parentheses are fine, 65 are a LIMIT ERROR")
+
+
 def test_gc_pressure():
     """Arrays are created and dropped far faster than the heap holds them."""
     s = Session()
@@ -264,4 +275,5 @@ def test_gc_pressure():
 if __name__ == "__main__":
     test_fixed()
     test_fuzz()
+    test_nesting_limit()
     test_gc_pressure()

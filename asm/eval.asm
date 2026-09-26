@@ -56,9 +56,9 @@ K_LEFTU   = 5                   ; like K_LEFT, for a user-defined function (its 
 T_FN      = $0b                 ; a name of a function that takes arguments (see classify)
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
-FLO     = FSTK+128
-FRS     = FSTK+256
-FFN     = FSTK+384
+FLO     = FSTK+64
+FRS     = FSTK+128
+FFN     = FSTK+192
 
 ev_lo   = $43
 ev_i1   = $09
@@ -650,7 +650,7 @@ fr_ok:  lda #$81
         bcc *+3
         rts
         ldx ev_fsp
-        cpx #128
+        cpx #64
         bcs fr_lim
         lda ev_pkind
         sta FK,x
@@ -675,7 +675,7 @@ gstep:  ldx ev_i1
         cmp ev_jm
         beq gs_empty
         ldx ev_fsp
-        cpx #128
+        cpx #64
         bcc gs_1
         jmp fr_lim
 gs_1:   lda #K_GRP
@@ -789,7 +789,7 @@ ep_found:
         cpx ev_ix
         bcs ep_empty
         ldx ev_fsp
-        cpx #128
+        cpx #64
         bcs ep_limit
         lda ev_pkind
         sta FK,x
