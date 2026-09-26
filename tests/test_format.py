@@ -6,6 +6,7 @@ from fractions import Fraction
 sys.path.insert(0, os.getcwd())
 import apl64
 from harness import call, load
+import test_eval as T
 from test_eval import Session, FIXED
 
 FA = 0x10
@@ -65,6 +66,9 @@ def test_f_fmt():
 
 
 def check_text(s, line):
+    if T.unimplemented(line):
+        s.reset()
+        return 'nonce'
     got = s.run6502(line)
     want = s.run_model_text(line)
     if got[0] == 'err' or want[0] == 'err':

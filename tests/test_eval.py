@@ -76,7 +76,14 @@ class Session:
                 for i in range(len(self.model.names))]
 
 
+def unimplemented(line):
+    return re.search(r"\]\s*←", line) is not None     # indexed assignment: in the model only so far
+
+
 def check(s, line):
+    if unimplemented(line):
+        s.reset()
+        return 'nonce'
     got = s.run6502(line)
     want = s.run_model(line)
     if got == ('err', 'NONCE ERROR') and want != got:

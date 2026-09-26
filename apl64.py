@@ -35,10 +35,10 @@ Integer arithmetic (+ - x) is optimistic: run in int16, and if ANY result
 element leaves int16, redo the whole primitive in float24.
 "/" is reduce (right to left).  "+/" accumulates exactly and rounds once.
 Division always gives FLOAT.  0 / 0 is 1; x / 0 is DOMAIN ERROR.
-Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] is read-only (the
+Origin is 1.  Rank <= 2.  Indexing A[i] and A[i;j] (the
 result shape is the index shapes joined; a result of rank 3 or more is
 LIMIT ERROR; a bad index value is INDEX ERROR); indices are evaluated right
-to left, then the indexed array.  Indexed assignment is NONCE ERROR.  Workspace is limited to WS_BYTES per array.
+to left, then the indexed array.  Indexed assignment A[i]<-v makes a new array (index_assign).  Workspace is limited to WS_BYTES per array.
 
 Token stream (bytes), one line ends with $00:
     $00 end   $01 literal   $02 name (1-byte symbol index)
@@ -586,14 +586,14 @@ def catenate(a, b):
     return vector(t, data)
 
 
-def index_value(a, idxs):
-    """A[i] and A[i;j] (origin 1).  idxs has one entry per axis of a, each a
-    Value or None (elided: the whole axis).  The result's shape is the shapes
-    of the indices joined in axis order (an elided axis contributes its
-    length, a scalar index contributes nothing); rank above 2 is LIMIT ERROR.
-    Checks run in this order: axis count (RANK), then per axis left to right
-    the index type (DOMAIN) and range (INDEX), then the result rank (LIMIT).
-    The result has the type of a."""
+def _resolve_index(a, idxs):
+    """Check the indices against a and return the 0-based positions along each
+    axis and the shape of the selection.  idxs has one entry per axis of a,
+    each a Value or None (elided: the whole axis).  The selection's shape is
+    the shapes of the indices joined in axis order (an elided axis contributes
+    its length, a scalar index contributes nothing); rank above 2 is LIMIT
+    ERROR.  Checks run in this order: axis count (RANK), then per axis left to
+    right the index type (DOMAIN) and range (INDEX), then the rank (LIMIT)."""
     if len(idxs) != a.rank:
         raise AplError('RANK ERROR')
     axes, shape = [], ()
@@ -609,12 +609,44 @@ def index_value(a, idxs):
         shape += ix.shape
     if len(shape) > 2:
         raise AplError('LIMIT ERROR')
+    return axes, shape
+
+
+def _positions(a, axes):
+    """Element numbers of the selection, in row-major order of the selection."""
     if a.rank == 1:
-        data = [a.data[x] for x in axes[0]]
-    else:
-        n = a.shape[1]
-        data = [a.data[r * n + c] for r in axes[0] for c in axes[1]]
-    return Value(a.t, shape, data)
+        return axes[0]
+    n = a.shape[1]
+    return [r * n + c for r in axes[0] for c in axes[1]]
+
+
+def index_value(a, idxs):
+    """A[i] and A[i;j] (origin 1); the result has the type of a."""
+    axes, shape = _resolve_index(a, idxs)
+    return Value(a.t, shape, [a.data[p] for p in _positions(a, axes)])
+
+
+def index_assign(a, idxs, v):
+    """A[i]<-v: a new array (arrays are values; other names keep the old one).
+    v is a scalar or has exactly the shape of the selection (RANK ERROR if its
+    rank differs, else LENGTH ERROR).  The type is the join of both types
+    (DOMAIN ERROR mixing characters and numbers, unless the selection is
+    empty, which changes nothing).  With repeated indices the last write wins."""
+    axes, shape = _resolve_index(a, idxs)
+    if v.rank != 0:
+        if v.rank != len(shape):
+            raise AplError('RANK ERROR')
+        if v.shape != shape:
+            raise AplError('LENGTH ERROR')
+    pos = _positions(a, axes)
+    if not pos:
+        return a
+    t = join_type(a.t, v.t)
+    data = [convert(a.t, t, x) for x in a.data]
+    vals = v.data * len(pos) if v.rank == 0 else v.data
+    for p, x in zip(pos, vals):
+        data[p] = convert(v.t, t, x)
+    return Value(t, a.shape, data)
 
 
 # =========================================================================
@@ -950,8 +982,15 @@ class Interp:
         while i >= 0:
             c = toks[i][0]
             if c == T_ASSIGN:
-                if i > 0 and toks[i - 1][0] == T_RBRK:
-                    raise AplError('NONCE ERROR')           # indexed assignment
+                if i > 0 and toks[i - 1][0] == T_RBRK:          # A[i;j]<-v
+                    j = self._match(toks, i - 1, T_RBRK, T_LBRK)
+                    if j == 0 or toks[j - 1][0] != T_NAME:
+                        raise AplError('SYNTAX ERROR')
+                    idxs = self._index_groups(toks[j + 1:i - 1])
+                    name = toks[j - 1][1]
+                    self.vars[name] = index_assign(self.lookup(name), idxs, val)
+                    i = j - 2
+                    continue
                 if i == 0 or toks[i - 1][0] != T_NAME:
                     raise AplError('SYNTAX ERROR')
                 self.vars[toks[i - 1][1]] = val
@@ -995,6 +1034,25 @@ class Interp:
         self._pos = i
         return fn[0](right)
 
+    @staticmethod
+    def _is_assignment(st):
+        """Does the statement start with name<- or name[...]<- (not echoed)?"""
+        if len(st) < 2 or st[0][0] != T_NAME:
+            return False
+        if st[1][0] == T_ASSIGN:
+            return True
+        if st[1][0] != T_LBRK:
+            return False
+        depth = 0
+        for k in range(1, len(st)):
+            if st[k][0] in (T_LPAR, T_LBRK):
+                depth += 1
+            elif st[k][0] in (T_RPAR, T_RBRK):
+                depth -= 1
+                if depth == 0:
+                    return k + 1 < len(st) and st[k + 1][0] == T_ASSIGN
+        return False
+
     def run_line(self, line):
         return [format_value(v) for v in self.run_values(line)]
 
@@ -1021,7 +1079,7 @@ class Interp:
             if not st:
                 continue
             val = self.eval_tokens(st)
-            if not (len(st) >= 2 and st[0][0] == T_NAME and st[1][0] == T_ASSIGN):
+            if not self._is_assignment(st):
                 outs.append(val)
         return outs
 
@@ -1233,9 +1291,59 @@ def selftest():
         ('+[1]', '!SYNTAX ERROR'),
         ('1;2', '!SYNTAX ERROR'),
         ('A[1;]', '!RANK ERROR'),
-        ('A[1]←5', '!NONCE ERROR'),
+        ('A[1]←5', ''),
+        ('A', '5 20 30 40'),
         ('+/[1]A', '!NONCE ERROR'),
         ('A[1⋄2]', '!SYNTAX ERROR'),
+        ('P←1 2 3 4 5 ⋄ P[2]←9', ''),
+        ('P', '1 9 3 4 5'),
+        ('P[2 4]←0', ''),
+        ('P', '1 0 3 0 5'),
+        ('P[1 3]←7 8', ''),
+        ('P', '7 0 8 0 5'),
+        ('P[1 2]←1 2 3', '!LENGTH ERROR'),
+        ('P[1]←1 2', '!RANK ERROR'),
+        ('P[1 2]←3 3⍴1', '!RANK ERROR'),
+        ('P[6]←1', '!INDEX ERROR'),
+        ('P[1;1]←1', '!RANK ERROR'),
+        ("P[1]←'a'", '!DOMAIN ERROR'),
+        ('P', '7 0 8 0 5'),
+        ('Q←P ⋄ P[1]←99 ⋄ Q', '7 0 8 0 5'),
+        ('P[1]+P[2]←3', '102'),
+        ('1+P[2]←5', '6'),
+        ('P[1 1]←4 5', ''),
+        ('P[1]', '5'),
+        ('P[⍳0]←1', ''),
+        ('P[⍳0]←1 2', '!LENGTH ERROR'),
+        ("P[⍳0]←'a'", ''),
+        ('P[2]←1.5', ''),
+        ('P', '5 1.5 8 0 5'),
+        ("R←'hello' ⋄ R[1]←'j' ⋄ R", 'jello'),
+        ("R[1]←1", '!DOMAIN ERROR'),
+        ('B←1 0 1 ⋄ B[2]←1 ⋄ B', '1 1 1'),
+        ('B[2]←5 ⋄ B', '1 5 1'),
+        ('N←2 3⍴⍳6 ⋄ N[2;3]←0 ⋄ N', '1 2 3|4 5 0'),
+        ('N[;1]←7 8 ⋄ N', '7 2 3|8 5 0'),
+        ('N[1;]←9 ⋄ N', '9 9 9|8 5 0'),
+        ('N[1 2;1 2]←2 2⍴1 2 3 4 ⋄ N', '1 2 9|3 4 0'),
+        ('N[1 2;1 2]←1 2 3 4', '!RANK ERROR'),
+        ('N[1 2;1 2]←2 3⍴1', '!LENGTH ERROR'),
+        ('N[;]←0 ⋄ N', '0 0 0|0 0 0'),
+        ('N[1]←1', '!RANK ERROR'),
+        ('N[3;1]←1', '!INDEX ERROR'),
+        ('N[2 2⍴1;1 2]←1', '!LIMIT ERROR'),
+        ('N[1;2]←2.5 ⋄ N', '0 2.5 0|0   0 0'),
+        ('ZZ[1]←1', '!VALUE ERROR'),
+        ('(P)[1]←1', '!SYNTAX ERROR'),
+        ('P[1][1]←1', '!SYNTAX ERROR'),
+        ('[1]←1', '!SYNTAX ERROR'),
+        ('P[QQ]←1', '!VALUE ERROR'),
+        ('P[1]←QQ', '!VALUE ERROR'),
+        ('P[1←2', '!SYNTAX ERROR'),
+        ('P[1]←2 ⋄ P[2]←3 ⋄ P', '2 3 8 0 5'),
+        ('P[P[1]]←4 ⋄ P', '2 4 8 0 5'),
+        ('P[1 2]←P[2 1] ⋄ P', '4 2 8 0 5'),
+        ('SS←5 ⋄ SS[1]←2', '!RANK ERROR'),
     ]
     ws = Interp()
     for src, want in cases:
