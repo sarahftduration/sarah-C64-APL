@@ -119,7 +119,7 @@ class Reu:
         L = self.labels
         lo, hi = L["OVWIN"], L["OVWIN"] + L["OVWIN_SIZE"]
         m = mpu.memory
-        for a in range(0x100 + mpu.sp + 1, 0x1FF):
+        for a in range(0x100 + mpu.sp + 1, 0x1FF, 2):          # (return addresses, two bytes each, from the top)
             ret = (m[a] | m[a + 1] << 8) + 1
             assert not lo <= ret < hi, f"an overlay is loaded while code in the window is still active (stack ${a:03x}: ${ret:04x})"
         self.loads.append(mpu.x)

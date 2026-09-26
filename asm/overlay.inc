@@ -52,6 +52,7 @@ s_rot: .ovstub p_rot, OVID_RESHAPE
 s_take: .ovstub p_take, OVID_RESHAPE
 s_transpose: .ovstub p_transpose, OVID_RESHAPE
 s_transax: .ovstub p_transax, OVID_RESHAPE
+s_axis: .ovstub p_axis, OVID_RESHAPE
 s_repl: .ovstub p_repl, OVID_REPL
 s_expand: .ovstub p_expand, OVID_REPL
 s_begin_def: .ovstub begin_def, OVID_FDEF

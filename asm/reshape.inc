@@ -797,3 +797,70 @@ tm_7:   dec tr_j
         bne tm_j
         clc
         rts
+
+; --- an axis: [k] after a function -------------------------------------------------------------------------------
+; The top cell is the axis, the one below it the array it is for. Checks (the model's Interp._axis): a scalar
+; (RANK), a whole number (DOMAIN), from 1 to the array's rank (INDEX). The axis is taken off the stack. The
+; functions that take an axis work along the last axis, so for axis 1 of a matrix the matrix is transposed
+; (its cell now holds the transpose). X = the flags for the function to come: AX_GIVEN, plus AX_FLIP if it was.
+ax_k:    .byte 0
+
+p_axis:
+        jsr topcell
+        jsr getval
+        lda vrk
+        beq ax_1
+        lda #E_RANK
+        sec
+        rts
+ax_1:   lda vt
+        cmp #1
+        beq ax_dom
+        lda vp
+        sta ep
+        lda vp+1
+        sta ep+1
+        jsr elem_to_int
+        bcs ax_dom
+        lda ineg
+        ora ihuge
+        ora im+1
+        bne ax_idx
+        lda im
+        beq ax_idx
+        sta ax_k
+        jsr secondcell
+        jsr getval
+        lda vrk
+        cmp ax_k
+        bcc ax_idx              ; the rank is below k
+        sec                     ; take the axis off
+        lda vsp
+        sbc #4
+        sta vsp
+        lda vsp+1
+        sbc #0
+        sta vsp+1
+        lda ax_k
+        cmp #1
+        bne ax_no
+        lda vrk
+        cmp #2
+        bne ax_no
+        jsr topcell             ; the axis is the first of two: transpose
+        jsr getval
+        jsr tr_make
+        bcc ax_2
+        rts
+ax_2:   jsr setmon
+        ldx #AX_GIVEN+AX_FLIP
+        rts
+ax_no:  ldx #AX_GIVEN
+        clc
+        rts
+ax_idx: lda #E_INDEX
+        sec
+        rts
+ax_dom: lda #E_DOMAIN
+        sec
+        rts

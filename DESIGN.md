@@ -449,6 +449,24 @@ higher rank is LIMIT ERROR (checked first), then more than 65535 elements WS FUL
 and the size, in the order of the other scalar functions. Monadic `∘.f` is SYNTAX ERROR; any other `f` is
 NONCE ERROR. The evaluator marks the function as an outer product by adding `$60` to its token.
 
+## Axis brackets
+
+`f/[k]A`, `f\[k]A`, `⌽[k]A` and `a⌽[k]A` (`Interp._axis` in the model): a bracket after a function or operator
+gives the axis, `k` a scalar whole number from 1 to the rank of the array to its right (RANK, DOMAIN and INDEX
+ERROR, in that order); any other function or operator (`+[1]`, `⍳[1]`, `a/[1]b`, `f.g[1]` ...) is NONCE ERROR, and
+so is a user-defined function. These functions work along the last axis, so axis 1 of a matrix is done by
+transposing the matrix, applying the function, and transposing the result back if it is a matrix (`axis_fn`); axis
+2 of a matrix and axis 1 of a vector are the ordinary function. `⌿ ⍀ ⊖` (the first-axis glyphs) are not added.
+
+On the 6502 (`rl_axis`, `ct_ax`, `axfin` in `eval.asm`, `p_axis` in `reshape.inc`): the group in the brackets is a
+range of its own (frame kind `K_AXIS`); when its value is done `p_axis` checks it against the array below it,
+takes it off and, for axis 1 of a matrix, replaces the matrix with its transpose, leaving the flags `AX_GIVEN`
+and `AX_FLIP` in `ev_axn`. The next function token picks them up in `rl_fn2` (`ev_axc`; NONCE unless it is
+`/`, `\` or `⌽`); a dyadic one keeps them in the flag bits of `ev_pkind`, which the frames save, so an axis
+inside the left operand cannot disturb them. After the function is applied `axfin` transposes the result if
+`AX_FLIP` is set. A `]` whose `[` follows a function is an axis, never the end of an indexed left operand: `+/[1]⍳4`
+applies `⍳` monadically.
+
 ## Transpose, without and expand
 
 `⍉B` (pound `t`, charset code `$A1`, token `$99`; `p_transpose` in `reshape.inc`): a matrix with rows and columns
@@ -746,8 +764,8 @@ enough for the whole float24 range) rounded once. A one-element row has its own
 rules (`÷` of an integer is FLOAT, `-` and `×` of a BOOL is INT, otherwise the
 element). Anything longer folds right to left through the full dyadic
 function, so INT overflow turns the accumulator FLOAT part-way. A matrix gives
-a vector of row results converted to the widest row type. The model raises a
-Python IndexError on a matrix with no rows; the 6502 returns an empty vector.
+a vector of row results converted to the widest row type. A matrix with no rows gives an empty vector
+(of the identity's type; INT for `⌈ ⌊ |`).
 
 The float comparison follows `f_teq` and `_fkey`, including its tolerance
 test. That test subtracts, so comparing values whose difference overflows
@@ -811,7 +829,7 @@ at `SYMTAB`.
 `⍳`, `⍴` (monadic and dyadic), `,` (ravel, and catenate on vectors),
 `f/` and `f\` for scalar dyadic `f` (including `⌈ ⌊ |`), `a∘.f b`, replicate and compress `a/b`, assignment, `( )`, `⋄`, `⍬`, indexing `A[i]`, `A[i;j]` and indexed assignment `A[i;j]←v`.
 
-NONCE: `¨ ⍤`, `∘.` with a function that is not scalar dyadic, axis brackets, `→` outside a function,
+NONCE: `¨ ⍤`, `∘.` with a function that is not scalar dyadic, an axis on anything but reduce, scan and `⌽`, `→` outside a function,
 catenate on matrices, index-of (dyadic `⍳`), user-defined functions.
 
 ## REU: overlays, then array spill

@@ -55,6 +55,9 @@ K_IDX     = 3                   ; the indexed array: apply p_index, then the out
 K_IASG    = 4                   ; the assigned variable: apply p_iasg, then the outer kind
 K_LEFTU   = 5                   ; like K_LEFT, for a user-defined function (its symbol in the frame)
 K_LEFTI   = 6                   ; like K_LEFT, for an inner product (pfn = f*16 + g)
+K_AXIS    = 7                   ; the value of an axis [k] after a function: check it, then go on with the function
+AX_GIVEN  = $10                 ; flags in the kind of a pending function: an axis was given ...
+AX_FLIP   = $20                 ; ... and the matrix was transposed to make it the last one (transpose the result back)
 T_FN      = $0b                 ; a name of a function that takes arguments (see classify)
 
 FK      = FSTK                  ; frame stack: kind, saved lo, resume position, function
@@ -334,6 +337,7 @@ es_nonce:
 es2:    lda #0
         sta ev_na
         sta ev_nv
+        sta ev_axn
         ldx ev_slo              ; a branch: the expression after the arrow is the statement
         lda TC,x
         cmp #T_BRANCH
@@ -406,9 +410,12 @@ op4:    jmp ev_syn
 ; dyadically, K_GRP evaluate the next index group, K_IDX index the array with the groups
 ; and then carry on with the kind saved in the index frame below.
 cont:   lda ev_pkind
+        and #$cf                ; (without the axis flags)
         beq ct_init
         cmp #K_LEFT
         beq ct_left
+        cmp #K_AXIS
+        beq ct_ax
         cmp #K_GRP
         bne ct_idx
         jmp gstep
@@ -445,12 +452,34 @@ ct_pop: bcc *+3
         sta ev_pfn
         jmp cont
 ct_left:
+        lda ev_pkind
+        and #AX_GIVEN+AX_FLIP
+        sta ev_axc
         lda ev_pfn
         jsr apply_dy
         bcc *+3
         rts
+        jmp axfin
 ct_init:
         jmp evloop
+
+ct_ax:  jsr s_axis              ; the axis on top of the array: checked and taken off, the array transposed if need be
+        bcc *+3
+        rts
+        stx ev_axn
+        jmp evloop
+
+; a function that took an axis: put a transposed result back the right way round
+axfin:  lda ev_axc
+        and #AX_FLIP
+        beq af_go
+        jsr s_transpose
+        bcc af_go
+        rts
+af_go:  jmp evloop
+
+ev_axn: .byte 0                 ; the axis flags of a function about to be applied
+ev_axc: .byte 0                 ; ... those of the function being applied
 
 ev_syn: lda #E_SYNTAX
         sec
@@ -644,7 +673,20 @@ to_ok:  clc
         rts
 to_no:  sec
         rts
-rl_fn2: lda ev_i1
+rl_fn2: ldx ev_axn              ; an axis was given: only reduce, scan and ⌽ take one
+        stx ev_axc
+        beq rf_go
+        lda #0
+        sta ev_axn
+        lda ev_tok
+        cmp #$93
+        beq rf_go
+        cmp #$c0
+        beq rf_go
+        cmp #$c1
+        beq rf_go
+        jmp rl_nonce
+rf_go:  lda ev_i1
         cmp ev_lo
         beq rf_mon
         bcc rf_mon
@@ -658,7 +700,16 @@ rl_fn2: lda ev_i1
         cmp #T_RPAR
         beq rf_opnd
         cmp #T_RBRK
+        bne rf_mon
+        lda #0                  ; a ']' is a left operand (an indexed array) unless its '[' follows a function
+        sta ev_sf
+        jsr find_delim          ; (X is the ']')
+        cpx #0
         beq rf_opnd
+        dex
+        lda TC,x
+        cmp #$80
+        bcc rf_opnd
 rf_mon: lda ev_tok
         cmp #T_FN
         bne rf_m1
@@ -668,7 +719,7 @@ rf_m1:  cmp #$c0
         jsr apply_mon
         bcc *+3
         rts
-        jmp evloop
+        jmp axfin
 rf_red: lda ev_tok
         cmp #$d0
         bcs rf_syn              ; ∘.f and f.g with no left argument
@@ -678,12 +729,12 @@ rf_red: lda ev_tok
         jsr p_reduce
         bcc *+3
         rts
-        jmp evloop
+        jmp axfin
 rf_scan: lda ev_pg
         jsr p_scan
         bcc *+3
         rts
-        jmp evloop
+        jmp axfin
 rf_syn: jmp ev_syn
 rf_opnd:
         lda ev_tok
@@ -702,6 +753,7 @@ rf_o1:  cmp #$d0
         sta ev_pfn
         jmp opnd
 rf_o2:  lda #K_LEFT
+        ora ev_axc
         sta ev_pkind
         lda ev_tok
         sta ev_pfn
@@ -868,19 +920,47 @@ fd_out: lda ev_dep
         jmp fd1
 fd_ret: rts
 
-; an axis bracket after a function: +/[1] A (not implemented)
+; an axis bracket after a function or operator: +/[1]A ⌽[1]A. X = the ']'. The group is evaluated as a
+; range of its own; when it is done (K_AXIS in cont) its value is checked against the array below it.
 rl_axis:
         lda #0
         sta ev_sf
+        stx ev_ix
         jsr find_delim
         cpx ev_lo
         beq ra_syn
         bcc ra_syn
+        stx ev_jm
         dex
         lda TC,x
         cmp #$80
-        bcc ra_syn
-        jmp rl_nonce
+        bcc ra_syn              ; not after a function: it is an index with nothing to index
+        ldx ev_jm
+        inx
+        cpx ev_ix
+        bcs ra_syn              ; []
+        ldx ev_fsp
+        cpx #64
+        bcs ra_lim
+        lda #K_AXIS
+        sta FK,x
+        lda ev_lo
+        sta FLO,x
+        lda ev_jm
+        sta FRS,x
+        lda #0
+        sta FFN,x
+        inc ev_fsp
+        lda ev_jm
+        clc
+        adc #1
+        sta ev_lo
+        lda ev_ix
+        sta ev_i1
+        jmp rstart
+ra_lim: lda #E_LIMIT
+        sec
+        rts
 ra_syn: jmp ev_syn
 
 ; X = index of a ')'. Find its '(' and enter the group as a new range.
