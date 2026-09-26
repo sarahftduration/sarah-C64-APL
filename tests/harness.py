@@ -53,7 +53,8 @@ def load(name, reu_kb=512):
             mpu.reu = Reu(mpu, labels, reu_kb * 1024)
             mpu.reu.mem[0:tot] = bytes(mpu.memory[img:img + tot])
             mpu.memory[labels["reu_banks"]] = min(255, reu_kb // 64)
-        mpu.memory[img:img + tot] = [0] * tot
+        end = labels.get("INIT_END", img + tot)        # (the start-up data after the images is not needed either)
+        mpu.memory[img:end] = [0] * (end - img)
     return mpu, labels
 
 
@@ -122,3 +123,10 @@ class Reu:
             ret = (m[a] | m[a + 1] << 8) + 1
             assert not lo <= ret < hi, f"an overlay is loaded while code in the window is still active (stack ${a:03x}: ${ret:04x})"
         self.loads.append(mpu.x)
+
+
+def use_overlay(mpu, labels, name):
+    """Make overlay OVID_<name> resident, as the dispatcher would, so a test can call a routine in it directly."""
+    mpu.a = labels["OVID_" + name]
+    call(mpu, labels["ov_ensure"])
+    assert not mpu.p & 1

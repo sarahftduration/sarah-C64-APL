@@ -488,4 +488,3 @@ selftest_done:
         .include "editor.inc"
         .include "syscmd.inc"
         .include "keys.inc"
-        .include "glyphs.inc"

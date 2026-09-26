@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.getcwd())
 import apl64
-from harness import call, load
+from harness import call, load, use_overlay
 from test_eval import Session, check
 
 FA, FB = 0x10, 0x13
@@ -76,6 +76,7 @@ def test_f_floor_residue():
         if rng.random() < .5:
             a = (rng.choice([127, 128, 129, 130, 135, 140, 143, 144, 145]) << 16) | (rng.getrandbits(1) << 15) | rng.getrandbits(15)
         m.memory[FA:FA + 3] = to_bytes(a)
+        use_overlay(m, L, "FLOOR")
         call(m, L["f_floor"])
         got = m.memory[FA] << 16 | m.memory[FA + 1] << 8 | m.memory[FA + 2]
         assert got == apl64.f_floor(a), (hex(a), hex(got), hex(apl64.f_floor(a)))

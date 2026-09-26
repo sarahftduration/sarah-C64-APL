@@ -811,13 +811,21 @@ resident code, but nothing it calls may load another overlay while it is still r
 test now runs the overlaid code through the real dispatcher (py65 loads the images into its REU as
 start-up does), and the disk and key tests do so in VICE.
 
-Overlays so far: the `)` command handlers (`sysov.inc`, 636 bytes; the parser, the table and the small
-helpers the disk commands share stay in `syscmd.inc`) and the disk commands (`disk.inc`, 1,891 bytes;
-`disk_init` stays resident). The heap went from 15,364 to 15,801 bytes. The gain is the smaller overlays
-only, so it grows with each one moved: anything up to the size of the window is free.
+Overlays so far (sizes in bytes; the window is the largest, 1,891): `)` command handlers (`sysov.inc`, 636),
+disk commands (`disk.inc`, 1,891), search `⍳ ∊ ⍋ ⍒` (1,312), reshape `⌽ ↑ ↓` (1,316), replicate (570), the del
+editor (`fdef.inc`, 1,086) and monadic floor and ceiling (`floor.inc`, 388). Their entry points in resident
+code are stubs (`s_x` runs `p_x`, in `overlay.inc`). Start-up data that is read once (the character shapes,
+`glyphs.inc`) sits after the images in the PRG and is not copied anywhere; nothing may write to that RAM
+before `build_charset` has read it. The heap went from 15,364 to 20,717 bytes.
 
-**Next:** move more code into overlays (search, reshape, replicate, indexing, the function editor, floor and
-ceiling, `dyadic` rarely used paths), then the new features, then array spill.
+What stays resident is what loops use all the time (the scalar engine and its kernels, `⍳ ⍴ ,`, indexing,
+reduce, the evaluator, calls and branches, the heap and the formatter), so that a user function's loop does
+not fetch an overlay on every line (a fetch costs about a millisecond per KB). Code called by an overlay
+must be resident too: that is why `elemaddr` (index), `k_ires`, `k_fres`, `flr_q` and `f_floor` did not move.
+New features are written as overlays, so they cost the stubs and (if bigger than 1,891 bytes) window growth,
+not heap.
+
+**Next:** the new features, as overlays; then array spill.
 
 **Array spill (after that).** Each handle is either resident in the heap or held in the REU, and
 `getval` (the one place an array's data address is derived) makes an array resident before use. When the

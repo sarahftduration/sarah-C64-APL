@@ -33,10 +33,32 @@ OVP_REPL = *
         .here
 OVN_REPL = * - OVP_REPL
 
+OVP_FDEF = *
+        .logical OVWIN
+        .include "fdef.inc"
+        .here
+OVN_FDEF = * - OVP_FDEF
+
+OVP_FLOOR = *
+        .logical OVWIN
+        .include "floor.inc"
+        .here
+OVN_FLOOR = * - OVP_FLOOR
+
 OVL_TOT = * - OVL_IMG
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
+        .cerror OVN_FDEF > OVWIN_SIZE, "the window is too small for the function editor overlay"
+        .cerror OVN_FLOOR > OVWIN_SIZE, "the window is too small for the floor overlay"
         .cerror OVL_TOT > $ffff, "the overlay images must fit one 64 KB REU bank"
         .cerror OVN_SEARCH > OVWIN_SIZE, "the window is too small for the search overlay"
         .cerror OVN_RESHAPE > OVWIN_SIZE, "the window is too small for the reshape overlay"
         .cerror OVN_REPL > OVWIN_SIZE, "the window is too small for the repl overlay"
+
+; Start-up data, after the images and so not copied to the REU: the character shapes, read once by
+; build_charset. This RAM is taken over by the tables and the heap, so nothing may be written to it
+; before build_charset is done (the guard below covers the one variable it uses).
+INIT_START = *
+        .include "glyphs.inc"
+INIT_END = *
+        .cerror gtp >= INIT_START && gtp < INIT_END, "build_charset's pointer lies in the glyph data it is reading"

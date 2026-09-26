@@ -1071,8 +1071,8 @@ apply_mon:
         lda #E_NONCE
         sec
         rts
-am_ceil: jmp p_ceil
-am_floor: jmp p_floor
+am_ceil: jmp s_ceil
+am_floor: jmp s_floor
 am_abs: jmp p_abs
 am_not: jmp p_not
 am_rev: jmp s_rev

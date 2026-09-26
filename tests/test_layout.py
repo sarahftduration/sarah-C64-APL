@@ -39,7 +39,7 @@ def test_layout():
     assert L["SYMTAB"] % 256 == 0 and L["SYMEND_HI"] == (L["SYMTAB"] + 2048 >> 8) - 1
     assert L["FK"] == L["FSTK"] and L["FFN"] + 64 == L["FSTK"] + 256
     # overlays: the images follow the resident code in the PRG and fit the window, which the tables place last
-    assert L["ORG"] + os.path.getsize("build/eval.bin") == L["OVL_IMG"] + L["OVL_TOT"]
+    assert L["ORG"] + os.path.getsize("build/eval.bin") == L["INIT_END"] and L["INIT_START"] == L["OVL_IMG"] + L["OVL_TOT"]
     assert L["OVL_TOT"] < 0x10000 and L["OVWIN"] + L["OVWIN_SIZE"] == L["HEAP_BASE"]
     biggest = max(L[n] for n in L if n.startswith("OVN_"))
     assert biggest <= L["OVWIN_SIZE"] and L["OVWIN_SIZE"] - biggest < 64, "the window should be as small as the biggest overlay allows"

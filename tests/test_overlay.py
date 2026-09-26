@@ -127,7 +127,7 @@ def test_images():
         pos += n
     assert L["OVL_TOT"] == pos - L["OVL_IMG"]
     img = open("build/eval.bin", "rb").read()[L["OVL_IMG"] - L["ORG"]:]
-    assert bytes(m.reu.mem[:L["OVL_TOT"]]) == img
+    assert bytes(m.reu.mem[:L["OVL_TOT"]]) == img[:L["OVL_TOT"]]
     print(f"overlay: {L['OVL_TOT']} bytes of images ({', '.join(f'{n.lower()} {k}' for n, _, k in ovs)}) in the PRG and the REU, "
           f"window {L['OVWIN_SIZE']}")
 
