@@ -691,6 +691,8 @@ def rotate(a, v):
     xs = to_ints(a)
     if len(xs) != 1:
         raise AplError('NONCE ERROR')
+    if not -32768 <= xs[0] <= 32767:
+        raise AplError('DOMAIN ERROR')              # the amount must fit int16
     if v.rank == 0 or v.count == 0:
         return v
     n = v.shape[-1]
@@ -713,6 +715,8 @@ def _resize(b, dims, out, start):
     element where that is outside b."""
     n = 1
     for o in out:
+        if o > 65535:
+            raise AplError('WS FULL')               # (a length that does not fit 16 bits)
         n *= o
     check_size(b.t, n)
     src = b.data

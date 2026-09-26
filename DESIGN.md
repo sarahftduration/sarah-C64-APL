@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **23,904 bytes** (`$0801`-`$6560`, including the start-up
+Code and read-only tables **25,289 bytes** (`$0801`-`$6AC9`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 19,064 bytes** (`$8188` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 17,680 bytes** (`$86F0` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). `⌈ ⌊ |` then cost about 1,120 (19,280): the kernels for INT and FLOAT (about 460, residue being the largest), floor and ceiling (about 500) and the glue; `∧ ∨ ~` about 220 more (19,064). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560); then a trim (far-branch stubs, a 64-entry frame stack, `⍬` as a one-byte token so the token buffer is 1,024) won back 840 (20,400). `⌈ ⌊ |` then cost about 1,120 (19,280): the kernels for INT and FLOAT (about 460, residue being the largest), floor and ceiling (about 500) and the glue; `∧ ∨ ~` about 220 more (19,064); `⌽ ↑ ↓` about 1,400 (17,680), which leaves 1,300 bytes above the 16 KB floor. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -305,7 +305,8 @@ model). Glyphs that are also tokens use their token code.
 | `$89` | `≥` | `$C5` | `⍤`  | `$95` | `⍝` |
 | `$90` | `¯` | `$96` | `∆`  | `$97` | `⍙` |
 | `$98` | `∇` | `$8D` | `⌈` | `$8E` | `⌊` |
-| `$99` | `∧` | `$9A` | `∨` | | |
+| `$99` | `∧` | `$9A` | `∨` | `$9B` | `⌽` |
+| `$9C` | `↑` | `$9D` | `↓` | | |
 
 A character with no code is a DOMAIN ERROR inside a string and a SYNTAX ERROR
 elsewhere. Input lines are at most 255 bytes and end with `$00`.
@@ -323,7 +324,7 @@ One line ends with `$00`.
 | `$0B` | a name of a function with arguments (made when a line is loaded, never stored; two bytes like a name) |
 | `$0C` | `⍬`, the empty INT vector, in one byte (a literal would be six); the evaluator makes the array |
 | `$10-$7F` | Reserved (system functions, ⎕ names, control keywords) |
-| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|∧∨~` |
+| `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|∧∨~⌽↑↓` |
 | `$C0+i` | Operator, `i` indexes `/\¨.∘⍤` |
 
 - Number strands and strings are folded into **one literal** by the tokenizer.
@@ -392,6 +393,21 @@ FLOAT that is exactly 0 or 1, else DOMAIN ERROR (characters too, even in an empt
 scalar functions of the engine (shapes and extension as for `=`), `~B` is 1-B; the results are BOOL. There
 is no LCM/GCD, and dyadic `~` (without) is NONCE ERROR. `∧/` and `∨/` reduce with identities 1 and 0; a
 one-element row is returned as it is, like the other reductions (so `∧/,2` is 2).
+
+## Reverse, rotate, take, drop
+
+`⌽ ↑ ↓` (pound `a`, `y`, `u`; `asm/reshape.inc`) work on scalars, vectors and matrices (along the last axis
+for `⌽`). The left argument is whole numbers: RANK ERROR above a vector, DOMAIN ERROR for anything else.
+
+- **`⌽B`**: each row backwards; a scalar is unchanged.
+- **`A⌽B`**: each row rotated left by `A` (right if negative), `A` a single whole number that fits int16
+  (DOMAIN ERROR beyond); a scalar or empty `B` is unchanged; one number per row is NONCE ERROR.
+- **`A↑B`**: the first `|A|` elements, or the last if `A` is negative, along each axis, padded with 0 (a blank for
+  characters) where `B` is short. `A` has one number per axis (a scalar for a vector; a scalar `B` counts as a
+  vector of one); any other length is LENGTH ERROR. A length over 65535 is WS FULL, like a result too big.
+- **`A↓B`**: `B` without those elements; overdropping gives an empty array. Both give the type of `B`, and a
+  scalar `B` becomes a vector.
+- Monadic `↑ ↓` and dyadic `~` are NONCE ERROR.
 
 ## Replicate and compress
 
@@ -608,7 +624,8 @@ done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
   | `,` | `⍝` | `h` | `∆` | shifted `h` | `⍙` |
   | `g` | `∇` | `s` | `⌈` | `d` | `⌊` |
   | `l` | `\|` | `w` | `∧` | `v` | `∨` |
-  | `n` | `~` | | | | |
+  | `n` | `~` | `a` | `⌽` | `y` | `↑` |
+  | `u` | `↓` | | | | |
   | `←` key | `_` | `£` | `\` | anything else | nothing |
 
 - **Line editor** (`edit_key`, `repl`): the line is built in the tokenizer's input

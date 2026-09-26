@@ -18,6 +18,7 @@ dg_table:
         .byte $5b, $91
         .byte $5c, $5c
         .byte $5d, $92
+        .byte $61, $9b
         .byte $64, $8e
         .byte $67, $98
         .byte $68, $96
@@ -27,7 +28,9 @@ dg_table:
         .byte $6e, $7e
         .byte $72, $8b
         .byte $73, $8d
+        .byte $75, $9d
         .byte $76, $9a
         .byte $77, $99
+        .byte $79, $9c
         .byte $91, $5f
         .byte 0
