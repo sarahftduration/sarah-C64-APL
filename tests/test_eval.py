@@ -8,7 +8,7 @@ import apl64
 from harness import call, load
 
 ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
-       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL', 9: 'INDEX ERROR'}
+       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL', 9: 'INDEX ERROR', 10: 'INTERRUPT'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
 UNIMPLEMENTED = set()

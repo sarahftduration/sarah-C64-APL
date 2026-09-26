@@ -294,6 +294,42 @@ def test_flow():
     print(f"functions: {len(FLOW)} control-flow sessions ({n} lines: branches, labels, loops, recursion) match the model")
 
 
+
+def test_interrupt():
+    """RUN/STOP (the KERNAL's flag at $91) stops a running function between two lines, gives
+    INTERRUPT, gives the localised names back and leaves the machine usable."""
+    s = Session()
+    s.reset()
+    for line in ["A←7", D + "R←SPIN N;A", "A←N", "TOP:A←A+1", "→TOP", D, D + "R←OUTER X;A", "A←1", "R←SPIN X", D, D + "LOOP", "→1", D,
+                 D + "F", "1", D]:
+        check(s, line)
+    m, L = s.m, s.L
+    for line, after_lines in [("SPIN 3", 5), ("OUTER 2", 40), ("LOOP", 1), ("LOOP", 300), ("1+SPIN 1", 7)]:
+        count = [0]
+
+        def poke(mm, count=count, n=after_lines):
+            count[0] += 1
+            if count[0] == n:
+                mm.memory[0x91] = 0x7F
+
+        m.hooks = {L["fn_nextline"]: poke, L["fn_intr"]: lambda mm: mm.memory.__setitem__(0x91, 0)}
+        got = s.run6502(line)
+        m.hooks = {}
+        assert got == ("err", "INTERRUPT"), (line, got)
+        assert m.memory[L["cdepth"]] == 0
+        assert s.vars6502() == s.vars_model(), line              # A is 7 again
+    t = L["errtab"] + 2 * 9                                     # the message for error 10
+    a = m.memory[t] | m.memory[t + 1] << 8
+    assert bytes(m.memory[a:a + 9]) == b"INTERRUPT" and m.memory[a + 9] == 0
+    assert s.run6502("1+1")[0] == "ok"
+    check(s, "F")
+    check(s, "A")
+    # a key that is not held does nothing
+    m.memory[0x91] = 0xFF
+    check(s, "F")
+    m.memory[0x91] = 0
+    print("functions: RUN/STOP interrupts loops and recursion between lines, restoring the names")
+
 def test_line_limit():
     """255 lines fit, the 256th is LIMIT ERROR (the model and the 6502 agree)."""
     s = Session()
@@ -329,6 +365,7 @@ if __name__ == "__main__":
     test_calls()
     test_flow()
     test_fuzz_functions()
+    test_interrupt()
     test_line_limit()
     test_heap_full()
     test_call_heap_full()

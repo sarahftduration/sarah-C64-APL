@@ -910,9 +910,20 @@ uc_l9:  lda cu_h
         sta cln
         ; falls into fn_nextline
 
-; run the next line of the running function, or return
+; run the next line of the running function, or return. RUN/STOP is looked for here, between
+; lines, which is where every loop and every recursion passes: the KERNAL's interrupt keeps
+; the stop key's state in $91 ($7F while it is down).
+STKEY   = $91
+
 fn_nextline:
-        ldx cfh
+        lda STKEY
+        cmp #$7f
+        bne fl_0
+fn_intr:
+        lda #E_INTR
+        sec
+        rts
+fl_0:   ldx cfh
         lda HTL,x
         sta gp
         lda HTH,x

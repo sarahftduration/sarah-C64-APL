@@ -333,7 +333,7 @@ print_z:
         jmp print_z
 pz2:    rts
 
-; A = error code 1..9: print its name and a newline
+; A = error code 1..10: print its name and a newline
 print_error:
         sec
         sbc #1
@@ -347,7 +347,7 @@ print_error:
         lda #CHNL
         jmp scr_put
 
-errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9
+errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9, err10
 err1:   .text "SYNTAX ERROR"
         .byte 0
 err2:   .text "DOMAIN ERROR"
@@ -365,6 +365,8 @@ err7:   .text "LENGTH ERROR"
 err8:   .text "WS FULL"
         .byte 0
 err9:   .text "INDEX ERROR"
+        .byte 0
+err10:  .text "INTERRUPT"
         .byte 0
 
 ; --- the program ----------------------------------------------------------------------------------------

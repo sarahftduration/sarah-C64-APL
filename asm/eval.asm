@@ -22,6 +22,7 @@ E_RANK   = 6
 E_LENGTH = 7
 E_WSFULL = 8
 E_INDEX  = 9
+E_INTR   = 10
 
         .include "heap.inc"
         .include "prims.inc"

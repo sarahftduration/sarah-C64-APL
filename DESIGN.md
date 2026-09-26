@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **22,618 bytes** (`$0801`-`$605A`, including the start-up
+Code and read-only tables **22,640 bytes** (`$0801`-`$6070`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 19,592 bytes** (`$7F78` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 19,560 bytes** (`$7F98` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), and replicate/compress about 590 (19,592). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the file format and the state tables (80 bytes); the heap was then 20,856 (an earlier figure of 21,112 was a miscalculation); branches and labels took about 670 more (20,184), replicate/compress about 590 (19,592), the RUN/STOP check 32 (19,560). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -417,8 +417,16 @@ the function and from each other (SYNTAX ERROR), and with the header's names the
 98 symbols (LIMIT ERROR). The colon must directly follow the name, which must be the first thing on
 the line; a label alone on a line is an empty line, `→` to it goes on to the next. The label is
 removed from the stored tokens, so it costs a symbol and a byte of line number, not space in the
-line. Because recursion and loops now stop, calls nest 16 deep and a loop has no limit: a function that
-does not stop is stopped by nothing (there is no RUN/STOP check yet).
+line. Calls nest 16 deep; a loop has no limit but the keyboard: RUN/STOP stops a running function
+with INTERRUPT (below).
+
+**RUN/STOP.** Between two lines of a function (`fn_nextline`, where every loop and every recursion
+passes) the stop key's flag, which the KERNAL's interrupt keeps in `$91` (`$7F` while the key is down),
+is looked at; if it is set, the error INTERRUPT (code 10) ends the call like any other error, giving the
+localised names back, and the prompt returns. A single primitive, however big, is never interrupted, and
+neither is anything typed at the keyboard that has no function in it. The key also puts a `$03` in the
+keyboard buffer, which the editor ignores. Tested (`tests/test_funcs.py`) by setting `$91` from a hook
+while a loop or a recursion runs; VICE cannot press the key from its monitor.
 
 A function is a variable cell with tag `$15` (a CHAR vector, plus `$10` for "function") whose
 block is (`Func.to_bytes()` in the model): nargs, hasres, nsyms, nlines, nlabels, then nsyms symbol
@@ -439,8 +447,9 @@ unwinds) and `eval_line` then gives the names back (`unwind`).
 ## Errors
 
 `DOMAIN ERROR, LENGTH ERROR, RANK ERROR, SYNTAX ERROR, VALUE ERROR,
-NONCE ERROR (not implemented), LIMIT ERROR, WS FULL, INDEX ERROR` (codes 1 to 9 on the
-6502, in that order except that INDEX ERROR is 9: an index outside `1..length`)
+NONCE ERROR (not implemented), LIMIT ERROR, WS FULL, INDEX ERROR, INTERRUPT` (codes 1 to 10 on the
+6502, in that order except that INDEX ERROR is 9, an index outside `1..length`, and INTERRUPT is 10,
+the stop key; the model has no interrupt)
 
 ## Testing strategy
 
