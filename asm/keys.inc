@@ -24,7 +24,10 @@ dg_table:
         .byte $69, $8a
         .byte $6a, $c4
         .byte $6c, $7c
+        .byte $6e, $7e
         .byte $72, $8b
         .byte $73, $8d
+        .byte $76, $9a
+        .byte $77, $99
         .byte $91, $5f
         .byte 0

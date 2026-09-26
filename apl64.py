@@ -552,6 +552,32 @@ def _floorlike(fn):
     return run
 
 
+def _bit(t, x):
+    """The 0 or 1 that x is, for the logical functions; anything else is DOMAIN ERROR."""
+    if t == CHAR or (x != 0 and x != (ONE if t == FLOAT else 1)):
+        raise AplError('DOMAIN ERROR')
+    return 0 if x == 0 else 1
+
+
+def _logic(name):
+    """A and B, A or B on 0s and 1s (BOOL, INT or FLOAT values): BOOL results."""
+    def run(ta, xs, tb, ys):
+        if ta == CHAR or tb == CHAR:
+            raise AplError('DOMAIN ERROR')
+        out = []
+        for x, y in zip(xs, ys):
+            a, b = _bit(ta, x), _bit(tb, y)
+            out.append(a & b if name == '∧' else a | b)
+        return BOOL, out
+    return run
+
+
+def _m_not(t, xs):
+    if t == CHAR:
+        raise AplError('DOMAIN ERROR')
+    return BOOL, [1 - _bit(t, x) for x in xs]
+
+
 def _m_abs(t, xs):
     """|x: BOOL and INT give INT (FLOAT for the whole array if -32768 turns up), FLOAT clears the sign."""
     if t == CHAR:
@@ -604,9 +630,9 @@ def _residue(ta, xs, tb, ys):
     return FLOAT, [f_residue(to_f(ta, x), to_f(tb, y)) for x, y in zip(xs, ys)]
 
 
-SCALAR_DYADIC = '+-×÷=≠<≤>≥⌈⌊|'
+SCALAR_DYADIC = '+-×÷=≠<≤>≥⌈⌊|∧∨'
 _DY = {'+': _arith('+'), '-': _arith('-'), '×': _arith('×'), '÷': _div,
-       '⌈': _maxmin('⌈'), '⌊': _maxmin('⌊'), '|': _residue}
+       '⌈': _maxmin('⌈'), '⌊': _maxmin('⌊'), '|': _residue, '∧': _logic('∧'), '∨': _logic('∨')}
 for _g in '=≠<≤>≥':
     _DY[_g] = _cmp(_g)
 _MON = {'+': _m_id, '-': _m_neg, '×': _m_sign, '÷': _m_recip,
@@ -759,7 +785,7 @@ def index_assign(a, idxs, v):
 # =========================================================================
 _IDENT = {'+': (INT, 0), '-': (INT, 0), '×': (INT, 1), '÷': (FLOAT, ONE),
           '=': (BOOL, 1), '≠': (BOOL, 0), '<': (BOOL, 0), '≤': (BOOL, 1),
-          '>': (BOOL, 0), '≥': (BOOL, 1), '⌈': None, '⌊': None, '|': (INT, 0)}
+          '>': (BOOL, 0), '≥': (BOOL, 1), '⌈': None, '⌊': None, '|': (INT, 0), '∧': (BOOL, 1), '∨': (BOOL, 0)}
 
 
 def _reduce_row(glyph, dy, t, xs):
@@ -776,7 +802,7 @@ def _reduce_row(glyph, dy, t, xs):
         s = sum(xs)
         return scalar(INT, s) if _in16(s) else scalar(FLOAT, f_from_int(s))
     if len(xs) == 1:
-        if glyph in '-×÷⌈⌊|' and t == CHAR:
+        if glyph in '-×÷⌈⌊|∧∨' and t == CHAR:
             raise AplError('DOMAIN ERROR')
         if glyph == '÷' and t != FLOAT:
             return scalar(FLOAT, f_from_int(xs[0]))
@@ -813,6 +839,7 @@ for _g in SCALAR_DYADIC:
     PRIMS[_g] = (
         (lambda f: (lambda v: monadic_scalar(f, v)))(_m) if _m else _nonce,
         (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
+PRIMS['~'] = (lambda v: monadic_scalar(_m_not, v), _nonce)      # (dyadic ~ is not done)
 PRIMS['⍳'] = (iota, _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -855,12 +882,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}

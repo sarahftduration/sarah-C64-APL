@@ -258,6 +258,66 @@ k_fabs: lda fb
         clc
         rts
 
+; the logical functions: ∧ (op 14), ∨ (15) and ~ (16, its left operand is a 0 put there); each operand
+; must be 0 or 1. The result is left in sdres for st_b.
+k_lgc_i: lda ia+1
+        ora ib+1
+        bne kl_dom
+        lda ia
+        cmp #2
+        bcs kl_dom
+        lda ib
+        cmp #2
+        bcs kl_dom
+        lda ib
+        ldx ia
+        jmp kl_op
+k_lgc_f: ldx #0                 ; A = fa's bit, then fb's
+        jsr fbit
+        bcs kl_dom
+        pha
+        ldx #3
+        jsr fbit
+        bcs kl_bad
+        tay
+        pla
+        tax
+        tya                     ; A = B's bit, X = A's bit
+kl_op:  ldy sdop
+        cpy #16
+        beq kl_not
+        cpy #15
+        beq kl_or
+        stx sdres               ; and
+        and sdres
+        jmp kl_set
+kl_or:  stx sdres
+        ora sdres
+        jmp kl_set
+kl_not: eor #1
+kl_set: sta sdres
+        clc
+        rts
+kl_bad: pla
+kl_dom: lda #E_DOMAIN
+        sec
+        rts
+; carry set unless the float at fa+X is 0 or 1, then A = 0 or 1
+fbit:   lda fa,x
+        beq fb_z
+        cmp #$81
+        bne fb_bad
+        lda fa+1,x
+        ora fa+2,x
+        bne fb_bad
+        lda #1
+        clc
+        rts
+fb_z:   clc
+        rts
+fb_bad: sec
+        rts
+
 ; residue on INT: ia | ib = ib mod ia with the sign of ia; 0 | b is b
 ; ua = |ia|, ub = |ib|, r = ub mod ua; the same signs give r, opposite signs ua - r (0 stays 0);
 ; the sign of ia is put on the result
@@ -755,14 +815,24 @@ sv_n0:  cpx #1
 sv_n1:  cpx #2
         bne sv_n2
         lda #<k_cmp_i
-        sta SDV+4
-        lda #>k_cmp_i
-        sta SDV+5
+        ldy #>k_cmp_i
+        ldx sdop
+        cpx #14
+        bcc sv_k1
+        lda #<k_lgc_i
+        ldy #>k_lgc_i
+sv_k1:  sta SDV+4
+        sty SDV+5
         jmp sv_li
 sv_n2:  lda #<k_cmp_f
-        sta SDV+4
-        lda #>k_cmp_f
-        sta SDV+5
+        ldy #>k_cmp_f
+        ldx sdop
+        cpx #14
+        bcc sv_k2
+        lda #<k_lgc_f
+        ldy #>k_lgc_f
+sv_k2:  sta SDV+4
+        sty SDV+5
 sv_lf:  ldy sdta
         lda laf_l,y
         sta SDV+2
@@ -964,6 +1034,8 @@ sc_types:
         bcc ty_ar
         cmp #10
         bcc ty_cmp
+        cmp #14                 ; 14-16, the logical functions, give BOOL like the comparisons
+        bcs ty_cmp
 ty_ar:  lda sdta
         cmp #1
         beq ty_dom
@@ -1451,4 +1523,9 @@ pf_done: jmp setmon
 ; monadic |: the magnitude, through the engine with a 0 on the left
 p_abs:  lda #0
         ldx #13
+        jmp mo_const
+
+; monadic ~: 1-x for a 0 or 1, through the engine (op 16) with a 0 on the left
+p_not:  lda #0
+        ldx #16
         jmp mo_const

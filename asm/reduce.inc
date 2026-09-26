@@ -58,6 +58,9 @@ red_ident:
         .byte 2, 0, 0, 0        ; ⌈ (no identity: an empty row is DOMAIN ERROR)
         .byte 2, 0, 0, 0        ; ⌊
         .byte 2, 0, 0, 0        ; |
+        .byte 2, 0, 0, 0        ; (the magnitude: not a reduction)
+        .byte 0, 1, 0, 0        ; ∧
+        .byte 0, 0, 0, 0        ; ∨
 
 ; A = function index 0..9 (the operand is the top cell)
 p_reduce:
