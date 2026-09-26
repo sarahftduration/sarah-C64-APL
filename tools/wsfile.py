@@ -9,7 +9,6 @@ import apl64
 MAGIC = b"APLW" + bytes([2])
 UNDEFINED = 0x80
 FUNCTION = 0x15               # a function: the tag of a CHAR vector, plus $10
-MAX_LINE = 1536               # OUTBUF: the largest token stream a line can have
 WIDTH = (1, 1, 2, 3)
 INV = {v: k for k, v in apl64.GLYPH_CODES.items()}
 
@@ -18,6 +17,15 @@ def value_bytes(v):
     """A scalar is its tag and data; an array is the heap layout (tag, count, lengths, data)."""
     b = v.to_bytes()
     return bytes([b[0]]) + b[3:] if v.rank == 0 else b
+
+
+def checksum(d):
+    """Of a function's data: for each byte, add it, then rotate the 16 bits left."""
+    c = 0
+    for b in d:
+        c = (c + b) & 0xFFFF
+        c = ((c << 1) | (c >> 15)) & 0xFFFF
+    return c
 
 
 def encode(model):
@@ -31,7 +39,7 @@ def encode(model):
             out += value_bytes(model.vars[i])
         elif i in model.funcs:
             b = model.funcs[i].block_bytes()
-            out += bytes([FUNCTION]) + b[1:]
+            out += bytes([FUNCTION]) + b[1:] + checksum(b[5:]).to_bytes(2, "little")
         else:
             out += bytes([UNDEFINED])
     return bytes(out) + b"E"
@@ -73,70 +81,6 @@ def _value(t, rank, shape, raw):
         else:
             data.append(int.from_bytes(chunk, "big"))
     return apl64.Value(t, shape, data)
-
-
-class _RawFunc:
-    """A function block that failed the checks: kept as it was read."""
-
-    def __init__(self, raw):
-        self.raw = raw
-
-    def block_bytes(self):
-        n = len(self.raw).to_bytes(2, "little")
-        return bytes([5]) + n + n + self.raw
-
-
-def _line_valid(line, nsym):
-    """One token stream of a function: every token known and whole, ending in the end mark."""
-    i = ntok = 0
-    while i < len(line):
-        c = line[i]
-        if c == 0:
-            return i == len(line) - 1
-        ntok += 1
-        if ntok > 255:
-            return False
-        if c == 1:                                  # a literal: the heap layout of an array
-            if i + 4 > len(line):
-                return False
-            tag, count = line[i + 1], line[i + 2] | line[i + 3] << 8
-            t, rank = tag & 3, tag >> 2 & 3
-            if tag & 0xF0 or rank == 3 or i + 4 + 2 * rank > len(line):
-                return False
-            dims = [line[i + 4 + 2 * k] | line[i + 5 + 2 * k] << 8 for k in range(rank)]
-            if (rank == 0 and count != 1) or (rank == 1 and dims[0] != count) or \
-                    (rank == 2 and dims[0] * dims[1] != count):
-                return False
-            i += 4 + 2 * rank + count * WIDTH[t]
-            if i > len(line):
-                return False
-        elif c == 2:                                # a name
-            if i + 2 > len(line) or line[i + 1] >= nsym:
-                return False
-            i += 2
-        elif 3 <= c <= 10 or c >= 0x80:
-            i += 1
-        else:
-            return False
-    return False
-
-
-def function_valid(d, nsym):
-    """Is this block a function the evaluator can run (the 6502 checks the same things)?"""
-    n = len(d)
-    if n < 4 or d[0] > 2 or d[1] > 1 or d[2] < d[1] + d[0] or 4 + d[2] > n:
-        return False
-    if any(s >= nsym for s in d[4:4 + d[2]]):
-        return False
-    pos = 4 + d[2]
-    for _ in range(d[3]):
-        if pos + 2 > n:
-            return False
-        ln = d[pos] | d[pos + 1] << 8
-        if ln < 1 or ln > MAX_LINE or pos + 2 + ln > n or not _line_valid(d[pos + 2:pos + 2 + ln], nsym):
-            return False
-        pos += 2 + ln
-    return pos == n
 
 
 def load(data):
@@ -183,23 +127,16 @@ def load(data):
                 if count * WIDTH[t] > apl64.WS_BYTES:
                     return "wsfull", m
                 shape = (d0,) if rank == 1 else (d0, d1)
-                v = _value(t, rank, shape, r.take(count * WIDTH[t]))
+                raw = r.take(count * WIDTH[t])
+                v = _value(t, rank, shape, raw)
                 if tag == FUNCTION:
-                    m.funcs[idx] = v            # checked below, once every symbol exists
+                    if r.u16() != checksum(raw):        # (a damaged function is not stored)
+                        return "notws", m
+                    m.funcs[idx] = apl64.Func.from_bytes(raw)
                 else:
                     m.vars[idx] = v
             n -= 1
         if r.byte() != ord("E"):
-            return "notws", m
-        bad = False
-        for idx in sorted(m.funcs):
-            raw = bytes(m.funcs[idx].data)
-            if function_valid(raw, len(m.names)):
-                m.funcs[idx] = apl64.Func.from_bytes(raw)
-            else:
-                m.funcs[idx] = _RawFunc(raw)            # left in the workspace, like the 6502 leaves it
-                bad = True
-        if bad:
             return "notws", m
     except _IO:
         return "io", m

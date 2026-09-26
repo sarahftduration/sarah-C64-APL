@@ -271,9 +271,12 @@ def test_functions():
         "fnbadsym": good[:i + 9] + bytes([200]) + good[i + 10:],
         "fnbadtok": good[:i + 20] + bytes([0x20]) + good[i + 21:],
         "fnbadcnt": good[:i + 8] + bytes([9]) + good[i + 9:],
+        "fnbadsum": good[:i + 5 + 4 + 5 + 9] + bytes([good[i + 5 + 4 + 5 + 9] ^ 1]) + good[i + 5 + 4 + 5 + 10:],
+        "fncut": good[:i + 12],
+        "fncut2": good[:good.index(b"E", i) - 1],
     }.items():
         session(")load " + name + "{RET})fns{RET})vars{RET})wsid{RET}", {name: data})
-    print("disk: functions round-trip through )SAVE and )LOAD; damaged functions are refused as the model says")
+    print("disk: functions round-trip through )SAVE and )LOAD; damaged functions fail their checksum as the model says")
 
 
 def test_readonly():

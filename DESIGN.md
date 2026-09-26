@@ -37,9 +37,9 @@ the video and start-up code that uses it.
 
 ### Measured after the migration
 
-Code and read-only tables **22,006 bytes** (`$0801`-`$5DE6`, including the start-up
+Code and read-only tables **21,345 bytes** (`$0801`-`$5B61`, including the start-up
 code, screen driver, charset data, editor and system commands: about 4 KB); tables
-7,832 bytes; **heap 20,224 bytes** (`$7D00` to `$CBFF`; it starts where the tables
+7,832 bytes; **heap 21,112 bytes** (`$7A88` to `$CBFF`; it starts where the tables
 end). **The heap has a floor of 16 KB** (the build fails below it, and `tests/test_layout.py`
 checks it); it was 24 KB until the features still to come needed the room, on the reasoning that
 a plain C64 is for small workspaces and an REU (see the storage tier below) is for big ones. Code
@@ -51,7 +51,7 @@ nesting, 256 handles and names), so shrinking them means lowering a limit. Code 
 needed by the tests (the echo log) and repeated out-of-range branches are the first
 places to save. Read-only indexing cost 1,302 bytes of code (about 850 in `asm/index.inc`, the rest
 in the evaluator's bracket frames), so the heap went from 24,792 to 23,512 bytes; indexed assignment took another 512, and a trimming pass (one cursor routine for checking and gathering, 0-based
-indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224): the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), the check of loaded functions 800, and the rest the new `)FNS`, the version 2 file format and the tables (80 bytes of state). The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
+indices, the result pushed with `pushcv`, the no-echo rule decided by the assignment itself) won back 240 (23,240). User-defined functions took about 3,000 (20,224), then about 900 back: the definition editor 640, calls 1,300 (call, return, contexts, classify, unwinding), a first full check of loaded functions 800 that was replaced by a checksum (about 100), and the rest `)FNS`, the version 2 file format and the state tables (80 bytes); the heap is now 21,112. The per-array limit `WS_BYTES` / `wsmax` is 16,000 bytes.
 
 Zero page is now fully allocated: the float24 registers, `ia`/`ib`/`sgn`, the
 38-byte pointer pool (`$50`-`$75`), and the 54 most-referenced variables (chosen
@@ -457,7 +457,8 @@ for each symbol, in symbol order (defined or not):
         rank 0: the 1-3 data bytes
         rank 1-2: count (2), a length per axis (2 each), the data
       or the tag $80 alone: the symbol has no value
-      or the tag $15 (a CHAR vector plus $10) and the data of a function (see User-defined functions)
+      or the tag $15 (a CHAR vector plus $10), the data of a function (see User-defined functions),
+        and a 2-byte checksum of that data (for each byte: add it, rotate 16 bits left)
 "E"
 ```
 
@@ -475,10 +476,10 @@ successful `)SAVE`, and by `)LOAD` even if it then fails.
 cleared. It then reads the variables one at a time, recreating each name by running it
 through the tokenizer (so symbol indexes are rebuilt, and a name must tokenize to
 exactly one name). An array's count must equal its lengths' product and its size must
-fit the per-array limit. After the trailer, every function is checked (`fn_check`, the same
-rules as `function_valid` in `tools/wsfile.py`: sizes add up, symbols exist, every token is
-known and whole, at most 255 tokens and 1536 bytes a line); a function that fails makes the
-file `NOT A WORKSPACE`, with everything loaded left in place. A failure part-way (truncated file, bad trailer, bad tag) leaves
+fit the per-array limit. A function's checksum is verified as soon as its data is read; a
+mismatch makes the file `NOT A WORKSPACE` (the function is not stored, what was read before
+stays). The checksum guards against damage, not against a file made to look right: a
+function's token stream is trusted once it passes. A failure part-way (truncated file, bad trailer, bad tag) leaves
 the variables read so far in place, and reports the error. An empty file is `NOT A
 WORKSPACE`: DOS returns one garbage byte for it, indistinguishable from a bad first byte.
 

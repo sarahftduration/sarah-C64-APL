@@ -396,7 +396,8 @@ save_value:
         jsr getval
         lda vtag
         jsr wbyte
-        bcs sv_e
+        bcc *+5
+        jmp sv_e
         lda vrk
         bne sva
         ldx vt                  ; a scalar: its data bytes follow the tag in the cell
@@ -439,8 +440,58 @@ svb:    jsr bytecount
         sta ep
         lda vp+1
         sta ep+1
+        lda vtag
+        and #TAG_FN
+        bne sv_fn
         jmp wblock
+sv_fn:  jsr blk_sum             ; a function's data is followed by its checksum
+        jsr wblock
+        bcs sv_e
+        lda ck
+        jsr wbyte
+        bcs sv_e
+        lda ck+1
+        jmp wbyte
 sv_e:   rts
+
+; ck = the checksum of the wcnt bytes at ep (ep and wcnt are kept): for each byte, add it, then
+; rotate the 16 bits left. Spec: tools/wsfile.py checksum.
+ck      = WS+$b9
+blk_sum:
+        lda #0
+        sta ck
+        sta ck+1
+        lda ep
+        sta tp
+        lda ep+1
+        sta tp+1
+        lda wcnt
+        sta t0
+        lda wcnt+1
+        sta t0+1
+bs_1:   lda t0
+        ora t0+1
+        beq bs_9
+        ldy #0
+        clc
+        lda (tp),y
+        adc ck
+        sta ck
+        bcc bs_2
+        inc ck+1
+bs_2:   asl ck
+        rol ck+1
+        bcc bs_3
+        inc ck
+bs_3:   inc tp
+        bne bs_4
+        inc tp+1
+bs_4:   lda t0
+        bne bs_5
+        dec t0+1
+bs_5:   dec t0
+        jmp bs_1
+bs_9:   rts
 
 ; --- )LOAD [name] ------------------------------------------------------------------------------------
 cmd_load:
@@ -637,9 +688,6 @@ lb2:    lda nvars
         cmp #'E'
         beq *+5
         jmp lb_notws
-        jsr fn_check            ; the functions must be ones the evaluator can run
-        bcc *+5
-        jmp lb_notws
         lda #0
         rts
 lb3:    jsr rbyte               ; a name: length, characters
@@ -781,10 +829,12 @@ lb_chk2:
         jmp lb_bad
         lda p1
         cmp nn+1
-        bne lb_bad
+        beq *+5
+        jmp lb_bad
 lb_chk3:
         jsr newarr
-        bcs lb_full
+        bcc *+5
+        jmp lb_full
         lda dp
         sta ep
         lda dp+1
@@ -818,6 +868,34 @@ lb_chk3:
         sta wcnt+1
 lb_a3:  jsr rblock
         bcs lb_io
+        lda ldtag               ; a function is followed by the checksum of its data
+        and #TAG_FN
+        beq lb_store
+        ldx cv+1
+        lda HTL,x
+        clc
+        adc #5
+        sta ep
+        lda HTH,x
+        adc #0
+        sta ep+1
+        lda nn
+        sta wcnt
+        lda nn+1
+        sta wcnt+1
+        jsr blk_sum
+        jsr rbyte
+        bcc *+5
+        jmp lb_io
+        cmp ck
+        beq *+5
+        jmp lb_notws
+        jsr rbyte
+        bcc *+5
+        jmp lb_io
+        cmp ck+1
+        beq *+5
+        jmp lb_notws
 lb_store:
         lda ldtag
         and #TAG_FN
