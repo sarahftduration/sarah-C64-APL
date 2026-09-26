@@ -675,6 +675,69 @@ def reshape(a, b):
     return Value(b.t, tuple(dims), data)
 
 
+def reverse(v):
+    """⌽v: each row (the last axis) backwards; a scalar is unchanged."""
+    if v.rank == 0:
+        return v
+    n = v.shape[-1]
+    if v.rank == 1:
+        return Value(v.t, v.shape, v.data[::-1])
+    return Value(v.t, v.shape, [x for r in range(v.shape[0]) for x in v.data[r * n:(r + 1) * n][::-1]])
+
+
+def rotate(a, v):
+    """a⌽v: each row (the last axis) rotated to the left by a (to the right if negative). a is one whole
+    number; a scalar v is unchanged.  A rotation with a value for each row is NONCE ERROR."""
+    xs = to_ints(a)
+    if len(xs) != 1:
+        raise AplError('NONCE ERROR')
+    if v.rank == 0 or v.count == 0:
+        return v
+    n = v.shape[-1]
+    k = xs[0] % n
+    rows = [v.data[r * n:(r + 1) * n] for r in range(v.count // n)]
+    return Value(v.t, v.shape, [x for row in rows for x in row[k:] + row[:k]])
+
+
+def _shape_args(a, b):
+    """For take and drop: one whole number per axis of b (a scalar b counts as a vector of 1)."""
+    xs = to_ints(a)
+    dims = b.shape if b.rank else (1,)
+    if len(xs) != len(dims):
+        raise AplError('LENGTH ERROR')
+    return xs, dims
+
+
+def _resize(b, dims, out, start):
+    """The array of shape out whose element (i, j) is b's element (start0+i, start1+j), or the fill
+    element where that is outside b."""
+    n = 1
+    for o in out:
+        n *= o
+    check_size(b.t, n)
+    src = b.data
+    fill = FILL[b.t]
+    if len(dims) == 1:
+        data = [src[start[0] + i] if 0 <= start[0] + i < dims[0] else fill for i in range(out[0])]
+    else:
+        data = [src[(start[0] + i) * dims[1] + start[1] + j]
+                if 0 <= start[0] + i < dims[0] and 0 <= start[1] + j < dims[1] else fill
+                for i in range(out[0]) for j in range(out[1])]
+    return Value(b.t, tuple(out), data)
+
+
+def take(a, b):
+    """a↑b: the first (or, if negative, last) |a| elements along each axis, padded with 0 or blank."""
+    xs, dims = _shape_args(a, b)
+    return _resize(b, dims, [abs(x) for x in xs], [0 if x >= 0 else d + x for x, d in zip(xs, dims)])
+
+
+def drop(a, b):
+    """a↓b: without the first (or, if negative, last) |a| elements along each axis."""
+    xs, dims = _shape_args(a, b)
+    return _resize(b, dims, [max(0, d - abs(x)) for x, d in zip(xs, dims)], [max(0, x) for x in xs])
+
+
 def replicate(a, b):
     """a/b: each element of the vector (or scalar) b repeated as many times as the matching
     element of a says.  a is non-negative whole numbers, one per element of b, or one for all,
@@ -840,6 +903,9 @@ for _g in SCALAR_DYADIC:
         (lambda f: (lambda v: monadic_scalar(f, v)))(_m) if _m else _nonce,
         (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
 PRIMS['~'] = (lambda v: monadic_scalar(_m_not, v), _nonce)      # (dyadic ~ is not done)
+PRIMS['⌽'] = (reverse, rotate)
+PRIMS['↑'] = (_nonce, take)
+PRIMS['↓'] = (_nonce, drop)
 PRIMS['⍳'] = (iota, _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -882,12 +948,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
@@ -1646,6 +1712,14 @@ def selftest():
         ('⍬/⍬', ''),
         ('1 1 1/⍬', '!LENGTH ERROR'),
         ('⍳¯1', '!DOMAIN ERROR'),
+        ('⌽1 2 3', '3 2 1'), ('⌽5', '5'), ('⌽2 3⍴⍳6', '3 2 1|6 5 4'), ("⌽'abc'", 'cba'), ('⌽⍬', ''),
+        ('1⌽1 2 3 4', '2 3 4 1'), ('¯1⌽1 2 3 4', '4 1 2 3'), ('5⌽1 2 3 4', '2 3 4 1'), ('1⌽2 3⍴⍳6', '2 3 1|5 6 4'),
+        ('1⌽5', '5'), ('1 2⌽1 2 3', '!NONCE ERROR'), ('(2 3⍴1)⌽1 2 3', '!RANK ERROR'), ('1.5⌽1 2', '!DOMAIN ERROR'),
+        ('3↑1 2 3 4 5', '1 2 3'), ('¯3↑1 2 3 4 5', '3 4 5'), ('7↑1 2 3', '1 2 3 0 0 0 0'), ('¯7↑1 2 3', '0 0 0 0 1 2 3'),
+        ('3↑5', '5 0 0'), ("5↑'ab'", 'ab   '), ('2 2↑3 3⍴⍳9', '1 2|4 5'), ('¯2 ¯2↑3 3⍴⍳9', '5 6|8 9'),
+        ('2↑3 3⍴⍳9', '!LENGTH ERROR'), ('3↓1 2 3 4 5', '4 5'), ('¯3↓1 2 3 4 5', '1 2'), ('7↓1 2 3', ''),
+        ('1 1↓3 3⍴⍳9', '5 6|8 9'), ('⍴0 5↑3 3⍴⍳9', '0 5'), ('1.5↑1', '!DOMAIN ERROR'), ('100000↑1', '!WS FULL'),
+        ('↑1', '!NONCE ERROR'), ('(2 2⍴1)↑1', '!RANK ERROR'),
         ('3⌈5', '5'), ('3⌊5', '3'), ('1 5 3⌈4', '4 5 4'), ('1 5 3⌊4', '1 4 3'), ('1.5⌈2', '2'), ('1.5⌊2', '1.5'),
         ("'a'⌈1", '!DOMAIN ERROR'), ('(2 3⍴⍳6)⌈3', '3 3 3|4 5 6'), ('1 0⌈0 1', '1 1'),
         ('⌈2.5', '3'), ('⌊2.5', '2'), ('⌈¯2.5', '¯2'), ('⌊¯2.5', '¯3'), ('⌊1e10', '1E10'), ('⌊1e10 1.5', '1E10 1'),
