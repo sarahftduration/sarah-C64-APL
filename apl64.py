@@ -755,7 +755,7 @@ OP_GLYPHS = '/\\¨.∘⍤'
 GLYPH_CODES = {'×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
-               '⍝': 0x95, '∆': 0x96, '⍙': 0x97}
+               '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
 
 
 def char_code(ch):
@@ -773,8 +773,18 @@ def encode_line(line):
 NAME_RE = re.compile(r'[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*')
 
 
-def _is_value_tok(c):
-    return c in (T_LIT, T_NAME, T_RPAR, T_RBRK)
+MAX_DEPTH = 16          # nested calls of user-defined functions
+MAX_LINES = 255         # lines in a function
+
+
+class Func:
+    """A user-defined function: nargs 0/1/2, result symbol (or None), argument
+    symbols, the localised symbols, and its lines as token streams."""
+
+    def __init__(self, nargs, res, larg, rarg, locs):
+        self.nargs, self.res, self.larg, self.rarg, self.locs = nargs, res, larg, rarg, locs
+        self.lines = []
+        self.syms = [x for x in (res, larg, rarg) if x is not None] + locs
 
 
 def _skip_ws(line, i):
@@ -806,6 +816,10 @@ class Interp:
         self.names = []
         self.index = {}
         self.vars = {}
+        self.funcs = {}         # symbol -> Func
+        self.defining = None    # the function being typed: [name, Func]
+        self.depth = 0
+        self._outs = []
 
     # ---- tokenizer -------------------------------------------------------
     def name_index(self, nm):
@@ -909,6 +923,17 @@ class Interp:
             raise AplError('VALUE ERROR')
         return self.vars[idx]
 
+    def _isfn(self, tok):
+        """Is this token the name of a function that takes arguments?  (Such
+        a name is a function in the expression, everything else named is a value;
+        a niladic function is called wherever a value is wanted.)"""
+        c, arg = tok
+        return c == T_NAME and arg in self.funcs and self.funcs[arg].nargs > 0
+
+    def _isv(self, tok):
+        """Can this token end a value?"""
+        return tok[0] in (T_LIT, T_RPAR, T_RBRK) or (tok[0] == T_NAME and not self._isfn(tok))
+
     @staticmethod
     def _match(toks, i, close, open_):
         """Index of the open_ token matching the close token at i."""
@@ -949,14 +974,18 @@ class Interp:
         c, arg = toks[i]
         if c == T_RBRK:
             j = self._match(toks, i, T_RBRK, T_LBRK)
-            if j == 0 or not _is_value_tok(toks[j - 1][0]):
+            if j == 0 or not self._isv(toks[j - 1]):
                 raise AplError('SYNTAX ERROR')
             idxs = self._index_groups(toks[j + 1:i])
             base, k = self._operand(toks, j - 1)
+            if base is None:
+                raise AplError('VALUE ERROR')
             return index_value(base, idxs), k
         if c == T_LIT:
             return arg, i - 1
         if c == T_NAME:
+            if arg in self.funcs:                       # a niladic function
+                return self.call(self.funcs[arg], None, None), i - 1
             return self.lookup(arg), i - 1
         depth, j = 0, i
         while j >= 0:
@@ -972,26 +1001,31 @@ class Interp:
             raise AplError('SYNTAX ERROR')
         return self.eval_tokens(toks[j + 1:i]), j - 1
 
-    def eval_tokens(self, toks):
+    def eval_tokens(self, toks, top=False):
+        """Evaluate one statement (top) or a parenthesised / index group.  A call of
+        a function without a result gives None, which is only allowed to end a
+        statement: nothing is echoed then."""
         if any(c == T_BRANCH for c, _ in toks):
             raise AplError('NONCE ERROR')
         i = len(toks) - 1
-        if i < 0 or not _is_value_tok(toks[i][0]):
+        if i < 0 or not self._isv(toks[i]):
             raise AplError('SYNTAX ERROR')
         val, i = self._operand(toks, i)
+        if val is None and not (top and i < 0):
+            raise AplError('VALUE ERROR')
         while i >= 0:
             c = toks[i][0]
             if c == T_ASSIGN:
                 if i > 0 and toks[i - 1][0] == T_RBRK:          # A[i;j]<-v
                     j = self._match(toks, i - 1, T_RBRK, T_LBRK)
-                    if j == 0 or toks[j - 1][0] != T_NAME:
+                    if j == 0 or toks[j - 1][0] != T_NAME or toks[j - 1][1] in self.funcs:
                         raise AplError('SYNTAX ERROR')
                     idxs = self._index_groups(toks[j + 1:i - 1])
                     name = toks[j - 1][1]
                     self.vars[name] = index_assign(self.lookup(name), idxs, val)
                     i = j - 2
                     continue
-                if i == 0 or toks[i - 1][0] != T_NAME:
+                if i == 0 or toks[i - 1][0] != T_NAME or toks[i - 1][1] in self.funcs:
                     raise AplError('SYNTAX ERROR')
                 self.vars[toks[i - 1][1]] = val
                 i -= 2
@@ -1004,7 +1038,7 @@ class Interp:
                 if i == 0:
                     raise AplError('SYNTAX ERROR')
                 pc = toks[i - 1][0]
-                if _is_value_tok(pc):
+                if self._isv(toks[i - 1]):
                     raise AplError('NONCE ERROR')       # replicate / compress
                 if not 0x80 <= pc < 0xC0:
                     raise AplError('SYNTAX ERROR')
@@ -1021,18 +1055,30 @@ class Interp:
                 i -= 1
                 val = self._apply(fn, toks, i, val)
                 i = self._pos
+            elif self._isfn(toks[i]):
+                f = self.funcs[toks[i][1]]
+                i -= 1
+                val = self._apply((lambda r: self.call(f, None, r),
+                                   lambda l, r: self.call(f, l, r)), toks, i, val)
+                i = self._pos
+                if val is None and not (top and i < 0):
+                    raise AplError('VALUE ERROR')
             else:
                 raise AplError('SYNTAX ERROR')
         return val
 
     def _apply(self, fn, toks, i, right):
-        """Apply fn monadically or dyadically; leaves new index in self._pos."""
-        if i >= 0 and _is_value_tok(toks[i][0]):
+        """Apply fn monadically or dyadically; leaves new index in self._pos (set
+        after the call, which may run nested evaluations)."""
+        if i >= 0 and self._isv(toks[i]):
             left, i = self._operand(toks, i)
-            self._pos = i
-            return fn[1](left, right)
+            if left is None:
+                raise AplError('VALUE ERROR')
+            result = fn[1](left, right)
+        else:
+            result = fn[0](right)
         self._pos = i
-        return fn[0](right)
+        return result
 
     @staticmethod
     def _is_assignment(st):
@@ -1057,8 +1103,22 @@ class Interp:
         return [format_value(v) for v in self.run_values(line)]
 
     def run_values(self, line):
-        """Evaluate a line; return the values that would be echoed."""
-        toks = self.decode(self.tokenize(line))
+        """Evaluate a line; return the values that would be echoed.  While a
+        function is being defined, every line is a line of its body instead."""
+        if self.defining is not None:
+            self._def_line(line)
+            return []
+        text = line.lstrip(' \t')
+        if text.startswith('\u2207'):
+            self._begin_def(text[1:])
+            return []
+        self._outs = outs = []
+        self._run_statements(self._statements(self.decode(self.tokenize(line))))
+        return outs
+
+    @staticmethod
+    def _statements(toks):
+        """Split a line at diamonds outside brackets; brackets must nest."""
         stmts, cur, stack = [], [], []
         for tk in toks:
             if tk[0] in (T_LPAR, T_LBRK):
@@ -1074,14 +1134,95 @@ class Interp:
         stmts.append(cur)
         if stack:
             raise AplError('SYNTAX ERROR')
-        outs = []
+        return stmts
+
+    def _run_statements(self, stmts):
         for st in stmts:
             if not st:
                 continue
-            val = self.eval_tokens(st)
-            if not self._is_assignment(st):
-                outs.append(val)
-        return outs
+            val = self.eval_tokens(st, top=True)
+            if val is not None and not self._is_assignment(st):
+                self._outs.append(val)
+
+    # ---- user-defined functions ---------------------------------------------
+    def prompt(self):
+        """What the input line starts with: six blanks, or [n] in a definition."""
+        if self.defining is None:
+            return '      '
+        return ('[%d]' % (len(self.defining[1].lines) + 1)).ljust(6)
+
+    def _begin_def(self, text):
+        """The line was del followed by a header: R<-A FN B;L1;L2 (result, left
+        argument, function name, right argument, localised names)."""
+        toks = self.decode(self.tokenize(text))
+        k = next((j for j, (c, _) in enumerate(toks) if c == T_SEMI), len(toks))
+        head, tail, locs = toks[:k], toks[k:], []
+        while tail:
+            if len(tail) < 2 or tail[0][0] != T_SEMI or tail[1][0] != T_NAME:
+                raise AplError('SYNTAX ERROR')
+            locs.append(tail[1][1])
+            tail = tail[2:]
+        res = None
+        if len(head) >= 2 and head[1][0] == T_ASSIGN:
+            if head[0][0] != T_NAME:
+                raise AplError('SYNTAX ERROR')
+            res, head = head[0][1], head[2:]
+        if not 1 <= len(head) <= 3 or any(c != T_NAME for c, _ in head):
+            raise AplError('SYNTAX ERROR')
+        names = [a for _, a in head]
+        larg = rarg = None
+        if len(names) == 1:
+            fn = names[0]
+        elif len(names) == 2:
+            fn, rarg = names
+        else:
+            larg, fn, rarg = names
+        f = Func(len(names) - 1, res, larg, rarg, locs)
+        if len(set(f.syms + [fn])) != len(f.syms) + 1 or fn in self.vars:
+            raise AplError('SYNTAX ERROR')
+        self.defining = [fn, f]
+
+    def _def_line(self, line):
+        fn, f = self.defining
+        if line.strip(' \t') == '\u2207':
+            self.funcs[fn] = f
+            self.defining = None
+            return
+        toks = self.tokenize(line)
+        self._statements(self.decode(toks))             # brackets must nest
+        if len(f.lines) >= MAX_LINES:
+            raise AplError('LIMIT ERROR')
+        f.lines.append(toks)
+
+    def call(self, f, left, right):
+        """Call f.  Names it uses (result, arguments, locals) are localised: they
+        are undefined on entry and get their old values back on leaving, however
+        it is left (dynamic scoping).  Returns the result value or None."""
+        if (left is not None and f.nargs < 2) or (right is not None and f.nargs < 1):
+            raise AplError('SYNTAX ERROR')
+        if self.depth >= MAX_DEPTH:
+            raise AplError('LIMIT ERROR')
+        saved = [(s, self.vars.pop(s, None), self.funcs.pop(s, None)) for s in f.syms]
+        self.depth += 1
+        try:
+            if left is not None:
+                self.vars[f.larg] = left
+            if right is not None:
+                self.vars[f.rarg] = right
+            for line in f.lines:
+                self._run_statements(self._statements(self.decode(line)))
+            if f.res is None:
+                return None
+            return self.lookup(f.res)
+        finally:
+            self.depth -= 1
+            for s, v, fu in saved:
+                self.vars.pop(s, None)
+                self.funcs.pop(s, None)
+                if v is not None:
+                    self.vars[s] = v
+                if fu is not None:
+                    self.funcs[s] = fu
 
 
 # =========================================================================
@@ -1091,7 +1232,7 @@ def repl():
     ws = Interp()
     while True:
         try:
-            line = input('      ')
+            line = input(ws.prompt())
         except EOFError:
             break
         try:
@@ -1360,6 +1501,73 @@ def selftest():
     assert typ('32767+1') == FLOAT and typ('32766+1') == INT
     assert typ('1+1') == INT and typ('1 1=1 0') == BOOL and typ('÷2') == FLOAT
     assert typ('+/1 1 1') == INT and typ('⍳5') == INT
+    n += 1
+
+    # user-defined functions: sessions of lines; '!KIND' marks an error
+    def session(lines):
+        w = Interp()
+        out = []
+        for ln in lines:
+            r = _try(lambda: w.run_line(ln))
+            out.append('!' + r if isinstance(r, str) else '|'.join(r))
+        return out
+
+    D = '\u2207'
+    fn_cases = [
+        ([D + 'R\u2190SQ X', 'R\u2190X\u00d7X', D, 'SQ 5', 'SQ 1 2 3', '1+SQ 3'],
+         ['', '', '', '25', '1 4 9', '10']),
+        ([D + 'R\u2190A ADD B', 'R\u2190A+B', D, '1 ADD 2', '1 2 3 ADD 10', 'ADD 1'],
+         ['', '', '', '3', '11 12 13', '!VALUE ERROR']),
+        ([D + 'R\u2190K', 'R\u219042', D, 'K', 'K+1', '2\u00d7K', 'K K'],
+         ['', '', '', '42', '43', '84', '!SYNTAX ERROR']),
+        ([D + 'SHOW X', 'X', 'X+1', D, 'SHOW 5', 'SHOW 1 2', '1+SHOW 1'],
+         ['', '', '', '', '5|6', '1 2|2 3', '!VALUE ERROR']),
+        ([D + 'SET X', 'G\u2190X', D, 'SET 7', 'G', 'A\u2190SET 1', 'G'],
+         ['', '', '', '', '7', '!VALUE ERROR', '1']),
+        ([D + 'R\u2190F X;T', 'T\u2190X+1', 'R\u2190T\u00d72', D, 'T\u21909', 'F 1', 'T', 'F 2', 'T'],
+         ['', '', '', '', '', '4', '9', '6', '9']),
+        ([D + 'R\u2190F X', 'R\u2190G X', D, D + 'R\u2190G X', 'R\u2190X+1', D, 'F 1', '2+F 3'],
+         ['', '', '', '', '', '', '2', '6']),
+        ([D + 'R\u2190FACT N', 'R\u21901', 'R\u2190N\u00d7FACT N-1', D, 'FACT 0'],
+         ['', '', '', '', '!LIMIT ERROR']),
+        ([D + 'R\u2190SUM N', 'R\u2190N+SUM N-1', D, 'SUM 3'],
+         ['', '', '', '!LIMIT ERROR']),
+        ([D + 'R\u2190N NOP', 'R\u2190N', D],
+         ['', '', '']),
+        ([D + 'F', '1', 'G\u21902', D, 'F', 'G', 'F\u21903'],
+         ['', '', '', '', '1', '2', '!SYNTAX ERROR']),
+        (['V\u21905', D + 'V', D],
+         ['', '!SYNTAX ERROR', '!SYNTAX ERROR']),
+        ([D + 'A F B C', D + 'R\u2190', D + 'R\u2190F R', D + 'F X;X', D + 'X F X', D + '1', D + 'F 1'],
+         ['!SYNTAX ERROR'] * 7),
+        ([D + 'R\u2190F X', 'R\u2190X', '(1', D, 'F 1'],
+         ['', '', '!SYNTAX ERROR', '', '1']),
+        ([D + 'R\u2190F X', 'R\u2190X\u2192', D, 'F 1'],
+         ['', '', '', '!NONCE ERROR']),
+        ([D + 'F X', 'Y\u2190X', D, 'F 3', 'Y', '(F 4)'],
+         ['', '', '', '', '3', '!VALUE ERROR']),
+        ([D + 'R\u2190F X', 'R\u2190X', D, 'F', 'A\u21901 ⋄ F A'],
+         ['', '', '', '!SYNTAX ERROR', '1']),
+        ([D + 'R\u2190F X;Y', 'Y\u21905', 'R\u2190Y+X', D, 'Y\u21901', 'F 10', 'Y', D + 'R\u2190G X', 'R\u2190Y+F X', D, 'G 1', 'Y'],
+         ['', '', '', '', '', '15', '1', '', '', '', '7', '1']),
+        ([D + 'R\u2190F X', 'R\u2190Q', D, 'F 1', 'Q\u21907', 'F 1'],
+         ['', '', '', '!VALUE ERROR', '', '7']),
+        ([D + 'R\u2190F X', 'R\u21901\u00f70', D, 'A\u21903', 'F A', 'A'],
+         ['', '', '', '', '!DOMAIN ERROR', '3']),
+        ([D + 'R\u2190F X;A', 'A\u21900', 'R\u21901\u00f70', D, 'A\u219033', 'F 1', 'A'],
+         ['', '', '', '', '', '!DOMAIN ERROR', '33']),
+        (['A\u2190\u23733', D + 'R\u2190F X', 'R\u2190A[X]', D, 'F 2', 'F 9'],
+         ['', '', '', '', '2', '!INDEX ERROR']),
+        ([D + 'R\u2190F X;A', 'A\u2190\u23733', 'A[2]\u2190X', 'R\u2190A', D, 'F 9', 'A'],
+         ['', '', '', '', '', '1 9 3', '!VALUE ERROR']),
+        ([D + 'R\u2190F X', 'R\u2190+/X', D, 'F \u23735', 'F 2 3\u2374\u23736'],
+         ['', '', '', '15', '6 15']),
+        ([D + 'F X', '\u2374X', '\u2373X', D, 'F 3', 'F\u2190\u2373\u2374'],
+         ['', '', '', '', '|1 2 3', '!SYNTAX ERROR']),
+    ]
+    for lines, want in fn_cases:
+        got = session(lines)
+        assert got == want, (lines, got, want)
     n += 1
 
     print('all %d test groups passed' % n)
