@@ -179,7 +179,7 @@ def gen_line(rng, pool):
         elif k < .55:
             parts.append(rng.choice(pool))
         elif k < .90:
-            parts.append(rng.choice('()[]←→⋄;+-×÷=≠<≤>≥⍳⍴,/\\¨.∘⍤⍬⌈⌊|∧∨~⌽↑↓'))
+            parts.append(rng.choice('()[]←→⋄;+-×÷=≠<≤>≥⍳⍴,/\\¨.∘⍤⍬⌈⌊|∧∨~⌽↑↓∊⍋⍒'))
         elif k < .94:
             parts.append('⍝ ' + rng.choice(["note", "'x", "1.5 e"]))
         else:

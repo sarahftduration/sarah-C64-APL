@@ -394,6 +394,15 @@ scalar functions of the engine (shapes and extension as for `=`), `~B` is 1-B; t
 is no LCM/GCD, and dyadic `~` (without) is NONCE ERROR. `∧/` and `∨/` reduce with identities 1 and 0; a
 one-element row is returned as it is, like the other reductions (so `∧/,2` is 2).
 
+## Index-of, membership, grade
+
+`A⍳B` (a vector `A`, else RANK ERROR): for each element of `B` its 1-based position in `A`, or 1+⍴A; the
+result is INT with `B`'s shape. `A∊B`: for each element of `A`, whether it is in `B`; BOOL, `A`'s shape.
+Elements are equal if they are equal numbers (exactly, across BOOL, INT and FLOAT) or equal characters; a
+character never equals a number. `⍋V`, `⍒V` (pound `7`, `3`; `∊` is pound `e`): the positions that put the vector `V`
+in order, INT; equal elements keep their order (also for `⍒`); floats are ordered exactly; anything but a vector is
+RANK ERROR. The 6502 sorts by insertion, so long vectors are slow (about n²/4 comparisons). `asm/search.inc`.
+
 ## Reverse, rotate, take, drop
 
 `⌽ ↑ ↓` (pound `a`, `y`, `u`; `asm/reshape.inc`) work on scalars, vectors and matrices (along the last axis

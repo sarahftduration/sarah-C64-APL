@@ -41,6 +41,9 @@ DIGRAPHS = {
     ord('a'): 0x9B,              # ⌽
     ord('y'): 0x9C,              # ↑
     ord('u'): 0x9D,              # ↓
+    ord('e'): 0x9E,              # ∊
+    ord('7'): 0x9F,              # ⍋
+    ord('3'): 0xA0,              # ⍒
     LEFT_ARROW_GLYPH: 0x5F,      # the ← key again: underscore
     PREFIX: 0x5C,                # the prefix twice: backslash
 }

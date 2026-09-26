@@ -31,6 +31,7 @@ E_INTR   = 10
         .include "index.inc"
         .include "replicate.inc"
         .include "reshape.inc"
+        .include "search.inc"
         .include "funcs.inc"
         .include "format.inc"
         .include "startup.inc"
@@ -1020,6 +1021,10 @@ apply_mon:
         beq am_not
         cmp #19
         beq am_rev
+        cmp #23
+        beq am_gu
+        cmp #24
+        beq am_gd
         lda #E_NONCE
         sec
         rts
@@ -1028,6 +1033,8 @@ am_floor: jmp p_floor
 am_abs: jmp p_abs
 am_not: jmp p_not
 am_rev: jmp p_rev
+am_gu:  jmp p_gradeup
+am_gd:  jmp p_gradedown
 am_plus:
         jmp p_plusm
 am_iota:
@@ -1045,7 +1052,7 @@ apply_dy:
         sbc #$80
         cmp #10
         bcc ad_sd
-        beq ad_nonce
+        beq ad_iof
         cmp #11
         beq ad_reshape
         cmp #12
@@ -1065,12 +1072,16 @@ ad_l:   cmp #18
         cmp #20
         beq ad_take
         cmp #21
+        beq ad_drop
+        cmp #22
         bne ad_nonce
-        jmp p_drop
+        jmp p_member
+ad_drop: jmp p_drop
 ad_l2:  sec
         sbc #2
         jmp p_sdyad
 ad_rot: jmp p_rot
+ad_iof: jmp p_indexof
 ad_take: jmp p_take
 ad_nonce:
         cmp #$ff                ; replicate: the code $7f set by rl_val
