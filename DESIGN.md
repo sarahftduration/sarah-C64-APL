@@ -1044,4 +1044,5 @@ the demo file through xdotool, so the typing goes through the real keyboard path
 display and are typed as pound-key digraphs; `\` is typed as the pound key twice; `←` is VICE's End key (the
 symbolic keymap's left arrow). Keys are held 80 ms: VICE scans the keyboard once a frame, and quicker taps
 (and shifted keys especially) were lost. This VICE build has no ffmpeg movie recorder, and there is no audio
-yet. Generated videos are not committed (they show ROM-derived text); use `)SEED` to make random demos repeat.
+yet. `@speed N` in a demo file plays the video from there N times faster (the typing of a long function is best seen as a time-lapse; the recorder cuts the
+capture into stretches and re-encodes it with ffmpeg). `demos/sunset.txt` is the graphics demo. Generated videos are not committed (they show ROM-derived text); use `)SEED` to make random demos repeat.

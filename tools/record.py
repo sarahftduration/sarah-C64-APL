@@ -11,6 +11,7 @@ A demo file is lines of typing, except:
     @pace SECONDS    the delay between typed keys from here on (default 0.09)
     @key NAME        one xdotool key, e.g. Return
     @type TEXT       type TEXT without pressing Return
+    @speed N         play the video from here on N times faster (a time-lapse of the typing); @speed 1 for real time again
 APL glyphs in the text are typed as the pound-key digraphs (tools/keys.py), so write them as they display.
 """
 import os
@@ -19,6 +20,7 @@ import sys
 import tempfile
 import time
 
+HOLD, GAP = 0.08, 0.05        # a key is held for a few frames (the KERNAL scans the keyboard once a frame), then released before the next; shorter holds lose shifted keys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import glyphs  # noqa: F401  (keeps the glyph tables importable from here)
@@ -59,9 +61,23 @@ def run(cmd, **kw):
 def press(k, env, pace):
     """One key held for a few frames (VICE scans the keyboard once per frame, so a bare tap can be lost)."""
     run(["xdotool", "keydown", k], env=env)
-    time.sleep(0.08)
+    time.sleep(HOLD)
     run(["xdotool", "keyup", k], env=env)
-    time.sleep(max(pace - 0.08, 0.06))
+    time.sleep(max(pace - HOLD, GAP))
+
+
+def retime(src, dst, marks, total):
+    """Re-encode src with the stretches between the marks played at their speeds."""
+    ends = [t for t, _ in marks[1:]] + [total + 1]
+    parts, labels = [], []
+    for i, ((a, speed), b) in enumerate(zip(marks, ends)):
+        if b - a < 0.05:
+            continue
+        parts.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=(PTS-STARTPTS)/{speed}[v{i}]")
+        labels.append(f"[v{i}]")
+    graph = ";".join(parts) + f";{''.join(labels)}concat=n={len(labels)}:v=1:a=0,fps=50[out]"
+    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-filter_complex", graph, "-map", "[out]",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dst])
 
 
 def record(demo, out, prg=None, boot=None, reu_kb=4096):
@@ -102,6 +118,7 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
                                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", silent],
                                   env=env, stdin=subprocess.PIPE)
             t0 = time.time()
+            marks = [(0.0, 1.0)]                # (seconds since the capture began, the speed of the video from then on)
             pace = 0.09
             for line in demo.splitlines():
                 line = line.rstrip("\n")
@@ -112,6 +129,9 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
                     continue
                 if line.startswith("@pace "):
                     pace = float(line[6:])
+                    continue
+                if line.startswith("@speed "):
+                    marks.append((time.time() - t0, float(line[7:])))
                     continue
                 if line.startswith("@key "):
                     press(line[5:], env, pace)
@@ -125,7 +145,10 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
             elapsed = time.time() - t0
             vice.terminate()
             vice.wait(timeout=10)
-            os.replace(silent, out)
+            if len(marks) > 1:
+                retime(silent, out, marks, elapsed)
+            else:
+                os.replace(silent, out)
             return elapsed
         finally:
             for p in reversed(procs):

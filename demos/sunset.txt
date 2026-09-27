@@ -1,25 +1,28 @@
-# a sunset: the first picture, drawn by a function typed in (multicolor graphics, palette bands, a random sky)
-@pace 0.14
+# a sunset: multicolor graphics, drawn by a function that is typed in first (palette bands, a random sky, shimmering water)
+@pace 0.13
 @wait 1
+@speed 3
 )SEED 5
-∇SUNSET;A;R
-A←(⍳40)×0.16
-R←2×⍳12
+∇SUNSET;G;X;Y;V;W;I
+G←6 6 6 6 4 4 4 2 2 2 10 10 10 8 8 8 8,8⍴6
 ⎕GR 1 ⋄ ⎕INK 1 ⋄ (0 0) ⎕BOX (159 199)
-(¯1+⍳4) ⎕PAL 6 1 7
-(3+⍳3) ⎕PAL 4 1 7
-(6+⍳3) ⎕PAL 2 1 7
-(9+⍳3) ⎕PAL 10 1 7
-(12+⍳4) ⎕PAL 8 1 7
-(16+⍳8) ⎕PAL 6 14 7
-⎕INK 3 ⋄ (80+0.5×R∘.×2○A) ⎕PLOT 128+R∘.×1○A
+(¯1+⍳25) ⎕PAL ⍉3 25⍴G,((17⍴1),8⍴14),25⍴7
+⎕INK 3 ⋄ I←¯24
+S:W←⌊0.5×(576-I×I)*0.5
+((80-W),128+I) ⎕BOX ((80+W),128+I)
+I←I+1 ⋄ →S×⍳I<25
 ⎕INK 1 ⋄ (0 136) ⎕BOX (159 199)
-⎕INK 2 ⋄ (?60⍴158) ⎕PLOT 137+?60⍴60
-(?25⍴158) ⎕PLOT ?25⍴50
-⎕INK 3 ⋄ (80+?30⍴12) ⎕PLOT 140+?30⍴40
+⎕INK 2 ⋄ (?25⍴158) ⎕PLOT ?25⍴50
+X←?40⍴158 ⋄ Y←137+?40⍴58
+V←?40⍴158 ⋄ W←137+?40⍴58
+I←0
+L:⎕INK 2 ⋄ X ⎕PLOT Y ⋄ ⎕INK 1 ⋄ V ⎕PLOT W ⋄ ⎕WAIT 8
+⎕INK 1 ⋄ X ⎕PLOT Y ⋄ ⎕INK 2 ⋄ V ⎕PLOT W ⋄ ⎕WAIT 8
+I←I+1 ⋄ →L×⍳I<20
 ∇
+@speed 1
 @wait 1
 SUNSET
-@wait 9
+@wait 14
 @key Return
 @wait 2
