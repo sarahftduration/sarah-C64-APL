@@ -162,6 +162,23 @@ def test_text_returns():
     print("gfx vice: after the picture a key brings the text screen back, with its colours and the prompt")
 
 
+def test_sound_and_keys():
+    """⎕SND writes the SID's registers (VICE lets the monitor read them back), ⎕KEY takes the next key: here the scripted one."""
+    lines = ["1 ⎕SND 4000 1 0 9 15 5 1000", "2 ⎕SND 300 8", "⎕SND 12", "A←⎕KEY 60", "A"]
+    text = quad(" ⋄ ".join(lines)) + "{RET}Q"
+    keys = petscii(text)
+    L = build_keytest(keys)
+    out, files = _run_selftest(['save "{DIR}/scr.bin" 0 cc00 cfe7', 'save "{DIR}/sid.bin" 0 d400 d418'], hex(L["selftest_done"]), prg=scratch("keytest.prg"))
+    apl64.gfx_reset()
+    it = apl64.Interp()
+    for l in lines[:3]:
+        it.run_line(l)
+    assert files["sid.bin"][2:] == bytes(apl64.GFX.sid), (files["sid.bin"][2:].hex(), bytes(apl64.GFX.sid).hex())
+    rows = [files["scr.bin"][2:][r * 40:r * 40 + 40] for r in range(4)]
+    assert rows[2].rstrip() == b"209", rows          # the shifted Q, as GETIN gives it
+    print("gfx vice: ⎕SND leaves the SID registers as the model says, and ⎕KEY returns the scripted key")
+
+
 if __name__ == "__main__":
     if not all(os.path.exists("roms/" + r) for r in ROMS):
         print("gfx vice: skipped (no C64 ROMs in roms/)")
@@ -170,3 +187,4 @@ if __name__ == "__main__":
     else:
         test_pictures()
         test_text_returns()
+        test_sound_and_keys()

@@ -1594,15 +1594,17 @@ PRIMS[','] = (ravel, catenate)
 # cy*320 + cx*8 with one byte per pixel row, the leftmost pixel in the top bits.  A pixel's value 0 shows the background
 # colour, 1 and 2 the high and low nibble of the cell's byte in screen RAM, 3 the cell's colour RAM.  These are the
 # machine's own memory (the 6502 keeps them at $E000, $CC00 and $D800), so the tests compare them byte for byte.
-# The functions give no value.  All but ⎕GR and ⎕WAIT need graphics mode (NO GRAPHICS); coordinates are floored and
+# The functions give no value (⎕KEY does).  ⎕GR, ⎕WAIT, ⎕SND and ⎕KEY work in text mode, the others need graphics mode (NO GRAPHICS); coordinates are floored and
 # saturated to the int16 range; whole-argument checks come in the order: mode, CHAR arguments (right, left) DOMAIN,
 # lengths (right, left) LENGTH, then the values (right, left) DOMAIN.
 GFX_ROWS = 25
 GFX_COLS = 40
 GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pixel values 1, 2, 3
 HIRES_DEFAULT_PAL = (0, 1)                  # the colours of pixel values 0 and 1 in hires mode
-QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT']        # tokens $A0 + i
+QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'KEY']        # tokens $A0 + i; the first 8 give no value, the rest do
 QUAD_TOKEN = 0xA0
+QUAD_NOVALUE = 8                             # the functions below this number give no value (the machine tells them by token < $A8)
+SID_REGS = 25                               # $D400-$D418
 
 
 class _Gfx:
@@ -1616,6 +1618,8 @@ class _Gfx:
         self.bitmap = bytearray(8000)
         self.scr = bytearray(GFX_ROWS * GFX_COLS)
         self.col = bytearray(GFX_ROWS * GFX_COLS)
+        self.sid = bytearray(SID_REGS)      # what the SID's registers were last given (they cannot be read back)
+        self.keys = []                      # the keys waiting, for ⎕KEY (the tests put them here; the machine reads the keyboard)
 
 
 GFX = _Gfx()
@@ -1801,8 +1805,63 @@ def q_box(a, b):
             gfx_plot(x, y)
 
 
+def q_key(v):
+    """⎕KEY n: the code of a key pressed (the KERNAL's, PETSCII), waiting up to n frames for one; 0 if none came."""
+    _q_one(v, 0, 32767)
+    return scalar(INT, GFX.keys.pop(0) if GFX.keys else 0)
+
+
+def _q_whole(v):
+    """The elements as whole numbers (DOMAIN otherwise): the sound's numbers reach 65535, past what ⎕PLOT's int16 reading takes."""
+    out = []
+    for x in v.data:
+        n = f_whole(x) if v.t == FLOAT else x
+        if n is None:
+            raise AplError('DOMAIN ERROR')
+        out.append(n)
+    return out
+
+
+def q_snd1(v):
+    """⎕SND n: the master volume, 0 to 15 (written to the whole register: the filter is not used)."""
+    _q_types(v)
+    if v.count != 1:
+        raise AplError('LENGTH ERROR')
+    n = _q_range(_q_whole(v), 0, 15)[0]
+    GFX.sid[0x18] = n
+
+
+SND_COUNTS = (1, 2, 4, 6, 7)                # numbers a voice can be given: freq; + wave; + attack decay; + sustain release; + pulse width
+
+
+def q_snd2(a, v):
+    """voice ⎕SND freq wave attack decay sustain release width (the first 1, 2, 4, 6 or 7): voice 1 to 3; freq 0-65535, wave
+    0-15 (1 triangle, 2 sawtooth, 4 pulse, 8 noise, sums mix them; 0 silences the voice: gate off), attack, decay, sustain,
+    release 0-15, pulse width 0-4095.  Registers not given are left alone (so the AD and SR bytes are always given whole)."""
+    _q_types(v, a)
+    if a.count != 1 or v.count not in SND_COUNTS:
+        raise AplError('LENGTH ERROR')
+    voice = _q_range(_q_whole(a), 1, 3)[0]
+    nums = _q_whole(v)
+    limits = (65535, 15, 15, 15, 15, 15, 4095)
+    for x, hi in zip(nums, limits):
+        _q_range([x], 0, hi)
+    base = 7 * (voice - 1)
+    r = GFX.sid
+    r[base], r[base + 1] = nums[0] & 255, nums[0] >> 8
+    if len(nums) >= 2:
+        r[base + 4] = nums[1] << 4 | (1 if nums[1] else 0)
+    if len(nums) >= 4:
+        r[base + 5] = nums[2] << 4 | nums[3]
+    if len(nums) >= 6:
+        r[base + 6] = nums[4] << 4 | nums[5]
+    if len(nums) == 7:
+        r[base + 2], r[base + 3] = nums[6] & 255, nums[6] >> 8
+
+
 QUAD_PRIMS = {'⎕GR': (q_gr, _nonce), '⎕PAL': (q_pal, q_pal2), '⎕INK': (q_ink, _nonce), '⎕PLOT': (_nonce, q_plot),
-              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce)}
+              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce), '⎕SND': (q_snd1, q_snd2),
+              '⎕KEY': (q_key, _nonce)}
 PRIMS.update(QUAD_PRIMS)
 
 

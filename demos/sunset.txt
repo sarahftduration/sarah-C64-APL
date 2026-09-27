@@ -1,5 +1,5 @@
 # a sunset: multicolor graphics, drawn by a function that is typed in first (palette bands, a random sky, shimmering water)
-@pace 0.13
+@pace 0.16
 @wait 1
 @speed 3
 )SEED 5

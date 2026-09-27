@@ -989,6 +989,8 @@ a picture up (`gr_after`), then leaves graphics mode, and only then prints an er
 is pressed, and several drawing statements must be on one line (with `⋄`) or in a function. (A split screen, with a
 few text lines under the picture, would need a raster interrupt: not done.)
 
+**Sound and keys** share the quad names and the overlay `gfx.inc`; they work in text mode. `⎕SND` has no dependence on graphics; the tests compare the 25 SID registers with the model's copy. The quad functions with a token below `$A8` give no value (`qfin` drops their dummy result); `⎕KEY` is the first to give one.
+
 **The functions** (quad names, tokens `$A0` and up; the tokenizer takes `⎕` and up to four letters, either case, from
 `asm/quadnames.inc`, generated from `apl64.QUAD_NAMES`; on the keyboard `⎕` is pound then shifted L). None gives a
 value: like a function without a result, a call may only end a statement (`A←⎕GR 1`, `1+⎕INK 2` and `(⎕GR 1)` are VALUE
@@ -1005,6 +1007,9 @@ ERROR); the evaluator drops the dummy result the overlay leaves (`qfin`).
 | `(x0 y0) ⎕LINE (x1 y1)` | Bresenham's line, ends included; end points within ±4095 (DOMAIN otherwise: the arithmetic stays in 16 bits) |
 | `(x0 y0) ⎕BOX (x1 y1)` | the filled rectangle between two corners, clipped to the screen |
 | `⎕WAIT n` | n video frames (RUN/STOP ends it); 50 a second on a PAL machine |
+| `⎕KEY n` | *gives a value*: the code of a key pressed (the KERNAL's GETIN, PETSCII: RETURN 13, space 32, cursor up 145, down 17, left 157, right 29, unshifted letters 65-90, shifted 193-218), waiting up to n frames for one (0: look once); 0 if none came. Works in text mode too; RUN/STOP ends the wait. Keys come through `getkey_vec`, so the tests script them |
+| `⎕SND n` | the SID's master volume (0-15; start-up sets 15) |
+| `v ⎕SND f w a d s r p` | voice v (1-3) is given up to seven whole numbers, only these counts being allowed: 1 (`f`), 2 (`f w`), 4 (`f w a d`), 6, 7. `f` frequency 0-65535 (the SID's units: Hz x 17.03 on a PAL machine; A 440 is 7492), `w` waveform 0-15 (1 triangle, 2 sawtooth, 4 pulse, 8 noise; sums mix them; 0 turns the gate off: the voice dies away at its release rate; anything else turns it on), `a d s r` attack, decay, sustain, release 0-15, `p` pulse width 0-4095. A register pair is always written whole because the SID's registers cannot be read back (nothing is kept in RAM) |
 
 Coordinates are pixels from the top left, x 0-159 (hires 0-319), y 0-199. Numbers are floored (so `⌊` is not needed on computed
 coordinates) and saturate at the ends of the int16 range; CHAR arguments are DOMAIN. All but `⎕GR` and `⎕WAIT` need
@@ -1044,6 +1049,5 @@ the program, captures the VICE window (menu and status bar included) with ffmpeg
 the demo file through xdotool, so the typing goes through the real keyboard path. Glyphs are written as they
 display and are typed as pound-key digraphs; `\` is typed as the pound key twice; `←` is VICE's End key (the
 symbolic keymap's left arrow). Keys are held 80 ms: VICE scans the keyboard once a frame, and quicker taps
-(and shifted keys especially) were lost. This VICE build has no ffmpeg movie recorder, and there is no audio
-yet. `@speed N` in a demo file plays the video from there N times faster (the typing of a long function is best seen as a time-lapse; the recorder cuts the
+(and shifted keys especially) were lost. This VICE build has no ffmpeg movie recorder, and its own wav recorder writes nothing; the sound is captured instead from a PulseAudio null sink that VICE is pointed at (`PULSE_SINK`), by the same ffmpeg that grabs the screen. Shifted keys are typed with the shift key pressed first and held. `@speed N` in a demo file plays the video from there N times faster (the typing of a long function is best seen as a time-lapse; the recorder cuts the
 capture into stretches and re-encodes it with ffmpeg). `demos/sunset.txt` is the graphics demo. Generated videos are not committed (they show ROM-derived text); use `)SEED` to make random demos repeat.

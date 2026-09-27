@@ -11,7 +11,7 @@
 
 g1      .block
 ; --- the entry points, by function number: GR PAL INK PLOT LINE BOX WAIT (the drawing functions are in draw.inc) --------------
-p_gfxm: cmp #7
+p_gfxm: cmp #9
         bcs gq_nonce
         asl
         tax
@@ -22,13 +22,16 @@ p_gfxm: cmp #7
         rts
 p_gfxd: cmp #1
         beq gq_dpal
+        cmp #7
+        beq gq_dsnd
         cmp #3
         bcc gq_nonce
         cmp #6
         bcs gq_nonce
         jmp s_drawd             ; PLOT LINE BOX: the other overlay
 gq_dpal: jmp d_pal
-gq_mtab: .word m_gr-1, m_pal-1, m_ink-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, m_wait-1
+gq_dsnd: jmp d_snd
+gq_mtab: .word m_gr-1, m_pal-1, m_ink-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, m_wait-1, m_snd-1, m_key-1
 
         .include "gfxcom.inc"
 
@@ -586,6 +589,244 @@ gqw_g:  sta (cd),y
         rts
 
 gq_n:   .word 0
+
+; --- ⎕KEY n: the key pressed, waiting up to n frames ---------------------------------------------------------------------------
+m_key:  jsr gq_top
+        jsr gq_one
+        bcc gmk_1
+        rts
+gmk_1:  lda gq_v+1
+        bpl gmk_l
+        lda #E_DOMAIN
+        sec
+        rts
+gmk_l:  jsr getkey
+        cmp #0
+        bne gmk_got
+        lda gq_v
+        ora gq_v+1
+        beq gmk_got             ; (no key, and no more time: A = 0)
+        jsr gq_frame
+        lda $91                 ; RUN/STOP ends the wait
+        cmp #$7f
+        beq gmk_stop
+        lda gq_v
+        bne gmk_2
+        dec gq_v+1
+gmk_2:  dec gq_v
+        jmp gmk_l
+gmk_stop: lda #E_INTR
+        sec
+        rts
+gmk_got: sta gq_a
+        lda #2                  ; the result: the key, an INT scalar
+        sta cv
+        lda gq_a
+        sta cv+1
+        lda #0
+        sta cv+2
+        sta cv+3
+        jmp setmon
+
+; --- the sound ---------------------------------------------------------------------------------------------------------------------
+; the element at ep (type vt) as a whole number 0 to 65535 in gq_v: DOMAIN if it is not one (elem_to_int is resident)
+gq_whole: jsr elem_to_int
+        bcs gqh_bad
+        lda ineg
+        ora ihuge
+        bne gqh_bad
+        lda im
+        sta gq_v
+        lda im+1
+        sta gq_v+1
+        clc
+        rts
+gqh_bad: lda #E_DOMAIN
+        sec
+        rts
+
+; ⎕SND n: the master volume
+m_snd:  jsr gq_top
+        jsr gq_type
+        bcc gms_1
+        rts
+gms_1:  lda #1
+        jsr gq_isn
+        bcc gms_2
+        rts
+gms_2:  lda vp
+        sta ep
+        lda vp+1
+        sta ep+1
+        jsr gq_whole
+        bcc gms_3
+        rts
+gms_3:  lda gq_v+1
+        bne gms_dom
+        lda gq_v
+        cmp #16
+        bcs gms_dom
+        sta SID_VOLUME
+        jmp gq_ret1
+gms_dom: lda #E_DOMAIN
+        sec
+        rts
+
+; voice ⎕SND freq wave attack decay sustain release width (the first 1, 2, 4, 6 or 7 of them)
+gq_snlim: .word 65535, 15, 15, 15, 15, 15, 4095
+gq_sn:  .fill 14                ; the numbers
+gq_snn: .byte 0                 ; how many
+gq_voice: .byte 0
+gq_sh:  .byte 0
+gq_si:  .byte 0
+d_snd:  jsr gq_sec              ; the right argument: the numbers
+        jsr gq_type
+        bcc gds_1
+        rts
+gds_1:  lda vn
+        sta gq_snn
+        lda vn+1
+        sta gq_sh
+        lda vp
+        sta gq_xp
+        lda vp+1
+        sta gq_xp+1
+        lda vt
+        sta gq_xt
+        jsr gq_top              ; the left: the voice
+        jsr gq_type
+        bcc gds_2
+        rts
+gds_2:  lda #1                  ; (the lengths: the voice a single number, the others 1, 2, 4, 6 or 7)
+        jsr gq_isn
+        bcc gds_2a
+        rts
+gds_2a: lda gq_sh
+        bne gds_len
+        lda gq_snn
+        cmp #1
+        beq gds_c
+        cmp #2
+        beq gds_c
+        cmp #4
+        beq gds_c
+        cmp #6
+        beq gds_c
+        cmp #7
+        beq gds_c
+gds_len: lda #E_LENGTH
+        sec
+        rts
+gds_c:  jsr gq_top
+gds_3:  lda vp
+        sta ep
+        lda vp+1
+        sta ep+1
+        jsr gq_whole
+        bcc gds_4
+        rts
+gds_4:  lda gq_v+1
+        beq *+5
+        jmp gds_dom
+        lda gq_v
+        bne *+5
+        jmp gds_dom
+        cmp #4
+        bcc *+5
+        jmp gds_dom
+        sta gq_voice
+        lda gq_xp               ; the numbers, each whole and within its limit
+        sta ep
+        lda gq_xp+1
+        sta ep+1
+        lda gq_xt
+        sta vt
+        lda #0
+        sta gq_si
+gds_l:  jsr gq_whole
+        bcc gds_l1
+        rts
+gds_l1: ldx gq_si
+        lda gq_snlim,x          ; (limit - value) must not borrow
+        cmp gq_v
+        lda gq_snlim+1,x
+        sbc gq_v+1
+        bcs *+5
+        jmp gds_dom
+        lda gq_v
+        sta gq_sn,x
+        lda gq_v+1
+        sta gq_sn+1,x
+        jsr gq_next
+        inc gq_si
+        inc gq_si
+        lda gq_si
+        lsr
+        cmp gq_snn
+        bcc gds_l
+        lda gq_voice            ; the registers of the voice: $D400 + 7 * (voice - 1)
+        sec
+        sbc #1
+        tax
+        lda gq_sbase,x
+        sta cd
+        lda #>SID
+        sta cd+1
+        ldy #0                  ; the frequency
+        lda gq_sn
+        sta (cd),y
+        iny
+        lda gq_sn+1
+        sta (cd),y
+        lda gq_snn
+        cmp #2
+        bcc gds_done
+        lda gq_sn+2             ; the waveform, with the gate on unless it is 0
+        asl
+        asl
+        asl
+        asl
+        ldx gq_sn+2
+        beq gds_w
+        ora #1
+gds_w:  ldy #4
+        sta (cd),y
+        lda gq_snn
+        cmp #4
+        bcc gds_done
+        lda gq_sn+4
+        asl
+        asl
+        asl
+        asl
+        ora gq_sn+6
+        ldy #5
+        sta (cd),y
+        lda gq_snn
+        cmp #6
+        bcc gds_done
+        lda gq_sn+8
+        asl
+        asl
+        asl
+        asl
+        ora gq_sn+10
+        ldy #6
+        sta (cd),y
+        lda gq_snn
+        cmp #7
+        bcc gds_done
+        lda gq_sn+12
+        ldy #2
+        sta (cd),y
+        lda gq_sn+13
+        iny
+        sta (cd),y
+gds_done: jmp gq_ret2
+gds_dom: lda #E_DOMAIN
+        sec
+gds_bad: rts
+gq_sbase: .byte 0, 7, 14
         .bend
 
 GQ_FRAME = g1.gq_frame          ; (for the tests, which skip the wait for a video frame)

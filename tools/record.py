@@ -2,8 +2,8 @@
 
 VICE is started on a private virtual display (Xvfb) at real speed; ffmpeg captures the VICE window (menu and
 status bar included) at 50 fps; keys go in through xdotool, so the typing goes through the real keyboard path.
-Recording starts once the program is up. There is no audio yet (no SID support); when there is, record VICE's
-wav (-soundrecdev wav) and mux it in.
+Recording starts once the program is up. The sound is VICE's output to a PulseAudio null sink of its own, recorded by the
+same ffmpeg as the picture (so they stay together); VICE 3.9's own wav recorder writes nothing here. No PulseAudio: no sound.
 
 A demo file is lines of typing, except:
     # ...            a comment
@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 
-HOLD, GAP = 0.08, 0.05        # a key is held for a few frames (the KERNAL scans the keyboard once a frame), then released before the next; shorter holds lose shifted keys
+HOLD, GAP = 0.10, 0.06        # a key is held for a few frames (the KERNAL scans the keyboard once a frame), then released before the next; shorter holds lose shifted keys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import glyphs  # noqa: F401  (keeps the glyph tables importable from here)
@@ -29,7 +29,7 @@ import glyphs  # noqa: F401  (keeps the glyph tables importable from here)
 DIGRAPH_KEY = {"⍳": "i", "⍴": "r", "×": "-", "÷": "=", "≠": "8", "≤": "4", "≥": "6", "¯": "2", "¨": "1", "∘": "j",
                "⍬": "'", "⋄": ".", "⍝": ",", "∆": "h", "∇": "g", "⌈": "s", "⌊": "d", "∧": "w", "∨": "v",
                "⌽": "a", "↑": "y", "↓": "u", "∊": "e", "⍋": "7", "⍒": "3", "⍉": "t", "⍟": "*", "○": "o",
-               "→": "]", "⎕": "L"}
+               "→": "]", "⎕": "L", "|": "l", "≤": "4"}
 XKEY = {" ": "space", "'": "apostrophe", "-": "minus", "=": "equal", "*": "asterisk", ".": "period",
         ",": "comma", "[": "bracketleft", "]": "bracketright", "<": "less", ">": "greater", "/": "slash",
         "(": "parenleft", ")": "parenright", "+": "plus", ";": "semicolon", ":": "colon", "!": "exclam",
@@ -58,16 +58,32 @@ def run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
 
 
+SHIFTED = {"plus": "equal", "asterisk": "8", "parenleft": "9", "parenright": "0", "exclam": "1", "at": "2", "numbersign": "3", "dollar": "4",
+           "percent": "5", "asciicircum": "6", "ampersand": "7", "underscore": "minus", "quotedbl": "apostrophe", "colon": "semicolon",
+           "less": "comma", "greater": "period", "question": "slash", "asciitilde": "grave"}
+
+
 def press(k, env, pace):
-    """One key held for a few frames (VICE scans the keyboard once per frame, so a bare tap can be lost)."""
-    run(["xdotool", "keydown", k], env=env)
-    time.sleep(HOLD)
-    run(["xdotool", "keyup", k], env=env)
+    """One key held for a few frames (VICE scans the keyboard once a frame). A shifted one has the shift key pressed first and
+    held throughout: a bare keysym that needs a shift sends both at once, and under load VICE sometimes sees the key without it."""
+    base = SHIFTED.get(k) or (k.lower() if len(k) == 1 and k.isupper() else None)
+    if base:
+        run(["xdotool", "keydown", "Shift_L"], env=env)
+        time.sleep(0.04)
+        run(["xdotool", "keydown", base], env=env)
+        time.sleep(HOLD)
+        run(["xdotool", "keyup", base], env=env)
+        time.sleep(0.03)
+        run(["xdotool", "keyup", "Shift_L"], env=env)
+    else:
+        run(["xdotool", "keydown", k], env=env)
+        time.sleep(HOLD)
+        run(["xdotool", "keyup", k], env=env)
     time.sleep(max(pace - HOLD, GAP))
 
 
-def retime(src, dst, marks, total):
-    """Re-encode src with the stretches between the marks played at their speeds."""
+def retime(src, dst, marks, total, audio):
+    """Re-encode src with the stretches between the marks played at their speeds (the sound of a sped-up stretch is dropped)."""
     ends = [t for t, _ in marks[1:]] + [total + 1]
     parts, labels = [], []
     for i, ((a, speed), b) in enumerate(zip(marks, ends)):
@@ -75,23 +91,43 @@ def retime(src, dst, marks, total):
             continue
         parts.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=(PTS-STARTPTS)/{speed}[v{i}]")
         labels.append(f"[v{i}]")
-    graph = ";".join(parts) + f";{''.join(labels)}concat=n={len(labels)}:v=1:a=0,fps=50[out]"
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-filter_complex", graph, "-map", "[out]",
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dst])
+        if audio:
+            if speed == 1:
+                parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
+            else:
+                parts.append(f"anullsrc=r=44100:cl=stereo,atrim=duration={(b - a) / speed:.3f},asetpts=PTS-STARTPTS[a{i}]")
+            labels.append(f"[a{i}]")
+    n = len(labels) // (2 if audio else 1)
+    graph = ";".join(parts) + f";{''.join(labels)}concat=n={n}:v=1:a={1 if audio else 0}" + ("[vo][ao]" if audio else "[vo]") + ";[vo]fps=50[out]"
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-filter_complex", graph, "-map", "[out]"]
+    if audio:
+        cmd += ["-map", "[ao]", "-c:a", "aac"]
+    run(cmd + ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dst])
+
+
+def null_sink():
+    """A PulseAudio sink of our own for VICE to play into (module id), or None if there is no PulseAudio."""
+    r = subprocess.run(["pactl", "load-module", "module-null-sink", "sink_name=apl64rec"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip().isdigit() else None
 
 
 def record(demo, out, prg=None, boot=None, reu_kb=4096):
-    prg = prg or os.path.join(ROOT, "build", "apl.prg")
+    if prg is None:
+        subprocess.run(["make", "-C", ROOT, "build/apl.prg"], check=True, capture_output=True)      # (the PRG that is run must be the current one)
+        prg = os.path.join(ROOT, "build", "apl.prg")
     with tempfile.TemporaryDirectory() as tmp:
         disp = f":{700 + os.getpid() % 200}"
         xvfb = subprocess.Popen(["Xvfb", disp, "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         env = dict(os.environ, DISPLAY=disp)
         procs = [xvfb]
+        sink = null_sink()
+        if sink:
+            env["PULSE_SINK"] = "apl64rec"
         try:
             time.sleep(1)
             vice = subprocess.Popen(
-                ["x64sc", "-default", "+saveres", "-sounddev", "dummy",
+                ["x64sc", "-default", "+saveres", "-sounddev", "pulse" if sink else "dummy",
                  "-kernal", f"{ROOT}/roms/kernal.bin", "-basic", f"{ROOT}/roms/basic.bin",
                  "-chargen", f"{ROOT}/roms/chargen.bin", "-autostartprgmode", "1", "-autostart", prg,
                  "-reu", "-reusize", str(reu_kb), "-VICIIfilter", "0"],
@@ -115,7 +151,9 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
             silent = os.path.join(tmp, "v.mp4")
             ff = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", "0",
                                    "-framerate", "50", "-video_size", f"{w}x{h}", "-i", f"{disp}+{x},{y}",
-                                   "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", silent],
+                                   *(["-f", "pulse", "-i", "apl64rec.monitor"] if sink else []),
+                                   "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+                                   *(["-c:a", "aac"] if sink else []), silent],
                                   env=env, stdin=subprocess.PIPE)
             t0 = time.time()
             marks = [(0.0, 1.0)]                # (seconds since the capture began, the speed of the video from then on)
@@ -146,11 +184,13 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
             vice.terminate()
             vice.wait(timeout=10)
             if len(marks) > 1:
-                retime(silent, out, marks, elapsed)
+                retime(silent, out, marks, elapsed, bool(sink))
             else:
                 os.replace(silent, out)
             return elapsed
         finally:
+            if sink:
+                subprocess.run(["pactl", "unload-module", sink], capture_output=True)
             for p in reversed(procs):
                 if p.poll() is None:
                     p.terminate()

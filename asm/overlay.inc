@@ -32,6 +32,8 @@ OVID_DRAW = 15
 GQ_BITMAP = $e000               ; graphics (gfx.inc, draw.inc): the bitmap, under the KERNAL
 GQ_CELLS = 1000                 ; 40 x 25 cells
 GQ_ROWS = 25
+SID = $d400                     ; the sound chip (gfx.inc)
+SID_VOLUME = $d418
 REU_SCRSAVE = $e000             ; where the text screen is kept while a picture is up: REU bank 0, above the overlay images
 
 E_NOREU   = 11

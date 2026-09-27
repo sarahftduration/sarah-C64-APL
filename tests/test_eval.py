@@ -88,8 +88,12 @@ class Session:
         diffs = []
         if m[L["gr_mode"]] != g.mode or (m[L["gr_on"]] == 0x80) != (g.mode != 0):
             return [f"mode {m[L['gr_mode']]} (on {m[L['gr_on']]:02x}), model {g.mode}"]
+        if getattr(self, "check_sid", False):
+            sid = bytes(m[0xD400:0xD400 + apl64.SID_REGS])
+            if sid != bytes(g.sid):
+                diffs.append(f"SID registers {sid.hex()}, model {bytes(g.sid).hex()}")
         if g.mode == 0:
-            return []
+            return diffs
         if m[L["gr_ink"]] != g.ink:
             diffs.append(f"ink {m[L['gr_ink']]}, model {g.ink}")
         if m[0xD021] != g.bg or m[0xD020] != g.bg:

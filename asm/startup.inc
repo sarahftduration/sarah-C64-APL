@@ -64,6 +64,8 @@ su2:    sta (cd),y
         inc cd+1
         dex
         bne su1
+        lda #15                 ; the sound chip's volume (a fresh chip has 0)
+        sta SID_VOLUME
         jsr bss_init            ; RAM holds anything at power-up
         jsr tok_init
         jsr eval_init           ; (sets the test log pointer, which the cursor shares)
