@@ -999,11 +999,17 @@ points sprite n at shape n. Sprites are never switched off by leaving graphics m
 | `s ⎕SPD shape` | shape slot s (0-27) is defined by a 21 x 24 matrix of 0/1 (hires sprite), a 21 x 12 matrix of 0-3 (multicolor: two bits a pixel, so half as wide) or 63 bytes |
 | `n ⎕SPR x y shape colour flags` | sprite n (0-7) goes to (x, y) and is switched on; the first 2, 3, 4 or 5 numbers: `shape` 0-27, `colour` 0-15, `flags` 0-15 = 1 multicolor + 2 double width + 4 double height + 8 behind the picture |
 | `⎕SPR m` | the sprites switched on: bit n of m for sprite n (`⎕SPR 0` hides all) |
+| `n ⎕MOVE x,y` | moves sprite n through the positions (x's then y's joined in one vector), one to each video frame, and switches it on: exact 50-a-second animation from one statement. `(n, first, count) ⎕MOVE x,y` plays `count` positions from position `first` (1 up) of a longer table, so a whole tune's worth of motion can be computed once and played a piece at a time |
 | `⎕SPC a b` | the two colours multicolor sprites share: pixel value 1 shows a, value 3 shows b, value 2 the sprite's own colour, 0 is clear |
 
 Coordinates are the 320 x 200 screen's physical pixels with (0, 0) at the top left of the picture: x from -24 to 487 (past the right edge, and off the left), y from -50 to 205; numbers are floored,
 anything outside is DOMAIN. (Multicolor pictures have pixels two physical pixels wide, so x is doubled against `⎕PLOT`'s.) Lower-numbered sprites are in front. The model keeps the VIC-II's
 sprite registers, the pointers and the shape memory as bytes, and the tests compare them; VICE compares every pixel of a screenshot with sprites rendered from the model.
+
+**How fast is it?** The interpreter's own work is what limits animation: a statement costs about 6 ms (a video frame is 20 ms), a scalar index `X[I]` about 8 ms more, indexing a matrix row about 1 ms an element,
+float arithmetic 1-3 ms an element, integer 0.3-0.5. The hardware operations are cheap: a `⎕SPR` about 1 ms, a full-screen `⎕BOX` 0.3 s, `⎕PLOT` 0.25 ms a point. So do the arithmetic for a whole
+animation once, up front, into vectors, and let `⎕MOVE`, `⎕PLOT` or `⎕BOX` consume them; a loop that computes as it draws manages 15 to 20 steps a second at best. `demos/ode.txt` computes its
+448 frames of ball movement in 4 seconds before it starts, then plays each note with five short statements.
 
 **Sound and keys** share the quad names and the overlay `gfx.inc`; they work in text mode. `⎕SND` has no dependence on graphics; the tests compare the 25 SID registers with the model's copy. The quad functions with a token below `$AC` give no value (`qfin` drops their dummy result); `⎕KEY` (index 12) is the first to give one.
 
@@ -1021,6 +1027,7 @@ ERROR); the evaluator drops the dummy result the overlay leaves (`qfin`).
 | `⎕INK n` | the pixel value (0-3, hires 0-1) the drawing functions use |
 | `x ⎕PLOT y` | points; x and y are vectors of the same length, or one may be a single number; off-screen points are skipped |
 | `(x0 y0) ⎕LINE (x1 y1)` | Bresenham's line, ends included; end points within ±4095 (DOMAIN otherwise: the arithmetic stays in 16 bits) |
+| `⎕BOX x0 y0 x1 y1` | the same with the four numbers in one vector: one index `Q[i;]` into a table of rectangles is all a bar chart costs |
 | `(x0 y0) ⎕BOX (x1 y1)` | the filled rectangle between two corners, clipped to the screen |
 | `⎕WAIT n` | n video frames (RUN/STOP ends it); 50 a second on a PAL machine |
 | `⎕KEY n` | *gives a value*: the code of a key pressed (the KERNAL's GETIN, PETSCII: RETURN 13, space 32, cursor up 145, down 17, left 157, right 29, unshifted letters 65-90, shifted 193-218), waiting up to n frames for one (0: look once); 0 if none came. Works in text mode too; RUN/STOP ends the wait. Keys come through `getkey_vec`, so the tests script them |

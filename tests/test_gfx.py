@@ -116,6 +116,8 @@ def test_forms():
              ON + "(⍳3)[2] ⎕PLOT 5", ON + "(1 2)(3) ⎕PLOT 1", ON + "→⎕GR 1", ON + "2 ⎕PLOT ⎕GR 1", ON + "⎕PLOT", ON + "5 ⎕PLOT",
              ON + "⎕INK 1 ⋄ ⎕INK 2 ⋄ ⎕INK 3 ⋄ 5 5 ⎕PLOT 6 6", ON + "⎕INK 0 ⋄ 5 5 ⎕PLOT 6 6", "⎕WAIT 0 ⍝ nothing", "⎕GR 1 ⍝ up", "⎕WAIT ¯1", "⎕WAIT 1e10",
              "⎕WAIT 0.5", "⎕WAIT 'a'", "⎕WAIT 0 0", "⎕WAIT ⍬",
+             ON + "⎕BOX 1 2 3 4", ON + "⎕BOX 3 4 1 2", ON + "⎕BOX 1 2 3", ON + "⎕BOX 1 2 3 4 5", ON + "⎕BOX 'abcd'", ON + "⎕BOX 4 4⍴1", ON2 + "⎕BOX 0 0 319 199", ON2 + "⎕BOX ¯5 ¯5 1000 1000", ON + "⎕BOX 1.5 2.5 3.5 4.5",
+             "⎕BOX 1 2 3 4", ON + "A←⎕BOX 1 2 3 4", ON + "1+⎕BOX 1 2 3 4", ON + "⎕BOX ⍬", ON + "⎕BOX 0 0 159 199 ⋄ ⎕INK 2 ⋄ ⎕BOX 10 10 20 20",
              ON2 + "⎕PAL 1 2", ON2 + "⎕PAL 1 2 3 4", ON2 + "⎕PAL 1 16", ON2 + "⎕INK 1", ON2 + "⎕INK 2", ON2 + "⎕INK 0 ⋄ 5 ⎕PLOT 5", ON2 + "(0 1) ⎕PAL 3 4",
              ON2 + "(0 1) ⎕PAL 3 4 5 6", ON2 + "(0 1) ⎕PAL 3 4 5", ON2 + "(0 1 2) ⎕PAL 3 4 5 6 7 8", ON2 + "(0 1 2) ⎕PAL 3 2⍴3 4 5 6 7 8", ON2 + "(0 1) ⎕PAL 3 4 5",
              ON2 + "(200 300 319 320) ⎕PLOT 5", ON2 + "(0 0) ⎕BOX (319 0)", ON2 + "(319 199) ⎕BOX (0 0)", ON2 + "(300 10) ⎕BOX (400 20)", ON2 + "(¯5 10) ⎕BOX (5 20)",

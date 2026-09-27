@@ -508,13 +508,39 @@ gln_yp:  inc gq_py
 gln_l2:  jmp gln_l
 gln_r:   rts
 
-gbx_done: jmp gq_ret2
+gbx_done: jmp gbx_ret
 gbx_r:   rts
 
 d_box:  jsr gq_corners
         bcc *+3
         rts
-        jsr gq_setink
+        lda #0
+        sta gbx_mono
+        jmp gbx_body
+
+; ⎕BOX x0 y0 x1 y1: the four numbers in one vector
+p_drawm: jsr gq_mode
+        bcc gbm_1
+        rts
+gbm_1:  jsr gq_top
+        jsr gq_type
+        bcc gbm_2
+        rts
+gbm_2:  lda #4
+        jsr gq_isn
+        bcc gbm_3
+        rts
+gbm_3:  ldx #0
+        jsr gq_readn
+        lda #1
+        sta gbx_mono
+        jmp gbx_body
+gbx_mono: .byte 0               ; the call has one argument, not two
+gbx_ret: lda gbx_mono
+        bne gbr_1
+        jmp gq_ret2
+gbr_1:  jmp gq_ret1
+gbx_body: jsr gq_setink
         lda gq_c                ; x0 < x1 (signed)? if not, swap them, and the same for y
         cmp gq_c+4
         lda gq_c+1
@@ -680,7 +706,7 @@ gbx_next: inc gq_py
         bcc gbx_rw
         beq gbx_rw
         jsr gq_roff
-        jmp gq_ret2
+        jmp gbx_ret
 gbx_rw: jmp gbx_row
 
 ; the pixels of the mask in the byte at (cd),y get the ink

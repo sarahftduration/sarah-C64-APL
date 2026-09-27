@@ -11,11 +11,14 @@
 
 g1      .block
 ; --- the entry points, by function number: GR PAL INK PLOT LINE BOX WAIT (the drawing functions are in draw.inc) --------------
-p_gfxm: cmp #9
+p_gfxm: cmp #5
+        beq gq_mbox
+        cmp #9
         bcc gq_mt
         cmp #11
         bcs gq_mt
         jmp s_sprm              ; ⎕SPR, ⎕SPC: the sprite overlay
+gq_mbox: jmp s_drawm            ; ⎕BOX x0 y0 x1 y1: the drawing overlay
 gq_mt:  cmp #13
         bcs gq_nonce
         asl
@@ -32,6 +35,8 @@ p_gfxd: cmp #1
         cmp #8
         beq gq_dspr
         cmp #9
+        beq gq_dspr
+        cmp #11
         beq gq_dspr
         cmp #3
         bcc gq_nonce

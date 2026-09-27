@@ -17,9 +17,12 @@ p_sprd: cmp #8
         beq gsp_d8
         cmp #9
         beq gsp_d9
+        cmp #11
+        beq gsp_d11
         jmp gq_nonce
 gsp_d8: jmp d_spd
 gsp_d9: jmp d_spr
+gsp_d11: jmp d_move
 
         .include "gfxcom.inc"
 
@@ -445,4 +448,264 @@ gss_bad: lda gq_pass
 gss_b1: lda #E_DOMAIN
         sec
         rts
+
+; --- n ⎕MOVE x,y ---------------------------------------------------------------------------------------------------------------------
+; the numbers are checked first (x from -24 to 487, y from -50 to 205), then one position is set for each video frame
+gq_mvn: .word 0                 ; positions left
+gq_mvh: .word 0                 ; how many there are
+gq_xs:  .word 0                 ; where the first x and y to play are
+gq_ys:  .word 0
+gq_mvc: .word 0                 ; how many to play
+gq_la:  .byte 0                 ; the left argument's count
+gq_u:   .word 0
+gq_yq:  .word 0                 ; the next y
+gq_xq:  .word 0                 ; the next x
+d_move: jsr gq_sec              ; the positions
+        jsr gq_type
+        bcc gmv_1
+        rts
+gmv_1:  lda vp
+        sta gq_xp
+        lda vp+1
+        sta gq_xp+1
+        lda vt
+        sta gq_xt
+        lda vn
+        sta gq_xn
+        lda vn+1
+        sta gq_xn+1
+        jsr gq_top              ; the sprite
+        jsr gq_type
+        bcc gmv_2
+        rts
+gmv_2:  lda vn+1                ; the left: the sprite, or the sprite, the first position and how many
+        bne gmv_len
+        lda vn
+        cmp #1
+        beq gmv_2a
+        cmp #3
+        beq gmv_2a
+gmv_len: lda #E_LENGTH
+        sec
+        rts
+gmv_2a: sta gq_la
+        lda gq_xn               ; the positions: an even count
+        and #1
+        bne gmv_len
+        ldx #0
+        jsr gq_readn
+        lda gq_xn+1             ; half the count
+        lsr
+        sta gq_mvh+1
+        lda gq_xn
+        ror
+        sta gq_mvh
+        lda gq_c+1              ; the sprite
+        bne gmv_dom
+        lda gq_c
+        cmp #8
+        bcc gmv_5
+gmv_dom: lda #E_DOMAIN
+        sec
+        rts
+gmv_5:  sta gq_spn
+        lda gq_la
+        cmp #3
+        beq gmv_3n
+        lda #1                  ; all of them, from the first
+        sta gq_c+2
+        lda #0
+        sta gq_c+3
+        lda gq_mvh
+        sta gq_c+4
+        lda gq_mvh+1
+        sta gq_c+5
+gmv_3n: lda gq_c+3              ; the first: 1 or more; the count: 0 or more; first - 1 + count: not past the last
+        bmi gmv_dom
+        ora gq_c+2
+        beq gmv_dom
+        lda gq_c+5
+        bmi gmv_dom
+        sec
+        lda gq_c+2
+        sbc #1
+        sta gq_t
+        lda gq_c+3
+        sbc #0
+        sta gq_t+1              ; first - 1
+        clc
+        lda gq_t
+        adc gq_c+4
+        sta gq_u
+        lda gq_t+1
+        adc gq_c+5
+        sta gq_u+1              ; first - 1 + count
+        lda gq_mvh              ; half - that must not borrow
+        cmp gq_u
+        lda gq_mvh+1
+        sbc gq_u+1
+        bcs gmv_ok
+        jmp gmv_dom
+gmv_ok: lda gq_c+4
+        sta gq_mvc
+        lda gq_c+5
+        sta gq_mvc+1
+        jsr gmv_mulw            ; the address of the first x: first - 1 elements on
+        clc
+        lda gq_xp
+        adc gq_t
+        sta gq_xs
+        lda gq_xp+1
+        adc gq_t+1
+        sta gq_xs+1
+        sec                     ; and of the first y: half more
+        lda gq_c+2
+        sbc #1
+        sta gq_t
+        lda gq_c+3
+        sbc #0
+        sta gq_t+1
+        clc
+        lda gq_t
+        adc gq_mvh
+        sta gq_t
+        lda gq_t+1
+        adc gq_mvh+1
+        sta gq_t+1
+        jsr gmv_mulw
+        clc
+        lda gq_xp
+        adc gq_t
+        sta gq_ys
+        lda gq_xp+1
+        adc gq_t+1
+        sta gq_ys+1
+        lda #0
+        sta gq_pass
+gmv_pass: lda gq_xs
+        sta gq_xq
+        lda gq_xs+1
+        sta gq_xq+1
+        lda gq_ys
+        sta gq_yq
+        lda gq_ys+1
+        sta gq_yq+1
+        lda gq_mvc
+        sta gq_mvn
+        lda gq_mvc+1
+        sta gq_mvn+1
+gmv_l:  lda gq_mvn
+        ora gq_mvn+1
+        bne gmv_m
+        jmp gmv_end
+gmv_m:  lda gq_xt
+        sta vt
+        lda gq_xq               ; x: x + 24 within 0 to 511
+        sta ep
+        lda gq_xq+1
+        sta ep+1
+        jsr gq_elem
+        clc
+        lda gq_v
+        adc #24
+        sta gq_t
+        lda gq_v+1
+        adc #0
+        sta gq_t+1
+        cmp #2
+        bcc gmv_x
+        jmp gmv_dom
+gmv_x:  jsr gq_next
+        lda ep
+        sta gq_xq
+        lda ep+1
+        sta gq_xq+1
+        lda gq_yq               ; y: y + 50 within 0 to 255
+        sta ep
+        lda gq_yq+1
+        sta ep+1
+        jsr gq_elem
+        jsr gq_next
+        lda ep
+        sta gq_yq
+        lda ep+1
+        sta gq_yq+1
+        clc
+        lda gq_v
+        adc #50
+        sta gq_sp
+        lda gq_v+1
+        adc #0
+        beq gmv_y
+        jmp gmv_dom
+gmv_y:  lda gq_pass
+        beq gmv_nx
+        lda gq_spn              ; (second pass: put the sprite there, on, and wait a frame)
+        asl
+        tax
+        lda gq_t
+        sta $d000,x
+        lda gq_sp
+        sta $d001,x
+        ldx gq_spn
+        lda gq_bit,x
+        sta gq_m
+        lda gq_t+1
+        lsr
+        ldx #$10
+        jsr spr_bit
+        sec
+        ldx #$15
+        jsr spr_bit
+        jsr gq_frame
+        lda $91                 ; RUN/STOP ends it
+        cmp #$7f
+        bne gmv_nx
+        lda #E_INTR
+        sec
+        rts
+gmv_nx: lda gq_mvn
+        bne gmv_6
+        dec gq_mvn+1
+gmv_6:  dec gq_mvn
+        jmp gmv_l
+gmv_end: lda gq_pass
+        bne gmv_done
+        inc gq_pass
+        jmp gmv_pass
+gmv_done: jmp gq_ret2
+
+; gq_t = gq_t * the width of an element of the positions (1, 1, 2 or 3 bytes)
+gmv_mulw: lda gq_t
+        sta gq_u
+        lda gq_t+1
+        sta gq_u+1
+        ldy gq_xt
+        lda WIDTHT,y
+        sta gq_k
+        dec gq_k
+        beq gmv_mw2
+gmv_mw1: clc
+        lda gq_t
+        adc gq_u
+        sta gq_t
+        lda gq_t+1
+        adc gq_u+1
+        sta gq_t+1
+        dec gq_k
+        bne gmv_mw1
+gmv_mw2: rts
+
+; one video frame: the raster goes past line $F8 (the tests skip this routine)
+gq_frame:
+gqw_1:  lda $d012
+        cmp #$f8
+        bcc gqw_1
+gqw_2:  lda $d012
+        cmp #$f8
+        bcs gqw_2
+gq_fret: rts
         .bend
+
+GQ_FRAME3 = g3.gq_frame           ; (for the tests)
+GQ_FRET3 = g3.gq_fret

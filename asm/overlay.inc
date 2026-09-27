@@ -90,6 +90,7 @@ s_gfxm: .ovstub g1.p_gfxm, OVID_GFX
 s_gfxd: .ovstub g1.p_gfxd, OVID_GFX
 s_grexit: .ovstub g1.p_grexit, OVID_GFX
 s_drawd: .ovstub g2.p_drawd, OVID_DRAW
+s_drawm: .ovstub g2.p_drawm, OVID_DRAW
 s_sprm: .ovstub g3.p_sprm, OVID_SPR
 s_sprd: .ovstub g3.p_sprd, OVID_SPR
 

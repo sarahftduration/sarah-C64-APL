@@ -1601,7 +1601,7 @@ GFX_ROWS = 25
 GFX_COLS = 40
 GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pixel values 1, 2, 3
 HIRES_DEFAULT_PAL = (0, 1)                  # the colours of pixel values 0 and 1 in hires mode
-QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'SPD', 'SPR', 'SPC', '', 'KEY']        # tokens $A0 + i; the first 12 give no value, the rest do
+QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'SPD', 'SPR', 'SPC', 'MOVE', 'KEY']        # tokens $A0 + i; the first 12 give no value, the rest do
 QUAD_TOKEN = 0xA0
 QUAD_NOVALUE = 12                            # the functions below this number give no value (the machine tells them by token < $AC)
 SID_REGS = 25                               # $D400-$D418
@@ -1802,7 +1802,10 @@ def q_line(a, b):
 
 def q_box(a, b):
     """(x0 y0) ⎕BOX (x1 y1): the filled rectangle between the corners, both included."""
-    x0, y0, x1, y1 = _q_corners(a, b, -32768, 32767)
+    _box(*_q_corners(a, b, -32768, 32767))
+
+
+def _box(x0, y0, x1, y1):
     for y in range(max(min(y0, y1), 0), min(max(y0, y1), 199) + 1):
         for x in range(max(min(x0, x1), 0), min(max(x0, x1), gfx_width() - 1) + 1):
             gfx_plot(x, y)
@@ -1915,6 +1918,33 @@ def q_spr2(a, v):
     _q_bit(SPR_ENABLE, n, True)
 
 
+def q_move(a, v):
+    """n ⎕MOVE x,y  or  (n, first, count) ⎕MOVE x,y: sprite n is moved through positions, one to each video frame, and left switched
+    on where the last one is.  The right argument is the x's and y's joined (an even number of numbers, the x's first); the left is
+    the sprite, or the sprite, the first position to play (1 up) and how many (0 up, not past the last): a long table can be played
+    a piece at a time.  Only the positions played are checked (x from -24 to 487, y from -50 to 205).  The model has no time."""
+    _q_types(v, a)
+    if a.count not in (1, 3) or v.count % 2:
+        raise AplError('LENGTH ERROR')
+    args = _q_ints(a)
+    n = _q_range(args[:1], 0, 7)[0]
+    h = v.count // 2
+    first, count = (args[1], args[2]) if a.count == 3 else (1, h)
+    if first < 1 or count < 0 or first - 1 + count > h:
+        raise AplError('DOMAIN ERROR')
+    nums = _q_ints(v)
+    xs, ys = nums[first - 1:first - 1 + count], nums[h + first - 1:h + first - 1 + count]
+    for x in xs:
+        _q_range([x], -24, 487)
+    for y in ys:
+        _q_range([y], -50, 205)
+    if count:
+        x, y = xs[-1] + 24, ys[-1] + 50
+        GFX.vic[2 * n], GFX.vic[2 * n + 1] = x & 255, y
+        _q_bit(SPR_MSB, n, x > 255)
+        _q_bit(SPR_ENABLE, n, True)
+
+
 def q_spd(a, v):
     """slot ⎕SPD shape: a shape from 21 x 24 zeros and ones (a hires sprite), 21 x 12 numbers 0-3 (multicolor: two bits a pixel) or 63 bytes."""
     _q_types(v, a)
@@ -1933,8 +1963,18 @@ def q_spd(a, v):
     GFX.shapes[64 * slot:64 * slot + 63] = bytes(data)
 
 
+def q_box1(v):
+    """⎕BOX x0 y0 x1 y1: the same as (x0 y0) ⎕BOX (x1 y1), the four numbers in one vector."""
+    _q_mode()
+    _q_types(v)
+    if v.count != 4:
+        raise AplError('LENGTH ERROR')
+    nums = _q_ints(v)
+    _box(nums[0], nums[1], nums[2], nums[3])
+
+
 QUAD_PRIMS = {'⎕GR': (q_gr, _nonce), '⎕PAL': (q_pal, q_pal2), '⎕INK': (q_ink, _nonce), '⎕PLOT': (_nonce, q_plot),
-              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce), '⎕SND': (q_snd1, q_snd2), '⎕SPD': (_nonce, q_spd), '⎕SPR': (q_spr1, q_spr2), '⎕SPC': (q_spc, _nonce),
+              '⎕LINE': (_nonce, q_line), '⎕BOX': (q_box1, q_box), '⎕WAIT': (q_wait, _nonce), '⎕SND': (q_snd1, q_snd2), '⎕SPD': (_nonce, q_spd), '⎕SPR': (q_spr1, q_spr2), '⎕SPC': (q_spc, _nonce), '⎕MOVE': (_nonce, q_move),
               '⎕KEY': (q_key, _nonce)}
 PRIMS.update(QUAD_PRIMS)
 

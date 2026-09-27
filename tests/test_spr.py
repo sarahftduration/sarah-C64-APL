@@ -12,6 +12,8 @@ class Sprites(Session):
     def __init__(self):
         super().__init__()
         self.check_spr = True
+        L = self.L
+        self.m.hooks[L["GQ_FRAME3"]] = lambda mpu: setattr(mpu, "pc", L["GQ_FRET3"]) if mpu.memory[L["ov_cur"]] == L["OVID_SPR"] else None     # (no raster here: a frame takes no time)
         self.reset()
 
     def reset(self):
@@ -68,6 +70,28 @@ def test_pool():
             k = check(s, f"{a} ⎕SPR {b}")
             kinds[k] = kinds.get(k, 0) + 1
             n += 1
+    MOVES = ["0 0", "100 50", "1 2 3 4", "10 20 30 40 50 60", "¯24 ¯50", "487 205", "488 205", "¯25 0", "0 206", "0 ¯51", "300 200 310 190", "1.5 2.5", "1 2 3", "'ab'", "⍬", "(2 2⍴1 2 3 4)",
+             "(⍳20),⍳20", "(100+⍳30),50+⍳30", "300 20 0 0", "1e10 0", "5 5 5 5 5 5 5 5"]
+    for a in ["0", "1", "7", "8", "¯1", "1 2", "'a'", "⍬"]:
+        for b in MOVES:
+            if n % 30 == 0:
+                s.reset()
+            k = check(s, f"{a} ⎕MOVE {b}")
+            kinds[k] = kinds.get(k, 0) + 1
+            n += 1
+    for a in ["0 1 2", "0 1 1", "0 2 1", "0 3 0", "0 1 0", "0 4 0", "0 0 1", "0 1 ¯1", "0 1 3", "0 2 3", "1 1", "8 1 1", "0 1.9 1.1", "0 'a' 1", "0 1", "0 1 1 1", "2 1 2", "7 3 1"]:
+        for b in ["10 20 30 40 50 60", "1 2 3 4 5 6", "1 2", "⍬", "(¯30 5 300 400 2 3)", "1 2 3 4", "(⍳10),⍳10", "300 300 300 20 20 20", "1 2 3 4 5 6 7"]:
+            if n % 30 == 0:
+                s.reset()
+            k = check(s, f"{a} ⎕MOVE {b}")
+            kinds[k] = kinds.get(k, 0) + 1
+            n += 1
+    for line in ["⎕MOVE 1 2", "⎕MOVE", "1 ⎕MOVE", "A←1 ⎕MOVE 1 2", "1+2 ⎕MOVE 1 2", "(0 ⎕MOVE 1 2)", "0 ⎕MOVE.+1 2", "⎕MOVE/1", "0 ⎕MOVE[1]1 2", "0 ⎕MOVE (1.5 2.5),100.9 60.2", "0 ⎕MOVE (⍳3),⍳3", "3 ⎕SPR 5 5 ⋄ 3 ⎕MOVE 300 60",
+                 "2 ⎕MOVE 0 1 0 1 ⋄ ⎕SPR 4"]:
+        s.reset()
+        k = check(s, line)
+        kinds[k] = kinds.get(k, 0) + 1
+        n += 1
     for line in ["⎕SPD 1", "⎕SPD", "1 ⎕SPC 2", "0 ⎕SPR", "⎕SPR", "⎕SPC", "A←⎕SPR 3", "1+⎕SPR 3", "(⎕SPC 1 2)", "⎕SPR 255 ⋄ ⎕SPR 0", "1 ⎕SPR.+2", "⎕SPR/1", "⎕SPD.+1", "⎕SPC[1]1 2",
                  "3 ⎕SPD ⎕SPR 1", "⎕SPD∘.+1"]:
         s.reset()
