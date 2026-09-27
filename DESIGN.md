@@ -669,6 +669,7 @@ case-insensitive.
 | `)SAVE [name]` | write the workspace to drive 8; without a name, use the workspace name; prints `SAVED` |
 | `)LOAD [name]` | replace the workspace from a file; prints `LOADED` |
 | `)LIB` | list the disk in drive 8 as the drive reports it: header, one line per file (blocks, name, type), blocks free; 22 lines at a time, `MORE` waits for a key (RUN/STOP stops) |
+| `)SEED n` | set the random number generator from `n`, a decimal number from 0 to 65535 (`BAD COMMAND` for anything else); see Random numbers |
 | `)OFF` | reset the machine |
 
 Anything else is `BAD COMMAND`. Drive errors print `FILE NOT FOUND` or `FILE ERROR`;
