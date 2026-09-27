@@ -651,7 +651,9 @@ rl_nonce:
         rts
 rl_fn:  dec ev_i1
         lda ev_tok
-        bpl rl_fn2              ; a user-defined function
+        bmi rlf_p
+        jmp rl_fn2              ; a user-defined function
+rlf_p:
         lda ev_i1               ; a∘.f b: the function is followed by . and ∘ on its left
         sec
         sbc ev_lo
@@ -687,7 +689,12 @@ rl_fn:  dec ev_i1
         jmp rl_fn2
 ro_outer:
         lda ev_tok
-        jsr tokop
+        cmp #$9a                ; * ⍟ ○ ! (tokens $9a to $9d) are taken too, by outer product only
+        bcc ro_std
+        cmp #$9e
+        bcs ro_no
+        bcc ro_ok
+ro_std: jsr tokop
         bcs ro_no               ; only the scalar dyadic functions
 ro_ok:  dec ev_i1
         dec ev_i1
@@ -1263,10 +1270,16 @@ apply_mon:
         beq am_gd
         cmp #25
         beq am_tr
+        cmp #26
+        beq am_exp
+        cmp #27
+        beq am_ln
         lda #E_NONCE
         sec
         rts
 am_tr:  jmp s_transpose
+am_exp: jmp p_mexp
+am_ln:  jmp p_mln
 am_ceil: jmp s_ceil
 am_floor: jmp s_floor
 am_abs: jmp p_abs
@@ -1291,7 +1304,11 @@ apply_dy:
         bcc ad_std
         sec                     ; an outer product: A = the token + $60
         sbc #$e0
-        cmp #10
+        cmp #26
+        bcc ad_o0
+        sbc #9                  ; (* ⍟ ○ !)
+        bcs ad_o1
+ad_o0:  cmp #10
         bcc ad_o1
         cmp #16                 ; ⌈ ⌊ | are the engine's operations 10 to 12, ∧ ∨ 14 and 15
         bcs ad_o2
@@ -1329,8 +1346,15 @@ ad_l:   cmp #18
         cmp #22
         beq ad_mem
         cmp #25
-        bne ad_nonce
+        bne ad_m1
         jmp s_transax
+ad_m1:  cmp #30                 ; * ⍟ ○ ! (26 to 29) are the engine's operations 17 to 20
+        bcs ad_nonce
+        cmp #26
+        bcc ad_nonce
+        sec
+        sbc #9
+        jmp p_sdyad
 ad_mem: jmp s_member
 ad_wo:  jmp s_without
 ad_drop: jmp s_drop

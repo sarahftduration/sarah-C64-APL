@@ -449,6 +449,31 @@ higher rank is LIMIT ERROR (checked first), then more than 65535 elements WS FUL
 and the size, in the order of the other scalar functions. Monadic `∘.f` is SYNTAX ERROR; any other `f` is
 NONCE ERROR. The evaluator marks the function as an outer product by adding `$60` to its token.
 
+## Numeric functions
+
+`*` (monadic: e to the x; dyadic: power) and `⍟` (monadic: natural logarithm; dyadic: logarithm to a base). Both give FLOAT.
+The glyph `⍟` is pound `*`, `○` pound `o` (`○ ! ?` are reserved: tokens `$9c $9d $9e`, NONCE ERROR until they are done).
+float24 has a 16-bit significand, so each function is a short program of `+ - × ÷` on it, run by a small interpreter
+(`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 1.6 KB): an accumulator, eight float slots, an integer
+register and two-byte instructions (an opcode and a constant, slot, count or bit; `IFLT` and `IFGE` run the next n instructions
+only if the accumulator is below / not below a constant). The programs and constants are data in `apl64.py` (`MATH_PROGS`,
+`MATH_CONSTS`); `tools/gen_math.py` writes them as `asm/mathprog.inc` and `tests/test_math.py` checks that it is not stale.
+Because the 6502 runs the same program bytes through the same correctly-rounded float routines, model and machine agree bit for
+bit; the tests also run random programs through both interpreters, and compare the model with Python's `math`
+(exp within 1.5 units of 2^-16 of the true value, ln 3.5, sqrt 1.5, power 2 times (1 + |b ln a|); perfect squares and small integer
+powers are exact).
+
+- **exp**: below -100 the result is 0, above 89 it is DOMAIN ERROR; otherwise `x = k ln 2 + r` (`ln 2` in two parts, so `k*ln2hi` is
+  exact), a degree-7 polynomial for `exp r`, and the result scaled by `2^k` (overflow DOMAIN ERROR, underflow 0).
+- **ln**: zero and negatives are DOMAIN ERROR; `x = m 2^e` with `m` in [0.7, 1.4), `ln m = 2z(1 + z²/3 + z⁴/5 + ...)`, `z = (m-1)/(m+1)`.
+- **sqrt** (the power 0.5): Newton's method from a straight line, three rounds, on a significand in [0.5, 2) and an even exponent.
+- **a\*b**: `b = 0` is 1 (also `0*0`); `a = 0` is 0, or DOMAIN ERROR for negative `b`; a whole `b` of magnitude 1 to 127 is a product by
+  repeated squaring (`2*10` is exactly 1024), reciprocal for negative `b`, and works for negative `a`; other `b` need `a > 0`
+  (DOMAIN ERROR otherwise) and give `exp(b ln a)`. **a⍟b** is `ln b ÷ ln a`.
+- They are scalar functions in the engine (operations 17 to 24; the kernels are in the overlay, loaded when the engine sets up an
+  operation), so they work on arrays and in outer product (`(⍳5)∘.*2`); reduce, scan and inner product do not take them (NONCE ERROR:
+  the kernels' overlay cannot be loaded while the inner product's is running).
+
 ## Axis brackets
 
 `f/[k]A`, `f\[k]A`, `⌽[k]A` and `a⌽[k]A` (`Interp._axis` in the model): a bracket after a function or operator

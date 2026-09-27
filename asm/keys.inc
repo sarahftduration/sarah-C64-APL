@@ -2,6 +2,7 @@
 ; digraph table: the translated second key, the code typed; ended by a zero
 dg_table:
         .byte $27, $94
+        .byte $2a, $a2
         .byte $2c, $95
         .byte $2d, $82
         .byte $2e, $93
@@ -29,6 +30,7 @@ dg_table:
         .byte $6a, $c4
         .byte $6c, $7c
         .byte $6e, $7e
+        .byte $6f, $a3
         .byte $72, $8b
         .byte $73, $8d
         .byte $74, $a1

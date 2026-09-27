@@ -13,6 +13,9 @@ asm/pow10.inc: tools/gen_pow10.py
 asm/glyphs.inc: tools/gen_glyphs.py tools/glyphs.py
 	python3 tools/gen_glyphs.py > $@
 
+asm/mathprog.inc: tools/gen_math.py apl64.py
+	python3 tools/gen_math.py > $@
+
 asm/keys.inc: tools/gen_keys.py tools/keys.py
 	python3 tools/gen_keys.py > $@
 

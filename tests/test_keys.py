@@ -260,7 +260,7 @@ SESSIONS = [
 
 def typed_lines(*lines):
     """APL lines as the keys that type them: the glyphs are digraphs after the pound key."""
-    keys = {"⍉": "{P}t", "∊": "{P}e", "⍋": "{P}7", "⍒": "{P}3", "⌽": "{P}a", "↑": "{P}y", "↓": "{P}u", "∧": "{P}w", "∨": "{P}v", "~": "{P}n", "⌈": "{P}s", "⌊": "{P}d", "|": "{P}l", "≤": "{P}4", "≥": "{P}6", "≠": "{P}8", "→": "{P}]", "←": "{LA}", "⍳": "{P}i", "⍴": "{P}r", "×": "{P}-", "÷": "{P}=", "∇": "{P}g", "⋄": "{P}."}
+    keys = {"⍟": "{P}*", "○": "{P}o", "⍉": "{P}t", "∊": "{P}e", "⍋": "{P}7", "⍒": "{P}3", "⌽": "{P}a", "↑": "{P}y", "↓": "{P}u", "∧": "{P}w", "∨": "{P}v", "~": "{P}n", "⌈": "{P}s", "⌊": "{P}d", "|": "{P}l", "≤": "{P}4", "≥": "{P}6", "≠": "{P}8", "→": "{P}]", "←": "{LA}", "⍳": "{P}i", "⍴": "{P}r", "×": "{P}-", "÷": "{P}=", "∇": "{P}g", "⋄": "{P}."}
     return "".join("".join(keys.get(c, c) for c in ln) + "{RET}" for ln in lines)
 
 
@@ -271,7 +271,7 @@ CMD_SESSIONS = [
     typed_lines("∇F", "1", "2", "∇", "F", "∇R←G", "R←F", "∇", "G", "1+G") + ")fns{RET}",                 # echoes inside functions
     typed_lines("∇R←F X", "R←X÷0", "∇", "F 1", "F 2", "∇G", "F 5", "∇", "G", "1") + ")fns{RET}",
     typed_lines("∇F", "1") + ")fns{RET})vars{RET}" + typed_lines("∇", ")fns"),
-    typed_lines("10 20⍳20", "1 2∊2", "⍋3 1 2", "⍒3 1 2", "⌽1 2 3", "1⌽⍳4", "2↑⍳5", "1↓⍳4", "1∧0", "1 0∨0 0", "~1 0 1", "∧/1 1 0", "3⌈5", "3⌊5", "⌈2.5", "⌊¯2.5", "3|¯7", "|¯4", "⌈/2 9 4", "5|17", "⍉2 3⍴⍳6", "2 1⍉2 2⍴⍳4", "1 2 3~2") + ")vars{RET}",       # the new glyphs by digraph
+    typed_lines("10 20⍳20", "1 2∊2", "⍋3 1 2", "⍒3 1 2", "⌽1 2 3", "1⌽⍳4", "2↑⍳5", "1↓⍳4", "1∧0", "1 0∨0 0", "~1 0 1", "∧/1 1 0", "3⌈5", "3⌊5", "⌈2.5", "⌊¯2.5", "3|¯7", "|¯4", "⌈/2 9 4", "5|17", "⍉2 3⍴⍳6", "2 1⍉2 2⍴⍳4", "1 2 3~2", "*1", "⍟10", "2*10", "2⍟8") + ")vars{RET}",       # the new glyphs by digraph
     typed_lines("∇R←F N", "R←0", "L:R←R+N", "N←N-1", "→L×⍳N>0", "∇", "F 4", "→1", "F 100") + ")fns{RET}",     # labels, loops                            # ) lines are body lines
     ")fns{RET}  )FNS extra{RET})Fns{RET}",
     ")vars{RET}",                                                      # nothing defined: nothing printed

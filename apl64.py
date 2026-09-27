@@ -649,6 +649,245 @@ _MON = {'+': _m_id, '-': _m_neg, '×': _m_sign, '÷': _m_recip,
 
 
 # =========================================================================
+# Numeric functions: exp, ln, square root, power, logarithm
+# =========================================================================
+# float24 has a 16-bit significand, so each of these is a short program of + - x / on it, run by the
+# small interpreter below (vm_run).  The 6502 runs the same programs, as data generated from
+# MATH_PROGS by tools/gen_math.py, through the same float routines, so the two agree to the last bit.
+# The interpreter has an accumulator, eight float slots and an integer register ir.  Every instruction is
+# an opcode and an operand: a constant, slot, count or bit.
+VM_OPS = ['END', 'LDK', 'LDS', 'STS', 'ADDS', 'SUBS', 'MULS', 'DIVS', 'RSUBS', 'RDIVS', 'ADDK', 'SUBK', 'MULK',
+          'DIVK', 'RSUBK', 'RDIVK', 'NEG', 'ABS', 'FREXP', 'ITOF', 'ROUND', 'LDEXP', 'DECIR', 'SARIR', 'IFBIT',
+          'NEGS', 'SETIR']
+OP_IFLT, OP_IFGE = 32, 48        # 32+n, 48+n: run the next n instructions only if acc < / >= the constant, else skip them
+MATH_CONST_NAMES = []
+MATH_CONSTS = []
+
+
+def _mconst(name, x):
+    MATH_CONST_NAMES.append(name)
+    MATH_CONSTS.append(f_from_fraction(Fraction(x)))
+
+
+_mconst('one', 1)
+_mconst('two', 2)
+_mconst('half', 0.5)
+_mconst('log2e', 1 / math.log(2))
+_mconst('ln2hi', 355 / 512)                 # (9 bits: a whole number times it is exact)
+_mconst('ln2lo', math.log(2) - 355 / 512)
+for _i in range(1, 8):
+    _mconst('c%d' % _i, 1 / math.factorial(_i))
+_mconst('sqrthalf', math.sqrt(0.5))
+_mconst('third', 1 / 3)
+_mconst('fifth', 1 / 5)
+_mconst('seventh', 1 / 7)
+_mconst('ninth', 1 / 9)
+_mconst('sq0', 0.41731)
+_mconst('sq1', 0.59016)
+_mconst('m100', -100)
+_mconst('p89', 89)
+
+
+def _asm(*ops):
+    """Assemble (name, operand ...) tuples into (opcode, operand) pairs."""
+    out = []
+    for o in ops:
+        name = o[0]
+        if name in ('IFLT', 'IFGE'):
+            out.append(((OP_IFLT if name == 'IFLT' else OP_IFGE) + o[2], MATH_CONST_NAMES.index(o[1])))
+        elif name == 'IFBIT':
+            out.append((VM_OPS.index('IFBIT'), o[1] << 4 | o[2]))
+        else:
+            a = o[1] if len(o) > 1 else 0
+            if isinstance(a, str):
+                a = MATH_CONST_NAMES.index(a)
+            out.append((VM_OPS.index(name), a))
+    return out
+
+
+MATH_PROGS = {
+    # x in acc; exp x = 2^k * exp r, r = x - k ln 2 (ln 2 in two parts, so k*ln2hi is exact), a polynomial for exp r
+    'EXP': _asm(('STS', 0), ('MULK', 'log2e'), ('ROUND',), ('ITOF',), ('STS', 1), ('MULK', 'ln2hi'), ('RSUBS', 0), ('STS', 2),
+                ('LDS', 1), ('MULK', 'ln2lo'), ('RSUBS', 2), ('STS', 2),
+                ('LDK', 'c7'), ('MULS', 2), ('ADDK', 'c6'), ('MULS', 2), ('ADDK', 'c5'), ('MULS', 2), ('ADDK', 'c4'), ('MULS', 2),
+                ('ADDK', 'c3'), ('MULS', 2), ('ADDK', 'c2'), ('MULS', 2), ('ADDK', 'c1'), ('MULS', 2), ('ADDK', 'one'),
+                ('LDEXP',), ('END',)),
+    # x > 0 in acc; x = m 2^e with m brought into [0.7, 1.4); ln m = 2 z (1 + z2/3 + z2^2/5 + ...), z = (m-1)/(m+1)
+    'LN': _asm(('FREXP',), ('STS', 0), ('IFLT', 'sqrthalf', 3), ('MULK', 'two'), ('STS', 0), ('DECIR',),
+               ('LDS', 0), ('SUBK', 'one'), ('STS', 1), ('LDS', 0), ('ADDK', 'one'), ('RDIVS', 1), ('STS', 1),
+               ('MULS', 1), ('STS', 2), ('LDK', 'ninth'), ('MULS', 2), ('ADDK', 'seventh'), ('MULS', 2), ('ADDK', 'fifth'), ('MULS', 2),
+               ('ADDK', 'third'), ('MULS', 2), ('ADDK', 'one'), ('MULS', 1), ('MULK', 'two'), ('STS', 3),
+               ('ITOF',), ('STS', 4), ('MULK', 'ln2hi'), ('ADDS', 3), ('STS', 3), ('LDS', 4), ('MULK', 'ln2lo'), ('ADDS', 3), ('END',)),
+    # x > 0 in acc; m in [0.5, 2) and an even exponent, Newton's method from a straight line (3 rounds), then 2^(e/2)
+    'SQRT': _asm(('FREXP',), ('STS', 0), ('IFBIT', 0, 3), ('MULK', 'two'), ('STS', 0), ('DECIR',),
+                 ('LDS', 0), ('MULK', 'sq1'), ('ADDK', 'sq0'), ('STS', 1),
+                 ('LDS', 0), ('DIVS', 1), ('ADDS', 1), ('MULK', 'half'), ('STS', 1),
+                 ('LDS', 0), ('DIVS', 1), ('ADDS', 1), ('MULK', 'half'), ('STS', 1),
+                 ('LDS', 0), ('DIVS', 1), ('ADDS', 1), ('MULK', 'half'),
+                 ('SARIR',), ('LDEXP',), ('END',)),
+}
+
+
+def vm_run(prog, x):
+    """Run a program on the float24 x; returns the accumulator."""
+    S, ir, acc, pc = [0] * 8, 0, x, 0
+    while True:
+        op, arg = prog[pc]
+        pc += 1
+        if op >= OP_IFLT:
+            below = _fkey(acc) < _fkey(MATH_CONSTS[arg])
+            if below != (op < OP_IFGE):
+                pc += op & 15
+            continue
+        name = VM_OPS[op]
+        if name == 'END':
+            return acc
+        elif name == 'LDK':
+            acc = MATH_CONSTS[arg]
+        elif name == 'LDS':
+            acc = S[arg]
+        elif name == 'STS':
+            S[arg] = acc
+        elif name == 'ADDS':
+            acc = f_add(acc, S[arg])
+        elif name == 'SUBS':
+            acc = f_sub(acc, S[arg])
+        elif name == 'MULS':
+            acc = f_mul(acc, S[arg])
+        elif name == 'DIVS':
+            acc = f_div(acc, S[arg])
+        elif name == 'RSUBS':
+            acc = f_sub(S[arg], acc)
+        elif name == 'RDIVS':
+            acc = f_div(S[arg], acc)
+        elif name == 'ADDK':
+            acc = f_add(acc, MATH_CONSTS[arg])
+        elif name == 'SUBK':
+            acc = f_sub(acc, MATH_CONSTS[arg])
+        elif name == 'MULK':
+            acc = f_mul(acc, MATH_CONSTS[arg])
+        elif name == 'DIVK':
+            acc = f_div(acc, MATH_CONSTS[arg])
+        elif name == 'RSUBK':
+            acc = f_sub(MATH_CONSTS[arg], acc)
+        elif name == 'RDIVK':
+            acc = f_div(MATH_CONSTS[arg], acc)
+        elif name == 'NEG':
+            acc = f_neg(acc)
+        elif name == 'ABS':
+            acc = acc & ~0x8000 if acc >> 16 else 0
+        elif name == 'FREXP':                         # acc = the significand in [0.5, 1) (exponent 128), ir = the exponent
+            ir = (acc >> 16) - 128
+            acc = (acc & 0xFFFF) | (128 << 16)
+        elif name == 'ITOF':
+            acc = f_from_int(ir)
+        elif name == 'ROUND':                         # ir = floor(acc + 0.5), which must fit int16
+            ir = f_whole(f_floor(f_add(acc, MATH_CONSTS[MATH_CONST_NAMES.index('half')])))
+            if not -32768 <= ir <= 32767:
+                raise AplError('DOMAIN ERROR')
+        elif name == 'LDEXP':                         # acc = acc * 2^ir: overflow is DOMAIN ERROR, underflow is zero
+            if acc >> 16:
+                e = (acc >> 16) + ir
+                if e > 255:
+                    raise AplError('DOMAIN ERROR')
+                acc = 0 if e < 1 else (acc & 0xFFFF) | (e << 16)
+        elif name == 'DECIR':
+            ir -= 1
+        elif name == 'SARIR':
+            ir >>= 1
+        elif name == 'IFBIT':
+            if not ir >> (arg >> 4) & 1:
+                pc += arg & 15
+        elif name == 'NEGS':
+            if S[arg] >> 16 and S[arg] & 0x8000:
+                acc = f_neg(acc)
+        elif name == 'SETIR':
+            ir = arg
+        else:
+            raise Exception(name)
+
+
+def _k(name):
+    return MATH_CONSTS[MATH_CONST_NAMES.index(name)]
+
+
+def f_exp(x):
+    """e to the x.  Below -100 it is zero (it would underflow); above 89 it overflows."""
+    if _fkey(x) < _fkey(_k('m100')):
+        return 0
+    if _fkey(x) > _fkey(_k('p89')):
+        raise AplError('DOMAIN ERROR')
+    return vm_run(MATH_PROGS['EXP'], x)
+
+
+def f_ln(x):
+    """Natural logarithm; zero and negative numbers are DOMAIN ERROR."""
+    if x >> 16 == 0 or x & 0x8000:
+        raise AplError('DOMAIN ERROR')
+    return vm_run(MATH_PROGS['LN'], x)
+
+
+def f_sqrt(x):
+    if x >> 16 == 0 or x & 0x8000:
+        raise AplError('DOMAIN ERROR')
+    return vm_run(MATH_PROGS['SQRT'], x)
+
+
+def f_powi(a, n):
+    """a to the whole power n >= 1 by repeated squaring."""
+    r = ONE
+    while True:
+        if n & 1:
+            r = f_mul(r, a)
+        n >>= 1
+        if n == 0:
+            return r
+        a = f_mul(a, a)
+
+
+def f_pow(a, b):
+    """a to the power b.  0*0 is 1; 0 to a negative power, a negative number to a power that is not a whole
+    number of magnitude at most 127, are DOMAIN ERROR.  Whole powers (magnitude 127 or less) are products, so
+    they are exact when the result is representable; 0.5 is the square root; otherwise exp(b ln a)."""
+    if b >> 16 == 0:
+        return ONE
+    if a >> 16 == 0:
+        if b & 0x8000:
+            raise AplError('DOMAIN ERROR')
+        return 0
+    n = f_whole(b)
+    if n is not None and abs(n) <= 127:
+        r = f_powi(a, abs(n))
+        return r if n > 0 else f_div(ONE, r)
+    if a & 0x8000:
+        raise AplError('DOMAIN ERROR')
+    if b == _k('half'):
+        return f_sqrt(a)
+    return f_exp(f_mul(b, f_ln(a)))
+
+
+def f_log(a, b):
+    """The logarithm of b to the base a."""
+    return f_div(f_ln(b), f_ln(a))
+
+
+def _float_fn1(fn):
+    def run(t, xs):
+        if t == CHAR:
+            raise AplError('DOMAIN ERROR')
+        return FLOAT, [fn(to_f(t, x)) for x in xs]
+    return run
+
+
+def _float_fn2(fn):
+    def run(ta, xs, tb, ys):
+        if ta == CHAR or tb == CHAR:
+            raise AplError('DOMAIN ERROR')
+        return FLOAT, [fn(to_f(ta, x), to_f(tb, y)) for x, y in zip(xs, ys)]
+    return run
+
+
+# =========================================================================
 # Structural primitives
 # =========================================================================
 def iota(v):
@@ -1148,6 +1387,14 @@ PRIMS['⍳'] = (iota, index_of)
 PRIMS['∊'] = (_nonce, member)
 PRIMS['⍋'] = (grade(False), _nonce)
 PRIMS['⍉'] = (transpose, transpose_axes)
+MATH_DYADIC = '*⍟○!'                 # scalar functions that outer product takes but reduce, scan and inner product do not
+_DY['*'] = _float_fn2(f_pow)
+_DY['⍟'] = _float_fn2(f_log)
+for _g, _m in (('*', f_exp), ('⍟', f_ln)):
+    PRIMS[_g] = ((lambda f: (lambda v: monadic_scalar(_float_fn1(f), v)))(_m),
+                 (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
+for _g in '○!?':
+    PRIMS[_g] = (_nonce, _nonce)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -1190,12 +1437,12 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒⍉'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒⍉*⍟○!?'
 OP_GLYPHS = '/\\¨.∘⍤'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
-GLYPH_CODES = {'⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
+GLYPH_CODES = {'⍟': 0xA2, '○': 0xA3, '⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
@@ -1567,7 +1814,7 @@ class Interp:
                 val = make_inner(pf, pg)(left, val)
             elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and toks[i - 2][0] == 0xC4:
                 pg = PRIM_GLYPHS[c - 0x80]                  # a∘.f b: outer product
-                if pg not in SCALAR_DYADIC:
+                if pg not in SCALAR_DYADIC + MATH_DYADIC:
                     raise AplError('NONCE ERROR')
                 i -= 3
                 if i < 0 or not self._isv(toks[i]):
@@ -2103,6 +2350,9 @@ def selftest():
         ('A[1]←5', ''),
         ('A', '5 20 30 40'),
         ('+/[1]A', '95'),
+        ('*0', '1'), ('*1', '2.718'), ('*¯1', '0.3679'), ('*89', '!DOMAIN ERROR'), ('*¯200', '0'), ('⍟1', '0'), ('⍟¯1', '!DOMAIN ERROR'), ('⍟0', '!DOMAIN ERROR'), ('⍟10', '2.303'),
+        ('2*10', '1024'), ('2*¯1', '0.5'), ('0*0', '1'), ('0*¯1', '!DOMAIN ERROR'), ('¯2*3', '¯8'), ('¯2*0.5', '!DOMAIN ERROR'), ('16*0.5', '4'), ('2⍟8', '3'), ('1⍟5', '!DOMAIN ERROR'),
+        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
         ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '1 2 3'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),

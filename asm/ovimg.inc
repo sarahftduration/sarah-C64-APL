@@ -63,6 +63,12 @@ OVP_TRANSP = *
         .here
 OVN_TRANSP = * - OVP_TRANSP
 
+OVP_MATH = *
+        .logical OVWIN
+        .include "math.inc"
+        .here
+OVN_MATH = * - OVP_MATH
+
 OVL_TOT = * - OVL_IMG
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
@@ -71,6 +77,7 @@ OVL_TOT = * - OVL_IMG
         .cerror OVN_INNER > OVWIN_SIZE, "the window is too small for the inner product overlay"
         .cerror OVN_CATM > OVWIN_SIZE, "the window is too small for the matrix catenation overlay"
         .cerror OVN_TRANSP > OVWIN_SIZE, "the window is too small for the transpose overlay"
+        .cerror OVN_MATH > OVWIN_SIZE, "the window is too small for the numeric functions overlay"
         .cerror OVL_TOT > $ffff, "the overlay images must fit one 64 KB REU bank"
         .cerror OVN_SEARCH > OVWIN_SIZE, "the window is too small for the search overlay"
         .cerror OVN_RESHAPE > OVWIN_SIZE, "the window is too small for the reshape overlay"

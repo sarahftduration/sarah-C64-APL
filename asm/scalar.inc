@@ -798,8 +798,10 @@ mode_sth: .byte >st_i, >st_f, >st_b, >st_b, >st_b
 ; magnitude (10-13, the engine's four extra operations)
 kint_l: .byte <k_iadd, <k_isub, <k_imul, <k_iadd, <k_imax, <k_imin, <k_ires, <k_iabs
 kint_h: .byte >k_iadd, >k_isub, >k_imul, >k_iadd, >k_imax, >k_imin, >k_ires, >k_iabs
-kflt_l: .byte <k_fadd, <k_fsub, <k_fmul, <k_fdiv, <k_fmax, <k_fmin, <k_fres, <k_fabs
-kflt_h: .byte >k_fadd, >k_fsub, >k_fmul, >k_fdiv, >k_fmax, >k_fmin, >k_fres, >k_fabs
+kflt_l: .byte <k_fadd, <k_fsub, <k_fmul, <k_fdiv, <k_fmax, <k_fmin, <k_fres, <k_fabs, <sd_nop, <sd_nop, <sd_nop
+        .byte <k_fpow, <k_flog, <k_fnonce, <k_fnonce, <k_fexp, <k_fln, <k_fnonce, <k_fnonce
+kflt_h: .byte >k_fadd, >k_fsub, >k_fmul, >k_fdiv, >k_fmax, >k_fmin, >k_fres, >k_fabs, >sd_nop, >sd_nop, >sd_nop
+        .byte >k_fpow, >k_flog, >k_fnonce, >k_fnonce, >k_fexp, >k_fln, >k_fnonce, >k_fnonce
 lai_l:  .byte <la_bool_i, <sd_nop, <la_int_i, <sd_nop
 lai_h:  .byte >la_bool_i, >sd_nop, >la_int_i, >sd_nop
 laf_l:  .byte <la_bool_f, <sd_nop, <la_int_f, <la_flt
@@ -1144,7 +1146,10 @@ sc_fromA:
         sta sdrd1+1
 sc_types:
         lda sdop                ; CHAR: only = and ≠ accept it
-        cmp #4
+        cmp #17
+        bcc sc_t0
+        jmp ty_mf
+sc_t0:  cmp #4
         bcc ty_ar
         cmp #10
         bcc ty_cmp
@@ -1168,6 +1173,17 @@ ty_ar:  lda sdta
         beq ty_set
 ty_flt: lda #1
         bne ty_set
+ty_mf:  lda sdta                ; the numeric functions (17 and up): FLOAT, and their kernels are in an overlay
+        cmp #1
+        beq ty_dom
+        lda sdtb
+        cmp #1
+        beq ty_dom
+        lda #OVID_MATH
+        jsr ov_ensure
+        bcs ty_ret
+        jmp ty_flt
+ty_ret: rts
 ty_cmp: lda sdta
         cmp #1
         beq ty_c
@@ -1262,6 +1278,14 @@ mo_const:
         rts
 mo_go:  lda sdop
         jmp p_sdyad
+
+; --- monadic * and ⍟: e to the x and the natural logarithm, through the engine with a 0 on the left ----------------
+p_mexp: lda #0
+        ldx #21
+        jmp mo_const
+p_mln:  lda #0
+        ldx #22
+        jmp mo_const
 
 ; --- monadic ×: signum, always INT ----------------------------------------------------------------
 p_signum:
