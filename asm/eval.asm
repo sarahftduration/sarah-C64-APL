@@ -1278,6 +1278,8 @@ apply_mon:
         beq am_pi
         cmp #29
         beq am_fact
+        cmp #30
+        beq am_roll
         lda #E_NONCE
         sec
         rts
@@ -1286,6 +1288,7 @@ am_exp: jmp p_mexp
 am_ln:  jmp p_mln
 am_pi:  jmp p_mpi
 am_fact: jmp p_mfact
+am_roll: jmp s_roll
 am_ceil: jmp s_ceil
 am_floor: jmp s_floor
 am_abs: jmp p_abs
@@ -1354,7 +1357,10 @@ ad_l:   cmp #18
         cmp #25
         bne ad_m1
         jmp s_transax
-ad_m1:  cmp #30                 ; * ⍟ ○ ! (26 to 29) are the engine's operations 17 to 20
+ad_m1:  cmp #30
+        bne ad_m2
+        jmp s_deal              ; ?
+ad_m2:  cmp #30                 ; * ⍟ ○ ! (26 to 29) are the engine's operations 17 to 20
         bcs ad_nonce
         cmp #26
         bcc ad_nonce

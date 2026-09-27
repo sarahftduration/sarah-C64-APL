@@ -105,6 +105,12 @@ class EditorModel:
                     self.wsname = name
                 else:
                     self.say("BAD NAME")
+        elif word == "SEED":
+            n = arg.split(" ")[0]
+            if n.isdigit() and int(n) <= 65535:
+                apl64.rng_seed(int(n))
+            else:
+                self.say("BAD COMMAND")
         else:
             self.say("BAD COMMAND")
 
@@ -273,6 +279,7 @@ CMD_SESSIONS = [
     typed_lines("∇F", "1") + ")fns{RET})vars{RET}" + typed_lines("∇", ")fns"),
     typed_lines("10 20⍳20", "1 2∊2", "⍋3 1 2", "⍒3 1 2", "⌽1 2 3", "1⌽⍳4", "2↑⍳5", "1↓⍳4", "1∧0", "1 0∨0 0", "~1 0 1", "∧/1 1 0", "3⌈5", "3⌊5", "⌈2.5", "⌊¯2.5", "3|¯7", "|¯4", "⌈/2 9 4", "5|17", "⍉2 3⍴⍳6", "2 1⍉2 2⍴⍳4", "1 2 3~2", "*1", "⍟10", "2*10", "2⍟8", "○1", "1○0", "¯3○1", "!5", "2!5") + ")vars{RET}",       # the new glyphs by digraph
     typed_lines("∇R←F N", "R←0", "L:R←R+N", "N←N-1", "→L×⍳N>0", "∇", "F 4", "→1", "F 100") + ")fns{RET}",     # labels, loops                            # ) lines are body lines
+    ")seed 5{RET}" + typed_lines("?100", "?6 6 6", "5?10", "?0", "3?3", "+/?50⍴6", "?2 3⍴10") + ")seed 5{RET}?100{RET})seed x{RET})seed{RET})seed 70000{RET}?6{RET})SEED 65535{RET}10?10{RET}",   # the generator, )SEED
     ")fns{RET}  )FNS extra{RET})Fns{RET}",
     ")vars{RET}",                                                      # nothing defined: nothing printed
     "b{LA}1{RET}a{LA}2 3{RET}zz{LA}'x'{RET}Ab{LA}5{RET})vars{RET}",    # sorted: Ab a b zz

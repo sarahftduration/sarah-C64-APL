@@ -18,7 +18,15 @@ startup:
         jsr reu_detect          ; first of all: the overlay images sit where the tables go
         bcs su_nr
         jsr ov_init
-su_nr:
+su_nr:  lda $dc04               ; the random numbers start from the clock
+        ora #1
+        sta rnd_state
+        lda $dc05
+        sta rnd_state+1
+        lda $a1
+        sta rnd_state+2
+        lda $a2
+        sta rnd_state+3
         lda #1                  ; the KERNAL must not draw its cursor (it thinks the screen is $0400)
         sta $cc
         lda #$80                ; nor switch character sets on SHIFT+C=, which would re-point ours

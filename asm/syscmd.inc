@@ -98,6 +98,9 @@ cmdtab: .text "VARS"
         .text "OFF"
         .byte 0, OVID_SYS
         .word cmd_off
+        .text "SEED"
+        .byte 0, OVID_SYS
+        .word cmd_seed
         .byte 0
 
 msg_badcmd: .text "BAD COMMAND"

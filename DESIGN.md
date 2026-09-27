@@ -452,7 +452,7 @@ NONCE ERROR. The evaluator marks the function as an outer product by adding `$60
 ## Numeric functions
 
 `*` (monadic: e to the x; dyadic: power), `⍟` (monadic: natural logarithm; dyadic: logarithm to a base) `○` (pi times; the circle functions) and `!` (factorial; binomial). Both give FLOAT.
-The glyph `⍟` is pound `*`, `○` pound `o` (`?` is reserved: token `$9e`, NONCE ERROR until it is done).
+The glyph `⍟` is pound `*`, `○` pound `o` (`?` is token `$9e`: see Random numbers).
 float24 has a 16-bit significand, so each function is a short program of `+ - × ÷` on it, run by a small interpreter
 (`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 1.6 KB): an accumulator, eight float slots, an integer
 register and two-byte instructions (an opcode and a constant, slot, count or bit; `IFLT` and `IFGE` run the next n instructions
@@ -487,6 +487,22 @@ powers are exact).
 - They are scalar functions in the engine (operations 17 to 24; the kernels are in the overlay, loaded when the engine sets up an
   operation), so they work on arrays and in outer product (`(⍳5)∘.*2`); reduce, scan and inner product do not take them (NONCE ERROR:
   the kernels' overlay cannot be loaded while the inner product's is running).
+
+## Random numbers
+
+`?n` (roll) and `a?b` (deal) (`asm/rand.inc`, an overlay of 991 bytes; model `roll`, `deal`, `rng_draw`, `rng_seed`). The generator is
+xorshift32 (`x ^= x<<13; x ^= x>>17; x ^= x<<5`), its four-byte state `rnd_state` kept in resident code so it survives overlay changes;
+a draw is the top 16 bits of the state. It is seeded from the CIA timer and the jiffy clock at start-up, and `)SEED n` (n from 0 to 65535, otherwise
+BAD COMMAND; `sysov.inc`) sets it to `n << 16 | (n xor $5A5A) | 1`, so a session can be repeated.
+
+- **`?v`**: for each element `n` (whole, 0 to 32767, else DOMAIN ERROR; all are checked before the first draw, so an error leaves the generator alone)
+  a random integer `(r × n >> 16) + 1`, in order; a 0 gives the number `r|1 ÷ 65536` (strictly between 0 and 1, exact in float24) and, if there
+  is one, the whole result is FLOAT. The result has the shape of `v`; a scalar gives a scalar.
+- **`a?b`**: `a` and `b` are single whole numbers with `0 ≤ a ≤ b ≤ 32767` (LENGTH ERROR unless each has one element, DOMAIN ERROR otherwise): `a` distinct
+  integers from 1 to `b` in random order, the first `a` of a partial Fisher-Yates shuffle (`j = i + (r × (b-i) >> 16)`, swap, for `i` below `a`).
+  The working array of `b` numbers is a real array on the stack, so `5?32767` is WS FULL on a small heap.
+- Tests: `tests/test_random.py` compares model and machine including the generator's state after every line (`tests/test_eval.py check`), and `)SEED` and the
+  distribution in the model; the VICE key sessions use `)SEED` to repeat a run.
 
 ## Axis brackets
 

@@ -977,6 +977,66 @@ def f_binom(a, b):
     return r
 
 
+# --- random numbers ---------------------------------------------------------------------------------------------------
+# xorshift32; a draw is the top 16 bits of the state.  The 6502 keeps the same state (rnd_state) and gives the same numbers;
+# )SEED n (n from 0 to 65535) sets it with rng_seed.
+_RNG = [0x2545F491]
+
+
+def rng_seed(n):
+    n &= 0xFFFF
+    _RNG[0] = (n << 16) | ((n ^ 0x5A5A) & 0xFFFF) | 1
+
+
+def rng_draw():
+    x = _RNG[0]
+    x ^= (x << 13) & 0xFFFFFFFF
+    x ^= x >> 17
+    x ^= (x << 5) & 0xFFFFFFFF
+    _RNG[0] = x
+    return x >> 16
+
+
+def roll(v):
+    """?v: for each element n a random integer from 1 to n (n from 1 to 32767; DOMAIN ERROR for anything else, all checked before
+    the first draw); a 0 gives a random number between 0 and 1 (r/65536 for an odd r), and makes the whole result FLOAT."""
+    if v.t == CHAR:
+        raise AplError('DOMAIN ERROR')
+    ns = []
+    for x in v.data:
+        n = f_whole(x) if v.t == FLOAT else x
+        if n is None or not 0 <= n <= 32767:
+            raise AplError('DOMAIN ERROR')
+        ns.append(n)
+    zero = 0 in ns
+    out = []
+    for n in ns:
+        r = rng_draw()
+        if n == 0:
+            out.append(f_from_fraction(Fraction(r | 1, 65536)))
+        else:
+            k = (r * n >> 16) + 1
+            out.append(f_from_int(k) if zero else k)
+    return Value(FLOAT if zero else INT, v.shape, out)
+
+
+def deal(a, b):
+    """a?b: a different integers from 1 to b, in random order (the first a of a shuffle of 1..b).  a and b are single whole
+    numbers with 0 <= a <= b <= 32767."""
+    xa, xb = to_ints(a), to_ints(b)
+    if len(xa) != 1 or len(xb) != 1:
+        raise AplError('LENGTH ERROR')
+    na, nb = xa[0], xb[0]
+    if not 0 <= na <= nb <= 32767:
+        raise AplError('DOMAIN ERROR')
+    check_size(INT, nb)
+    perm = list(range(1, nb + 1))
+    for i in range(na):
+        j = i + (rng_draw() * (nb - i) >> 16)
+        perm[i], perm[j] = perm[j], perm[i]
+    return vector(INT, perm[:na])
+
+
 def f_pi_times(x):
     return f_mul(x, _k('pi'))
 
@@ -1521,7 +1581,7 @@ _DY['○'] = _float_fn2(f_circle)
 PRIMS['○'] = (lambda v: monadic_scalar(_float_fn1(f_pi_times), v), lambda a, b: dyadic_scalar(_DY['○'], a, b))
 _DY['!'] = _float_fn2(f_binom)
 PRIMS['!'] = (lambda v: monadic_scalar(_float_fn1(f_fact), v), lambda a, b: dyadic_scalar(_DY['!'], a, b))
-PRIMS['?'] = (_nonce, _nonce)
+PRIMS['?'] = (roll, deal)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -2479,7 +2539,8 @@ def selftest():
         ('+/[1]A', '95'),
         ('*0', '1'), ('*1', '2.718'), ('*¯1', '0.3679'), ('*89', '!DOMAIN ERROR'), ('*¯200', '0'), ('⍟1', '0'), ('⍟¯1', '!DOMAIN ERROR'), ('⍟0', '!DOMAIN ERROR'), ('⍟10', '2.303'),
         ('2*10', '1024'), ('2*¯1', '0.5'), ('0*0', '1'), ('0*¯1', '!DOMAIN ERROR'), ('¯2*3', '¯8'), ('¯2*0.5', '!DOMAIN ERROR'), ('16*0.5', '4'), ('2⍟8', '3'), ('1⍟5', '!DOMAIN ERROR'),
-        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'), ('!5', '120'), ('!0', '1'), ('!34', '!DOMAIN ERROR'), ('!2.5', '!DOMAIN ERROR'), ('!¯1', '!DOMAIN ERROR'), ('2!5', '10'), ('6!5', '0'), ('0!0', '1'), ('(⍳4)∘.!⍳4', '1 2 3 4|0 1 3 6|0 0 1 4|0 0 0 1'),
+        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '1'), ('?1 1 1', '1 1 1'), ('⍴?100⍴6', '100'), ('∧/(?100⍴6)∊⍳6', '1'), ('0?5', ''), ('1?1', '1'), ('+/3?3', '6'), ('?32768', '!DOMAIN ERROR'), ('5?3', '!DOMAIN ERROR'), ('1 2?5', '!LENGTH ERROR'), ('?¯1', '!DOMAIN ERROR'), ('⍴?0 5', '2'),
+        ('!5', '120'), ('!0', '1'), ('!34', '!DOMAIN ERROR'), ('!2.5', '!DOMAIN ERROR'), ('!¯1', '!DOMAIN ERROR'), ('2!5', '10'), ('6!5', '0'), ('0!0', '1'), ('(⍳4)∘.!⍳4', '1 2 3 4|0 1 3 6|0 0 1 4|0 0 0 1'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
         ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '1 2 3'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),

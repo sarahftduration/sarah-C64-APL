@@ -297,3 +297,68 @@ nc3:    rts                     ; carry from the comparison
 nc4:    lda svla
         cmp svlb
         rts
+
+; --- )SEED n: the random number generator's state from n (0 to 65535); apl64.py rng_seed -------------------------------
+sk_n:   .word 0
+sk_2:   .word 0
+sk_d:   .byte 0
+cmd_seed:
+        ldx argx
+        lda INBUF,x
+        bne sk_st
+        jmp sk_bad
+sk_st:  lda #0
+        sta sk_n
+        sta sk_n+1
+sk_l:   lda INBUF,x
+        beq sk_done
+        cmp #' '
+        beq sk_done
+        sec
+        sbc #'0'
+        cmp #10
+        bcs sk_bad
+        sta sk_d
+        lda sk_n                ; n = n * 10 + digit (over 65535 is a bad command)
+        sta sk_2
+        lda sk_n+1
+        sta sk_2+1
+        asl sk_n
+        rol sk_n+1
+        bcs sk_bad
+        asl sk_n
+        rol sk_n+1
+        bcs sk_bad
+        asl sk_n
+        rol sk_n+1
+        bcs sk_bad
+        asl sk_2
+        rol sk_2+1
+        clc
+        lda sk_n
+        adc sk_2
+        sta sk_n
+        lda sk_n+1
+        adc sk_2+1
+        sta sk_n+1
+        bcs sk_bad
+        clc
+        lda sk_n
+        adc sk_d
+        sta sk_n
+        bcc sk_c
+        inc sk_n+1
+        beq sk_bad
+sk_c:   inx
+        jmp sk_l
+sk_done: lda sk_n               ; the state: n in the high half, n xor $5A5A with the low bit set in the low half
+        sta rnd_state+2
+        eor #$5a
+        ora #1
+        sta rnd_state
+        lda sk_n+1
+        sta rnd_state+3
+        eor #$5a
+        sta rnd_state+1
+        rts
+sk_bad: jmp sc_bad
