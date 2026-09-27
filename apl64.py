@@ -1571,6 +1571,7 @@ PRIMS['⍳'] = (iota, index_of)
 PRIMS['∊'] = (_nonce, member)
 PRIMS['⍋'] = (grade(False), _nonce)
 PRIMS['⍉'] = (transpose, transpose_axes)
+PRIMS['⊖'] = axis_fn(PRIMS['⌽'], 1)     # ⊖ A⊖B: ⌽ and A⌽B fixed to axis 1 (rotate/reverse the rows of a matrix)
 MATH_DYADIC = '*⍟○!'                 # scalar functions that outer product takes but reduce, scan and inner product do not
 _DY['*'] = _float_fn2(f_pow)
 _DY['⍟'] = _float_fn2(f_log)
@@ -2023,15 +2024,16 @@ T_EMPTY = 12                    # the empty numeric vector: one byte, though a l
 T_LPAR, T_RPAR, T_LBRK, T_RBRK, T_ASSIGN, T_BRANCH, T_DIAMOND, T_SEMI = range(3, 11)
 SYNTAX_TOKENS = {'(': T_LPAR, ')': T_RPAR, '[': T_LBRK, ']': T_RBRK,
                  '←': T_ASSIGN, '→': T_BRANCH, '⋄': T_DIAMOND, ';': T_SEMI}
-PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒⍉*⍟○!?'
-OP_GLYPHS = '/\\¨.∘⍤'
+PRIM_GLYPHS = '+-×÷=≠<≤>≥⍳⍴,⌈⌊|∧∨~⌽↑↓∊⍋⍒⍉*⍟○!?⊖'
+OP_GLYPHS = '/\\¨.∘⍤⌿⍀'
 # Charset codes for the non-ASCII glyphs; ASCII characters keep their ASCII code.
 # The 6502 tokenizer receives lines in this encoding. Glyphs that are also
 # tokens use their token code.
 GLYPH_CODES = {'⍟': 0xA2, '○': 0xA3, '⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
-               '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98, '⎕': 0xA4}
+               '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98, '⎕': 0xA4,
+               '⊖': 0xA5, '⌿': 0xA6, '⍀': 0xA7}
 
 
 def char_code(ch):
@@ -2375,21 +2377,26 @@ class Interp:
                 if i == 0:
                     raise AplError('SYNTAX ERROR')
                 pc = toks[i - 1][0]
-                if self._isv(toks[i - 1]):                  # a/b: replicate and compress
-                    if OP_GLYPHS[c - 0xC0] not in '/\\':
+                g = OP_GLYPHS[c - 0xC0]
+                if self._isv(toks[i - 1]):                  # a/b a⌿b: replicate and compress; a\b a⍀b: expand
+                    if g not in '/\\⌿⍀':
                         raise AplError('NONCE ERROR')
                     left, i = self._operand(toks, i - 1)
                     if left is None:
                         raise AplError('VALUE ERROR')
-                    val = (replicate if OP_GLYPHS[c - 0xC0] == '/' else expand)(left, val)
+                    dy = replicate if g in '/⌿' else expand
+                    if g in '⌿⍀':
+                        dy = axis_fn((_nonce, dy), 1)[1]
+                    val = dy(left, val)
                     continue
                 if not 0x80 <= pc < 0xC0:
                     raise AplError('SYNTAX ERROR')
-                g = OP_GLYPHS[c - 0xC0]
                 pg = _glyph_of(pc)
-                if g not in '/\\' or pg not in SCALAR_DYADIC:
+                if g not in '/\\⌿⍀' or pg not in SCALAR_DYADIC:
                     raise AplError('NONCE ERROR')
-                fn = ((make_reduce if g == '/' else make_scan)(pg), _nonce)
+                fn = ((make_reduce if g in '/⌿' else make_scan)(pg), _nonce)
+                if g in '⌿⍀':
+                    fn = axis_fn(fn, 1)
                 i -= 2
                 val = self._apply(fn, toks, i, val)
                 i = self._pos

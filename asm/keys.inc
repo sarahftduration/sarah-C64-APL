@@ -6,6 +6,7 @@ dg_table:
         .byte $2c, $95
         .byte $2d, $82
         .byte $2e, $93
+        .byte $2f, $a6
         .byte $30, $c5
         .byte $31, $c2
         .byte $32, $90
@@ -17,6 +18,8 @@ dg_table:
         .byte $3c, $87
         .byte $3d, $83
         .byte $3e, $89
+        .byte $3f, $a7
+        .byte $41, $a5
         .byte $48, $97
         .byte $4c, $a4
         .byte $5b, $91

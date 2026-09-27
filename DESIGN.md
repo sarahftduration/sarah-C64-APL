@@ -325,7 +325,7 @@ One line ends with `$00`.
 | `$0C` | `⍬`, the empty INT vector, in one byte (a literal would be six); the evaluator makes the array |
 | `$10-$7F` | Reserved (system functions, ⎕ names, control keywords) |
 | `$80+i` | Primitive function, `i` indexes `+-×÷=≠<≤>≥⍳⍴,⌈⌊\|∧∨~⌽↑↓∊⍋⍒⍉` |
-| `$C0+i` | Operator, `i` indexes `/\¨.∘⍤` |
+| `$C0+i` | Operator, `i` indexes `/\¨.∘⍤⌿⍀` |
 
 - Number strands and strings are folded into **one literal** by the tokenizer.
   Narrowest type wins: all 0/1 is BOOL; all whole numbers in int16 is INT;
@@ -511,7 +511,7 @@ gives the axis, `k` a scalar whole number from 1 to the rank of the array to its
 ERROR, in that order); any other function or operator (`+[1]`, `⍳[1]`, `a/[1]b`, `f.g[1]` ...) is NONCE ERROR, and
 so is a user-defined function. These functions work along the last axis, so axis 1 of a matrix is done by
 transposing the matrix, applying the function, and transposing the result back if it is a matrix (`axis_fn`); axis
-2 of a matrix and axis 1 of a vector are the ordinary function. `⌿ ⍀ ⊖` (the first-axis glyphs) are not added. Also with an axis: compress and expand (`a/[k]M`, `a\\[k]M`, `p_repl` and `p_expand` do a matrix a row at a time) and catenation (`A,[k]B`), for which the axis may be one of the
+2 of a matrix and axis 1 of a vector are the ordinary function. Also with an axis: compress and expand (`a/[k]M`, `a\\[k]M`, `p_repl` and `p_expand` do a matrix a row at a time) and catenation (`A,[k]B`), for which the axis may be one of the
 left argument's, checked when both arguments are known (INDEX ERROR); monadic `,[k]` is NONCE ERROR. The flags are `AX_FLIP` for axis 1 (matrices among
 the arguments, on either side, are transposed and a matrix result is transposed back) and `AX_K2` for axis 2.
 
@@ -523,6 +523,26 @@ and `AX_FLIP` in `ev_axn`. The next function token picks them up in `rl_fn2` (`e
 inside the left operand cannot disturb them. After the function is applied `axfin` transposes the result if
 `AX_FLIP` is set. A `]` whose `[` follows a function is an axis, never the end of an indexed left operand: `+/[1]⍳4`
 applies `⍳` monadically.
+
+### The first-axis glyphs: `⌿ ⍀ ⊖`
+
+`⊖B`, `A⊖B` (pound shift-`A`, `asm/eval.asm`), `f⌿B`, `A⌿B`, `f⍀B` and `A⍀B` (pound `/` and pound `?`, the shifts
+of the same key) are `⌽[1]`, `f/[1]` and `f\[1]` written without a bracket: sugar, not a new mechanism. `PRIMS['⊖']
+= axis_fn(PRIMS['⌽'], 1)` in the model; the tokenizer appends `⊖` to `PRIM_GLYPHS` (token `$9F`) and `⌿ ⍀` to
+`OP_GLYPHS` (tokens `$C6 $C7`), so every existing token value keeps its meaning. Unlike a bracket, these never
+raise INDEX ERROR for a scalar or vector argument (there is no axis value to check the rank against — `axis_fn`'s
+`tr`/`fix` are identity below rank 2, so `⊖` and `f⌿` on anything but a matrix are just `⌽` and `f/`); combining
+one with a bracket (`⊖[1]A`, `f⌿[1]A`) is NONCE ERROR, same as any other function that is not `/`, `\` or `⌽`.
+
+On the 6502 (`rl_fnok`, `rl_fn2` and `rl_val` in `eval.asm`), the sugar is expanded at the point the token is seen,
+matching what `s_axis` would have done for an explicit `[1]`: the array already on the value stack (the operand
+to the right, which right-to-left evaluation has already reduced to one cell) is transposed now if it is a matrix
+(`jsr s_transpose`, a no-op below rank 2), `ev_axn` is set to `AX_GIVEN+AX_FLIP` as if a bracket had just closed,
+and `ev_tok` is rewritten to `$93` (`⌽`), `$c0` (`/`) or `$c1` (`\`) so every later step — the dyadic left operand's
+own transpose in `axpre`, the result's transpose back in `axfin` — is the untouched, already-tested bracket
+machinery. `ev_axn` nonzero already (a bracket was given too) is NONCE before any of this runs. The one pitfall:
+the transpose is a `jsr` to an overlay stub, which clobbers X, so the pending function code (`$7e`/`$7f` for
+`a⍀b`/`a⌿b`) must be reloaded from a constant afterwards, not carried in X across the call.
 
 ## Catenate on matrices
 
@@ -773,7 +793,8 @@ done (`asm/startup.inc`, `asm/editor.inc`). The machine now boots into a REPL.
   | `g` | `∇` | `s` | `⌈` | `d` | `⌊` |
   | `l` | `\|` | `w` | `∧` | `v` | `∨` |
   | `n` | `~` | `a` | `⌽` | `y` | `↑` |
-  | `u` | `↓` | | | | |
+  | `u` | `↓` | shifted `a` | `⊖` | `/` | `⌿` |
+  | `?` | `⍀` | | | | |
   | `←` key | `_` | `£` | `\` | anything else | nothing |
 
 - **Line editor** (`edit_key`, `repl`): the line is built in the tokenizer's input

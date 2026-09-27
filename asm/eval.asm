@@ -628,19 +628,20 @@ ro_1:
         dex
         lda TC,x
         cmp #T_LIT
-        beq rl_val
+        beq ro_val
         cmp #T_NAME
-        beq rl_val
+        beq ro_val
         cmp #T_RPAR
-        beq rl_val
+        beq ro_val
         cmp #T_RBRK
-        beq rl_val
+        beq ro_val
         cmp #$80
         bcs *+5
         jmp ev_syn
         cmp #$c0
         bcc rl_fnok
         jmp ev_syn
+ro_val: jmp rl_val
 rl_fnok:
         sec
         sbc #$80
@@ -649,7 +650,28 @@ rl_fnok:
         cmp #$c0                ; / reduce, \ scan
         beq rl_o0
         cmp #$c1
-        bne rl_nonce
+        beq rl_o0
+        cmp #$c6                ; ⌿ ⍀: the same, fixed to axis 1 (no bracket needed)
+        beq rl_o0a
+        cmp #$c7
+        beq rl_o0a
+        jmp rl_nonce
+rl_o0a: ldx ev_axn              ; ⌿[k] ⍀[k]: a bracket too is NONCE
+        beq rl_o0c
+        jmp rl_nonce
+rl_o0c: jsr s_transpose         ; the array, transposed now if it is a matrix (as [1] would do; unchanged otherwise)
+        bcc *+3
+        rts
+        lda #AX_GIVEN+AX_FLIP
+        sta ev_axn
+        lda ev_tok
+        cmp #$c6
+        bne rl_o0b
+        lda #$c0
+        sta ev_tok
+        jmp rl_o0
+rl_o0b: lda #$c1
+        sta ev_tok
 rl_o0:  lda ev_pg
         cmp #10
         bcc rl_ok               ; + - × ÷ = ≠ < ≤ > ≥ are 0-9, ⌈ ⌊ | are 13-15: reduce knows them as 10-12
@@ -669,14 +691,39 @@ rl_m3:  sec
 rl_ok:  dec ev_i1               ; skip the operator and the function
         dec ev_i1
         jmp rl_fn2
-rl_val: lda ev_tok              ; a value before an operator: a/b replicates and a\b expands, the others are not done
-        ldx #$7f                ; (function codes of their own: x f/ y is not a/b)
-        cmp #$c0
-        beq rl_v1
-        ldx #$7e
+rl_val: lda ev_tok              ; a value before an operator: a/b a⌿b replicate and a\b a⍀b expand (⌿ ⍀ on axis 1)
+        cmp #$c0                ; (function codes of their own: f/ y is not a/b)
+        beq rl_vf
+        cmp #$c6
+        beq rl_vfa
         cmp #$c1
+        beq rl_ve
+        cmp #$c7
         bne rl_nonce
-rl_v1:  stx ev_tok
+rl_vea: ldx ev_axn              ; ⌿[k] ⍀[k]: a bracket too is NONCE
+        bne rl_go_nonce
+        jsr s_transpose         ; the array, transposed now if it is a matrix (as [1] would do; unchanged otherwise)
+        bcc *+3
+        rts
+        lda #AX_GIVEN+AX_FLIP
+        sta ev_axn
+        jmp rl_ve
+rl_vfa: ldx ev_axn
+        bne rl_go_nonce
+        jsr s_transpose
+        bcc *+3
+        rts
+        lda #AX_GIVEN+AX_FLIP
+        sta ev_axn
+        jmp rl_vf
+rl_go_nonce:
+        jmp rl_nonce
+rl_ve:  lda #$7e
+        sta ev_tok
+        dec ev_i1
+        jmp rl_fn2
+rl_vf:  lda #$7f
+        sta ev_tok
         dec ev_i1
         jmp rl_fn2
 rl_nonce:
@@ -759,7 +806,20 @@ to_ok:  clc
         rts
 to_no:  sec
         rts
-rl_fn2: ldx ev_axn              ; an axis was given: only reduce, scan and ⌽ take one
+rl_fn2: lda ev_tok
+        cmp #$9f                ; ⊖ A⊖B: ⌽ A⌽B fixed to axis 1 (no bracket needed)
+        bne rf_f2
+        ldx ev_axn              ; ⊖[k]...: a bracket too is NONCE
+        beq rf_f1
+        jmp rl_nonce
+rf_f1:  jsr s_transpose         ; the array, transposed now if it is a matrix (as [1] would do; unchanged otherwise)
+        bcc *+3
+        rts
+        lda #$93
+        sta ev_tok
+        lda #AX_GIVEN+AX_FLIP
+        sta ev_axn
+rf_f2:  ldx ev_axn              ; an axis was given: only reduce, scan and ⌽ take one
         stx ev_axc
         beq rf_go
         lda #0

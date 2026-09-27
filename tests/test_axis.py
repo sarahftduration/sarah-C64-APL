@@ -89,9 +89,53 @@ def test_sizes():
     print("axis: result size limits match the model")
 
 
+def test_glyphs():
+    """⊖ A⊖B, f⌿A and f\\A: ⌽, f/ and f\\ fixed to axis 1, written without a bracket."""
+    s = Session()
+    n = 0
+    mats = ["(2 3⍴1 0 2 5 1 1)", "(3 2⍴1 1 0 3 2 1)", "(2 3⍴1.5 2 ¯1 0 3 1)", "(3 3⍴⍳9)"]
+    for g in "+-×÷=≠<≤>≥⌈⌊|∧∨":
+        for m in mats:
+            for op in "⌿⍀":
+                if n % 30 == 0:
+                    s.reset()
+                check(s, f"{g}{op}{m}")
+                n += 1
+    for m in mats:
+        for k in ["0", "1", "¯1", "2", "5", "1.0"]:
+            check(s, f"{k}⊖{m}")
+            n += 1
+        check(s, f"⊖{m}")
+        n += 1
+    for line in ["⊖5", "⊖1.5", "⊖'a'", "⊖1 2 3", "⊖⍬", "⊖''", "1⊖5", "M←2 3⍴⍳6 ⋄ ⊖M", "M←2 3⍴⍳6 ⋄ M⊖M", "M←2 3⍴⍳6 ⋄ 1 2⊖M",
+                 "+⌿5", "+⌿1 2 3", "+⌿⍬", "1 0⌿5", "M←2 3⍴⍳6 ⋄ 1 0⌿M", "M←2 3⍴⍳6 ⋄ 1 0 1⍀M", "M←2 3⍴⍳6 ⋄ M⌿M", "M←2 3⍴⍳6 ⋄ M⍀M",
+                 "M←2 3⍴⍳6 ⋄ ⊖[1]M", "M←2 3⍴⍳6 ⋄ +⌿[1]M", "M←2 3⍴⍳6 ⋄ +⍀[1]M", "M←2 3⍴⍳6 ⋄ 1 0⌿[1]M",
+                 "⊖⊖2 3⍴⍳6", "M←2 3⍴⍳6 ⋄ (⊖M)-⌽[1]M", "M←2 3⍴⍳6 ⋄ (+⌿M)-+/[1]M", "M←2 3⍴⍳6 ⋄ (+⍀M)-+\\[1]M"]:
+        check(s, line)
+    print(f"axis: {n} plus the fixed cases match ⌽[1], f/[1] and f\\[1] under ⊖, ⌿ and ⍀")
+
+
+def test_glyphs_random():
+    rng = random.Random(5)
+    s = Session()
+    n = 0
+    for i in range(300):
+        if i % 30 == 0:
+            s.reset()
+        m, k = rng.randint(1, 4), rng.randint(1, 4)
+        vals = " ".join(rng.choice(["0", "1", "2", "7", "1.5", "32767", "¯1", rand_float(rng), "100"]) for _ in range(m * k))
+        mat = f"({m} {k}⍴{vals})"
+        f = rng.choice(["+⌿", "×⌿", "-⌿", "⌈⌿", "+⍀", "×⍀", "-⍀", "⌊⍀", "⊖", f"{rng.randint(-3, 3)}⊖".replace("-", "¯")])
+        check(s, f"{f}{mat}")
+        n += 1
+    print(f"axis: {n} random reduces, scans and rotations under ⊖, ⌿ and ⍀ match the model")
+
+
 if __name__ == "__main__":
     test_syntax()
     test_pool()
     test_all_functions()
     test_random()
     test_sizes()
+    test_glyphs()
+    test_glyphs_random()
