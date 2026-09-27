@@ -984,3 +984,13 @@ functions, reduce and the output formatter.
 3. Model: matrix catenate, `∘.`, `\`, user functions, control flow.
 4. Later options: bit-packed BOOL, 4-byte float, transcendentals, fusion of
    scalar pipelines (e.g. `+/A×B` in one loop).
+
+## Recording demo videos
+
+`python3 tools/record.py demos/tour.txt out.mp4` starts VICE on a private Xvfb display at real speed, waits for
+the program, captures the VICE window (menu and status bar included) with ffmpeg's x11grab at 50 fps, and types
+the demo file through xdotool, so the typing goes through the real keyboard path. Glyphs are written as they
+display and are typed as pound-key digraphs; `\` is typed as the pound key twice; `←` is VICE's End key (the
+symbolic keymap's left arrow). Keys are held 80 ms: VICE scans the keyboard once a frame, and quicker taps
+(and shifted keys especially) were lost. This VICE build has no ffmpeg movie recorder, and there is no audio
+yet. Generated videos are not committed (they show ROM-derived text); use `)SEED` to make random demos repeat.

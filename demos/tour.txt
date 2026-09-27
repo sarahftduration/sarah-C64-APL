@@ -1,0 +1,29 @@
+# a short tour of APL/64 (text mode; the first demo, before there is any graphics)
+@pace 0.14
+@wait 1
+⍳12
+@wait 1.5
+(⍳9)∘.×⍳9
+@wait 3
++\⍳10
+@wait 1.5
+A←3 3⍴⍳9
+@wait 1
+⍉A
+@wait 1.5
+A+.×A
+@wait 2
+!⍳8
+@wait 1.5
+2*⍳10
+@wait 1.5
+⌊0.5+10×1○(⍳12)÷2
+@wait 1.5
+)SEED 7
+@wait 1
+5?20
+@wait 1
+)SEED 7
+@wait 1
+5?20
+@wait 3
