@@ -451,8 +451,8 @@ NONCE ERROR. The evaluator marks the function as an outer product by adding `$60
 
 ## Numeric functions
 
-`*` (monadic: e to the x; dyadic: power), `⍟` (monadic: natural logarithm; dyadic: logarithm to a base) and `○` (pi times; the circle functions). Both give FLOAT.
-The glyph `⍟` is pound `*`, `○` pound `o` (`! ?` are reserved: tokens `$9d $9e`, NONCE ERROR until they are done).
+`*` (monadic: e to the x; dyadic: power), `⍟` (monadic: natural logarithm; dyadic: logarithm to a base) `○` (pi times; the circle functions) and `!` (factorial; binomial). Both give FLOAT.
+The glyph `⍟` is pound `*`, `○` pound `o` (`?` is reserved: token `$9e`, NONCE ERROR until it is done).
 float24 has a 16-bit significand, so each function is a short program of `+ - × ÷` on it, run by a small interpreter
 (`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 1.6 KB): an accumulator, eight float slots, an integer
 register and two-byte instructions (an opcode and a constant, slot, count or bit; `IFLT` and `IFGE` run the next n instructions
@@ -479,6 +479,11 @@ powers are exact).
   `2 atan √((1-x)/(1+x))`. The interpreter's `CALL` runs another program (shared slots and integer register; a caller keeps what it needs in
   slots 6 and up) and `DOMERR` raises DOMAIN ERROR. Accuracy against the real functions: sin and cos within 1.3, tan 3.5, atan 1.7, asin 2.3,
   acos 3.4 units of 2^-16 (absolute for the first four, relative for tan and acos).
+- **!**: monadic `!n` is the factorial of a whole number from 0 (the product overflows float24 above 33: DOMAIN ERROR); dyadic `a!b` is the
+  number of ways to choose `a` things from `b` (0 if `a` is above `b`), computed a step at a time as `r×(b-k+i)÷i`, `k` the smaller of
+  `a` and `b-a`, so it is whole at every step (exact when the numbers stay under 65536). Both take whole numbers from 0 to 65535 only; the
+  gamma function (non-whole and negative arguments) is not done: DOMAIN ERROR. The kernels are the overlay `asm/fact.inc` (550 bytes), which
+  the engine loads for operations 20 and 24 instead of the numeric one.
 - They are scalar functions in the engine (operations 17 to 24; the kernels are in the overlay, loaded when the engine sets up an
   operation), so they work on arrays and in outer product (`(⍳5)∘.*2`); reduce, scan and inner product do not take them (NONCE ERROR:
   the kernels' overlay cannot be loaded while the inner product's is running).

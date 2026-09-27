@@ -799,9 +799,9 @@ mode_sth: .byte >st_i, >st_f, >st_b, >st_b, >st_b
 kint_l: .byte <k_iadd, <k_isub, <k_imul, <k_iadd, <k_imax, <k_imin, <k_ires, <k_iabs
 kint_h: .byte >k_iadd, >k_isub, >k_imul, >k_iadd, >k_imax, >k_imin, >k_ires, >k_iabs
 kflt_l: .byte <k_fadd, <k_fsub, <k_fmul, <k_fdiv, <k_fmax, <k_fmin, <k_fres, <k_fabs, <sd_nop, <sd_nop, <sd_nop
-        .byte <k_fpow, <k_flog, <k_fcircle, <k_fnonce, <k_fexp, <k_fln, <k_fpimul, <k_fnonce
+        .byte <k_fpow, <k_flog, <k_fcircle, <k_fbinom, <k_fexp, <k_fln, <k_fpimul, <k_ffact
 kflt_h: .byte >k_fadd, >k_fsub, >k_fmul, >k_fdiv, >k_fmax, >k_fmin, >k_fres, >k_fabs, >sd_nop, >sd_nop, >sd_nop
-        .byte >k_fpow, >k_flog, >k_fcircle, >k_fnonce, >k_fexp, >k_fln, >k_fpimul, >k_fnonce
+        .byte >k_fpow, >k_flog, >k_fcircle, >k_fbinom, >k_fexp, >k_fln, >k_fpimul, >k_ffact
 lai_l:  .byte <la_bool_i, <sd_nop, <la_int_i, <sd_nop
 lai_h:  .byte >la_bool_i, >sd_nop, >la_int_i, >sd_nop
 laf_l:  .byte <la_bool_f, <sd_nop, <la_int_f, <la_flt
@@ -1179,7 +1179,14 @@ ty_mf:  lda sdta                ; the numeric functions (17 and up): FLOAT, and 
         lda sdtb
         cmp #1
         beq ty_dom
-        lda #OVID_MATH
+        ldx #OVID_MATH          ; ! (20 and 24) has an overlay of its own
+        lda sdop
+        cmp #20
+        beq ty_f1
+        cmp #24
+        bne ty_f2
+ty_f1:  ldx #OVID_FACT
+ty_f2:  txa
         jsr ov_ensure
         bcs ty_ret
         jmp ty_flt
@@ -1288,6 +1295,9 @@ p_mln:  lda #0
         jmp mo_const
 p_mpi:  lda #0
         ldx #23
+        jmp mo_const
+p_mfact: lda #0
+        ldx #24
         jmp mo_const
 
 ; --- monadic ×: signum, always INT ----------------------------------------------------------------

@@ -1276,6 +1276,8 @@ apply_mon:
         beq am_ln
         cmp #28
         beq am_pi
+        cmp #29
+        beq am_fact
         lda #E_NONCE
         sec
         rts
@@ -1283,6 +1285,7 @@ am_tr:  jmp s_transpose
 am_exp: jmp p_mexp
 am_ln:  jmp p_mln
 am_pi:  jmp p_mpi
+am_fact: jmp p_mfact
 am_ceil: jmp s_ceil
 am_floor: jmp s_floor
 am_abs: jmp p_abs

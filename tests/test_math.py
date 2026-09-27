@@ -166,6 +166,40 @@ def test_circle():
     print("math: 600 random circle function cases match the model")
 
 
+def test_factorial():
+    from apl64 import f_fact, f_binom
+    for n in range(0, 9):
+        assert f_fact(F(n)) == F(math.factorial(n)), n
+    for n in range(0, 25):
+        for k in range(0, n + 1):
+            got = V(f_binom(F(k), F(n)))
+            assert abs(got - math.comb(n, k)) <= math.comb(n, k) * 3e-5 * (1 + k), (k, n, got)
+    for n in range(0, 17):
+        for k in range(0, n + 1):
+            if math.comb(n, k) < 65536 and n <= 13:
+                assert f_binom(F(k), F(n)) == F(math.comb(n, k)), (k, n)
+    s = Session()
+    kinds = {}
+    n = 0
+    vals = ["0", "1", "2", "3", "5", "10", "20", "33", "34", "100", "1000", "32767", "32768", "65535", "65536", "¯1", "¯5", "0.5", "2.5", "1e10", "7.0", "'a'", "⍬", "1 2 3", "(2 2⍴0 1 2 3)"]
+    for a in vals:
+        for line in [f"!{a}"] + [f"{a}!{b}" for b in vals]:
+            if n % 30 == 0:
+                s.reset()
+            r = check(s, line)
+            kinds[r] = kinds.get(r, 0) + 1
+            n += 1
+    rng = random.Random(3)
+    for i in range(300):
+        if i % 30 == 0:
+            s.reset()
+        b = rng.choice([rng.randint(0, 40), rng.randint(0, 300), rng.randint(0, 32767), rng.choice([65535, 65536])])
+        a = rng.choice([rng.randint(0, 10), rng.randint(0, b if b < 40 else 40), rng.randint(0, 300)])
+        check(s, f"{a}!{b}")
+        n += 1
+    print(f"math: factorial and binomial: exact for small values; {n} cases match the model {dict(sorted(kinds.items()))}")
+
+
 def test_random():
     rng = random.Random(7)
     s = Session()
@@ -290,6 +324,7 @@ if __name__ == "__main__":
     test_accuracy()
     test_circle_accuracy()
     test_circle()
+    test_factorial()
     test_interpreter()
     test_syntax()
     test_scalar_pool()

@@ -947,6 +947,36 @@ def f_log(a, b):
     return f_div(f_ln(b), f_ln(a))
 
 
+def _whole_nonneg(x):
+    """x as a whole number from 0 to 65535, else DOMAIN ERROR."""
+    n = f_whole(x)
+    if n is None or not 0 <= n <= 65535:
+        raise AplError('DOMAIN ERROR')
+    return n
+
+
+def f_fact(x):
+    """x! for a whole x from 0 (its product overflows float24 above 33, which is DOMAIN ERROR)."""
+    n = _whole_nonneg(x)
+    r = ONE
+    for i in range(2, n + 1):
+        r = f_mul(r, f_from_int(i))
+    return r
+
+
+def f_binom(a, b):
+    """a!b, the number of ways to choose a things from b: whole numbers from 0, 0 if a is above b.  The product
+    r*(b-k+i)/i is taken a step at a time (k = the smaller of a and b-a), so it is a whole number at every step."""
+    na, nb = _whole_nonneg(a), _whole_nonneg(b)
+    if na > nb:
+        return 0
+    k = min(na, nb - na)
+    r = ONE
+    for i in range(1, k + 1):
+        r = f_div(f_mul(r, f_from_int(nb - k + i)), f_from_int(i))
+    return r
+
+
 def f_pi_times(x):
     return f_mul(x, _k('pi'))
 
@@ -1489,8 +1519,9 @@ for _g, _m in (('*', f_exp), ('⍟', f_ln)):
                  (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
 _DY['○'] = _float_fn2(f_circle)
 PRIMS['○'] = (lambda v: monadic_scalar(_float_fn1(f_pi_times), v), lambda a, b: dyadic_scalar(_DY['○'], a, b))
-for _g in '!?':
-    PRIMS[_g] = (_nonce, _nonce)
+_DY['!'] = _float_fn2(f_binom)
+PRIMS['!'] = (lambda v: monadic_scalar(_float_fn1(f_fact), v), lambda a, b: dyadic_scalar(_DY['!'], a, b))
+PRIMS['?'] = (_nonce, _nonce)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
@@ -2448,7 +2479,7 @@ def selftest():
         ('+/[1]A', '95'),
         ('*0', '1'), ('*1', '2.718'), ('*¯1', '0.3679'), ('*89', '!DOMAIN ERROR'), ('*¯200', '0'), ('⍟1', '0'), ('⍟¯1', '!DOMAIN ERROR'), ('⍟0', '!DOMAIN ERROR'), ('⍟10', '2.303'),
         ('2*10', '1024'), ('2*¯1', '0.5'), ('0*0', '1'), ('0*¯1', '!DOMAIN ERROR'), ('¯2*3', '¯8'), ('¯2*0.5', '!DOMAIN ERROR'), ('16*0.5', '4'), ('2⍟8', '3'), ('1⍟5', '!DOMAIN ERROR'),
-        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'), ('!1', '!NONCE ERROR'),
+        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'), ('!5', '120'), ('!0', '1'), ('!34', '!DOMAIN ERROR'), ('!2.5', '!DOMAIN ERROR'), ('!¯1', '!DOMAIN ERROR'), ('2!5', '10'), ('6!5', '0'), ('0!0', '1'), ('(⍳4)∘.!⍳4', '1 2 3 4|0 1 3 6|0 0 1 4|0 0 0 1'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
         ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '1 2 3'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),
