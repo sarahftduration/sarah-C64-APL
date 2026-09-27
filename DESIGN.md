@@ -454,7 +454,7 @@ NONCE ERROR. The evaluator marks the function as an outer product by adding `$60
 `*` (monadic: e to the x; dyadic: power), `⍟` (monadic: natural logarithm; dyadic: logarithm to a base) `○` (pi times; the circle functions) and `!` (factorial; binomial). Both give FLOAT.
 The glyph `⍟` is pound `*`, `○` pound `o` (`?` is token `$9e`: see Random numbers).
 float24 has a 16-bit significand, so each function is a short program of `+ - × ÷` on it, run by a small interpreter
-(`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 1.6 KB): an accumulator, eight float slots, an integer
+(`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 2.5 KB): an accumulator, twelve float slots, an integer
 register and two-byte instructions (an opcode and a constant, slot, count or bit; `IFLT` and `IFGE` run the next n instructions
 only if the accumulator is below / not below a constant). The programs and constants are data in `apl64.py` (`MATH_PROGS`,
 `MATH_CONSTS`); `tools/gen_math.py` writes them as `asm/mathprog.inc` and `tests/test_math.py` checks that it is not stale.
@@ -471,14 +471,32 @@ powers are exact).
   repeated squaring (`2*10` is exactly 1024), reciprocal for negative `b`, and works for negative `a`; other `b` need `a > 0`
   (DOMAIN ERROR otherwise) and give `exp(b ln a)`. **a⍟b** is `ln b ÷ ln a`.
 - **○**: monadic `○x` is `π×x`; dyadic `k○x` takes `k` a whole number from -7 to 7 (DOMAIN ERROR otherwise) and gives `0` √(1-x²), `1` sin,
-  `2` cos, `3` tan, `4` √(1+x²), `¯1` asin, `¯2` acos, `¯3` atan; the hyperbolic ones (5 to 7, ¯4 to ¯7) are NONCE ERROR. Trigonometry
-  reduces `x` by `k = round(2x/π)` (π/2 in three pieces, the first two of 8 bits so `k×piece` is exact for `|k| ≤ 255`, that is `|x|` up to
-  about 400; beyond that `x` itself has too few bits to mean much, and `|x|` above about 51,000 is DOMAIN ERROR), polynomials for sin r and
+  `2` cos, `3` tan, `4` √(1+x²), `5` sinh, `6` cosh, `7` tanh, `¯1` asin, `¯2` acos, `¯3` atan, `¯4` √(x²-1), `¯5` asinh, `¯6` acosh, `¯7` atanh.
+  Trigonometry reduces `x` by `k = round(2x/π)` (π/2 in three pieces, the first two of 8 bits so `k×piece` is exact for `|k| ≤ 255`, that is `|x|`
+  up to about 400; beyond that `x` itself has too few bits to mean much, and `|x|` above about 51,000 is DOMAIN ERROR), polynomials for sin r and
   cos r, and the quadrant `k & 3` chooses which and the sign. atan works on `|x|`, inverted if it is 1 or more, then `(a-1)/(a+1)` with π/4 added
   above tan(π/8), then a series; asin is `atan(x/√((1-|x|)(1+|x|)))` (|x| > 1 is DOMAIN ERROR, |x| = 1 is ±π/2) and acos is
   `2 atan √((1-x)/(1+x))`. The interpreter's `CALL` runs another program (shared slots and integer register; a caller keeps what it needs in
-  slots 6 and up) and `DOMERR` raises DOMAIN ERROR. Accuracy against the real functions: sin and cos within 1.3, tan 3.5, atan 1.7, asin 2.3,
-  acos 3.4 units of 2^-16 (absolute for the first four, relative for tan and acos).
+  slots 6 and up, past whatever the program it is about to call uses itself — the same rule a stack frame would enforce, and easy to get
+  wrong silently: nothing marks a slot as "in use", so a collision just computes the wrong answer, never an error) and `DOMERR` raises
+  DOMAIN ERROR. Accuracy against the real functions: sin and cos within 1.3, tan 3.5, atan 1.7, asin 2.3, acos 3.4 units of 2^-16 (absolute
+  for the first four, relative for tan and acos).
+- **the hyperbolic functions** (`sinh cosh tanh asinh acosh atanh`, and monadic `¯4○`): `sinh`/`cosh` are `(e^x ∓ e^-x)/2` above `|x| = 0.5`
+  (reusing `EXP`, so they overflow on the same DOMAIN ERROR boundary exp itself does, around `|x|` in the high 80s) and the ordinary Taylor
+  series in `x²` below it — `e^x` and `e^-x` are both close to 1 there, so the subtraction (or, for cosh, the /2 that throws away what
+  `e^-x` added back) cancels away most of float24's precision, where the series (odd terms for sinh, even for cosh, reusing `EXP`'s own
+  `c1..c7 = 1/i!`) is exact well past it. `tanh` is `sinh x ÷ cosh x` (the /2 in each cancels exactly, being a power of two). `¯4○` (`√(x²-1)`,
+  `|x| < 1` DOMAIN ERROR) mirrors `0○`'s `√(1-x²)`, factored the same way; `acosh` is `ln(x + √(x²-1))`, `x ≥ 1` DOMAIN ERROR otherwise — no
+  small-`x` trap here, since `√(x²-1)` is itself small near `x = 1`, not swallowed by adding it to `x`. `asinh` and `atanh` have the same
+  small-argument trap as sinh/cosh (`ln(x + √(x²+1))` adds `x` to something that has already rounded away anything smaller than it, and
+  `(1+x)/(1-x)` does the same to both sides of the ratio before it is ever divided): below `|x| = 0.5`, `atanh` uses the series in `x²`
+  reusing `ATAN`'s own `third fifth seventh ninth = 1/3 1/5 1/7 1/9`, and `asinh` is `atanh(x / √(x²+1))` (dividing `x` by something close to
+  1 keeps all of it, where adding does not). At or above half, `asinh` goes back to `ln(|x| + √(x²+1))`, always adding two positives — never
+  the near-cancellation `ln(x + √(x²+1))` has for a large negative `x`, where `√(x²+1)` is close to `-x` — negated at the end since asinh is
+  odd. `acosh` and `atanh` diverge at their domain's edge (the derivative going to infinity as `x → 1` or `|x| → 1`), so their accuracy
+  necessarily gets worse right there: a float24 input a few units off the true `x` is a much bigger error in the result, not a defect in
+  the algorithm. Accuracy: sinh, cosh, tanh, asinh and `¯4○` within 10 units of 2^-16 away from their singularity (sinh/cosh inherit exp's
+  own ceiling approaching DOMAIN ERROR); acosh and atanh within 10 except right at their domain's edge.
 - **!**: monadic `!n` is the factorial of a whole number from 0 (the product overflows float24 above 33: DOMAIN ERROR); dyadic `a!b` is the
   number of ways to choose `a` things from `b` (0 if `a` is above `b`), computed a step at a time as `r×(b-k+i)÷i`, `k` the smaller of
   `a` and `b-a`, so it is whole at every step (exact when the numbers stay under 65536). Both take whole numbers from 0 to 65535 only; the

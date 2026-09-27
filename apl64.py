@@ -710,7 +710,8 @@ for _i in (3, 5, 7, 9, 11, 13):
     _mconst('at%d' % _i, (-1) ** ((_i - 1) // 2) / _i)
 
 
-MATH_PROG_NAMES = ['EXP', 'LN', 'SQRT', 'TRIG', 'SINTAIL', 'COSTAIL', 'SIN', 'COS', 'TAN', 'ATAN', 'ASIN', 'ACOS', 'CIRC0', 'CIRC4']
+MATH_PROG_NAMES = ['EXP', 'LN', 'SQRT', 'TRIG', 'SINTAIL', 'COSTAIL', 'SIN', 'COS', 'TAN', 'ATAN', 'ASIN', 'ACOS', 'CIRC0', 'CIRC4',
+                    'SINH', 'COSH', 'TANH', 'CIRCM4', 'ASINH', 'ACOSH', 'ATANH']
 
 
 def _asm(*ops):
@@ -789,6 +790,49 @@ MATH_PROGS = {
                   ('RSUBK', 'one'), ('STS', 8), ('LDS', 7), ('ADDK', 'one'), ('MULS', 8),
                   ('IFLT', 'tiny', 1), ('END',), ('CALL', 'SQRT'), ('END',)),
     'CIRC4': _asm(('STS', 7), ('MULS', 7), ('ADDK', 'one'), ('CALL', 'SQRT'), ('END',)),
+    # sinh x = (e^x - e^-x)/2, cosh x = (e^x + e^-x)/2: e^x and e^-x are both close to 1 for a small x, so the
+    # subtraction (sinh) or the /2 losing what e^-x added back (cosh) cancels away most of the precision; below
+    # half, the ordinary Taylor series in x^2 (odd terms for sinh, even for cosh, reusing EXP's own c1..c7 =
+    # 1/i!) is exact to well past float24's precision instead. Slots 6-9 (not 0-2, which EXP itself uses): what
+    # is stored across a CALL must live outside every slot the called program touches, the same rule a stack
+    # frame would enforce for itself.
+    'SINH': _asm(('STS', 9), ('ABS',), ('IFLT', 'half', 12),
+                 ('LDS', 9), ('MULS', 9), ('STS', 8), ('LDK', 'c7'), ('MULS', 8), ('ADDK', 'c5'), ('MULS', 8),
+                 ('ADDK', 'c3'), ('MULS', 8), ('ADDK', 'one'), ('MULS', 9), ('END',),
+                 ('LDS', 9), ('CALL', 'EXP'), ('STS', 7), ('LDS', 9), ('NEG',), ('CALL', 'EXP'),
+                 ('RSUBS', 7), ('MULK', 'half'), ('END',)),
+    'COSH': _asm(('STS', 9), ('ABS',), ('IFLT', 'half', 11),
+                 ('LDS', 9), ('MULS', 9), ('STS', 8), ('LDK', 'c6'), ('MULS', 8), ('ADDK', 'c4'), ('MULS', 8),
+                 ('ADDK', 'c2'), ('MULS', 8), ('ADDK', 'one'), ('END',),
+                 ('LDS', 9), ('CALL', 'EXP'), ('STS', 7), ('LDS', 9), ('NEG',), ('CALL', 'EXP'),
+                 ('ADDS', 7), ('MULK', 'half'), ('END',)),
+    # tanh x = sinh x / cosh x (the halves in each cancel exactly: *0.5 is a power of two, no rounding). Slots
+    # 10, 11: SINH and COSH themselves use 6-9, so TANH's own state has to live above that.
+    'TANH': _asm(('STS', 10), ('CALL', 'SINH'), ('STS', 11), ('LDS', 10), ('CALL', 'COSH'), ('STS', 10), ('LDS', 11), ('DIVS', 10), ('END',)),
+    # -4 circle x = sqrt(x^2 - 1), |x| >= 1 (DOMAIN ERROR otherwise); (|x|-1)(|x|+1) = x^2-1, as CIRC0 factors 1-x^2
+    'CIRCM4': _asm(('ABS',), ('STS', 7), ('IFLT', 'one', 1), ('DOMERR',),
+                   ('SUBK', 'one'), ('STS', 8), ('LDS', 7), ('ADDK', 'one'), ('MULS', 8),
+                   ('IFLT', 'tiny', 1), ('END',), ('CALL', 'SQRT'), ('END',)),
+    # asinh x: below half, atanh(x / sqrt(x^2+1)) (dividing x by something close to 1 keeps all of x's
+    # precision, where ln(x + sqrt(x^2+1)) would add x to something that has already rounded away everything
+    # smaller than it); at or above half, ln(|x| + sqrt(x^2+1)) - always adding two positives, never the
+    # near-cancellation ln(x + sqrt(x^2+1)) has for a large negative x, where sqrt(x^2+1) is close to -x -
+    # negated back at the end (asinh is odd) using the sign bit still in slot 9, untouched by CIRC4 or LN
+    'ASINH': _asm(('STS', 9), ('ABS',), ('STS', 6), ('IFLT', 'half', 5),
+                  ('LDS', 9), ('CALL', 'CIRC4'), ('RDIVS', 9), ('CALL', 'ATANH'), ('END',),
+                  ('LDS', 6), ('CALL', 'CIRC4'), ('ADDS', 6), ('CALL', 'LN'), ('NEGS', 9), ('END',)),
+    # acosh x = ln(x + sqrt(x^2-1)), x >= 1 (DOMAIN ERROR otherwise, same bound CIRCM4 checks); no small-x
+    # trap here since sqrt(x^2-1) is itself small near x = 1, not swallowed by adding it to x
+    'ACOSH': _asm(('IFLT', 'one', 1), ('DOMERR',), ('STS', 6), ('CALL', 'CIRCM4'), ('ADDS', 6), ('CALL', 'LN'), ('END',)),
+    # atanh x = ln((1+x)/(1-x)) / 2, |x| < 1 (DOMAIN ERROR otherwise); below half the ordinary series in x^2
+    # avoids the same trap as asinh's (1+x and 1-x each round away a small x before the division ever runs),
+    # reusing third/fifth/seventh/ninth = 1/3, 1/5, 1/7, 1/9 (already defined for ATAN's own series)
+    'ATANH': _asm(('STS', 6), ('ABS',), ('IFGE', 'one', 1), ('DOMERR',), ('IFLT', 'half', 14),
+                  ('LDS', 6), ('MULS', 6), ('STS', 7),
+                  ('LDK', 'ninth'), ('MULS', 7), ('ADDK', 'seventh'), ('MULS', 7), ('ADDK', 'fifth'), ('MULS', 7),
+                  ('ADDK', 'third'), ('MULS', 7), ('ADDK', 'one'), ('MULS', 6), ('END',),
+                  ('LDS', 6), ('ADDK', 'one'), ('STS', 7), ('LDK', 'one'), ('SUBS', 6), ('RDIVS', 7),
+                  ('CALL', 'LN'), ('MULK', 'half'), ('END',)),
 }
 
 
@@ -1041,17 +1085,16 @@ def f_pi_times(x):
     return f_mul(x, _k('pi'))
 
 
-# k circle x: 0 sqrt(1-x^2), 1 sin, 2 cos, 3 tan, 4 sqrt(1+x^2), -1 asin, -2 acos, -3 atan (the hyperbolic ones,
-# 5 to 7 and -4 to -7, are NONCE ERROR; anything else is DOMAIN ERROR)
-CIRCLE_PROGS = {0: 'CIRC0', 1: 'SIN', 2: 'COS', 3: 'TAN', 4: 'CIRC4', -1: 'ASIN', -2: 'ACOS', -3: 'ATAN'}
+# k circle x: 0 sqrt(1-x^2), 1 sin, 2 cos, 3 tan, 4 sqrt(1+x^2), 5 sinh, 6 cosh, 7 tanh,
+# -1 asin, -2 acos, -3 atan, -4 sqrt(x^2-1), -5 asinh, -6 acosh, -7 atanh; anything outside -7..7 is DOMAIN ERROR
+CIRCLE_PROGS = {0: 'CIRC0', 1: 'SIN', 2: 'COS', 3: 'TAN', 4: 'CIRC4', 5: 'SINH', 6: 'COSH', 7: 'TANH',
+                -1: 'ASIN', -2: 'ACOS', -3: 'ATAN', -4: 'CIRCM4', -5: 'ASINH', -6: 'ACOSH', -7: 'ATANH'}
 
 
 def f_circle(k, x):
     n = f_whole(k)
     if n is None or not -7 <= n <= 7:
         raise AplError('DOMAIN ERROR')
-    if n not in CIRCLE_PROGS:
-        raise AplError('NONCE ERROR')
     return vm_run(MATH_PROGS[CIRCLE_PROGS[n]], x)
 
 
@@ -3042,7 +3085,7 @@ def selftest():
         ('+/[1]A', '95'),
         ('*0', '1'), ('*1', '2.718'), ('*¯1', '0.3679'), ('*89', '!DOMAIN ERROR'), ('*¯200', '0'), ('⍟1', '0'), ('⍟¯1', '!DOMAIN ERROR'), ('⍟0', '!DOMAIN ERROR'), ('⍟10', '2.303'),
         ('2*10', '1024'), ('2*¯1', '0.5'), ('0*0', '1'), ('0*¯1', '!DOMAIN ERROR'), ('¯2*3', '¯8'), ('¯2*0.5', '!DOMAIN ERROR'), ('16*0.5', '4'), ('2⍟8', '3'), ('1⍟5', '!DOMAIN ERROR'),
-        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '1'), ('?1 1 1', '1 1 1'), ('⍴?100⍴6', '100'), ('∧/(?100⍴6)∊⍳6', '1'), ('0?5', ''), ('1?1', '1'), ('+/3?3', '6'), ('?32768', '!DOMAIN ERROR'), ('5?3', '!DOMAIN ERROR'), ('1 2?5', '!LENGTH ERROR'), ('?¯1', '!DOMAIN ERROR'), ('⍴?0 5', '2'),
+        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '1.175'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '1'), ('?1 1 1', '1 1 1'), ('⍴?100⍴6', '100'), ('∧/(?100⍴6)∊⍳6', '1'), ('0?5', ''), ('1?1', '1'), ('+/3?3', '6'), ('?32768', '!DOMAIN ERROR'), ('5?3', '!DOMAIN ERROR'), ('1 2?5', '!LENGTH ERROR'), ('?¯1', '!DOMAIN ERROR'), ('⍴?0 5', '2'),
         ('!5', '120'), ('!0', '1'), ('!34', '!DOMAIN ERROR'), ('!2.5', '!DOMAIN ERROR'), ('!¯1', '!DOMAIN ERROR'), ('2!5', '10'), ('6!5', '0'), ('0!0', '1'), ('(⍳4)∘.!⍳4', '1 2 3 4|0 1 3 6|0 0 1 4|0 0 0 1'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),

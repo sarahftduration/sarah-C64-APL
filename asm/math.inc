@@ -591,17 +591,11 @@ kc_1:   lda fa,x
         bcs kc_dom
         lda mv_neg
         bmi kc_neg
-        lda mv_n                ; 0 to 4: the table index is k + 3
-        cmp #5
-        bcs kc_non
+        lda mv_n                ; 0 to 7: the table index is k + 7
         clc
-        adc #3
+        adc #7
         jmp kc_go
-kc_neg: lda mv_n                ; -1 to -3: 3 - the magnitude (-0 is 0)
-        cmp #4
-        bcs kc_non
-        sta mv_n
-        lda #3
+kc_neg: lda #7                  ; -1 to -7: 7 - the magnitude (-0 is 0)
         sec
         sbc mv_n
 kc_go:  tax
@@ -611,7 +605,6 @@ kc_go:  tax
         pla
         jmp mv_runi
 kc_dom: jmp mk_dom
-kc_non: jmp mk_nonce
 
 ; pi times fb
 k_fpimul:

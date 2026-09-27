@@ -365,10 +365,136 @@ mp_circ4:
         .byte 10, 0    ; ADDK one
         .byte 27, 2    ; CALL 2
         .byte 0, 0    ; END
+mp_sinh:
+        .byte 3, 9    ; STS 9
+        .byte 17, 0    ; ABS
+        .byte 44, 2    ; IFLT half, 12
+        .byte 2, 9    ; LDS 9
+        .byte 6, 9    ; MULS 9
+        .byte 3, 8    ; STS 8
+        .byte 1, 12    ; LDK c7
+        .byte 6, 8    ; MULS 8
+        .byte 10, 10    ; ADDK c5
+        .byte 6, 8    ; MULS 8
+        .byte 10, 8    ; ADDK c3
+        .byte 6, 8    ; MULS 8
+        .byte 10, 0    ; ADDK one
+        .byte 6, 9    ; MULS 9
+        .byte 0, 0    ; END
+        .byte 2, 9    ; LDS 9
+        .byte 27, 0    ; CALL
+        .byte 3, 7    ; STS 7
+        .byte 2, 9    ; LDS 9
+        .byte 16, 0    ; NEG
+        .byte 27, 0    ; CALL
+        .byte 8, 7    ; RSUBS 7
+        .byte 12, 2    ; MULK half
+        .byte 0, 0    ; END
+mp_cosh:
+        .byte 3, 9    ; STS 9
+        .byte 17, 0    ; ABS
+        .byte 43, 2    ; IFLT half, 11
+        .byte 2, 9    ; LDS 9
+        .byte 6, 9    ; MULS 9
+        .byte 3, 8    ; STS 8
+        .byte 1, 11    ; LDK c6
+        .byte 6, 8    ; MULS 8
+        .byte 10, 9    ; ADDK c4
+        .byte 6, 8    ; MULS 8
+        .byte 10, 7    ; ADDK c2
+        .byte 6, 8    ; MULS 8
+        .byte 10, 0    ; ADDK one
+        .byte 0, 0    ; END
+        .byte 2, 9    ; LDS 9
+        .byte 27, 0    ; CALL
+        .byte 3, 7    ; STS 7
+        .byte 2, 9    ; LDS 9
+        .byte 16, 0    ; NEG
+        .byte 27, 0    ; CALL
+        .byte 4, 7    ; ADDS 7
+        .byte 12, 2    ; MULK half
+        .byte 0, 0    ; END
+mp_tanh:
+        .byte 3, 10    ; STS 10
+        .byte 27, 14    ; CALL 14
+        .byte 3, 11    ; STS 11
+        .byte 2, 10    ; LDS 10
+        .byte 27, 15    ; CALL 15
+        .byte 3, 10    ; STS 10
+        .byte 2, 11    ; LDS 11
+        .byte 7, 10    ; DIVS 10
+        .byte 0, 0    ; END
+mp_circm4:
+        .byte 17, 0    ; ABS
+        .byte 3, 7    ; STS 7
+        .byte 33, 0    ; IFLT one, 1
+        .byte 28, 0    ; DOMERR
+        .byte 11, 0    ; SUBK one
+        .byte 3, 8    ; STS 8
+        .byte 2, 7    ; LDS 7
+        .byte 10, 0    ; ADDK one
+        .byte 6, 8    ; MULS 8
+        .byte 33, 23    ; IFLT tiny, 1
+        .byte 0, 0    ; END
+        .byte 27, 2    ; CALL 2
+        .byte 0, 0    ; END
+mp_asinh:
+        .byte 3, 9    ; STS 9
+        .byte 17, 0    ; ABS
+        .byte 3, 6    ; STS 6
+        .byte 37, 2    ; IFLT half, 5
+        .byte 2, 9    ; LDS 9
+        .byte 27, 13    ; CALL 13
+        .byte 9, 9    ; RDIVS 9
+        .byte 27, 20    ; CALL 20
+        .byte 0, 0    ; END
+        .byte 2, 6    ; LDS 6
+        .byte 27, 13    ; CALL 13
+        .byte 4, 6    ; ADDS 6
+        .byte 27, 1    ; CALL 1
+        .byte 25, 9    ; NEGS 9
+        .byte 0, 0    ; END
+mp_acosh:
+        .byte 33, 0    ; IFLT one, 1
+        .byte 28, 0    ; DOMERR
+        .byte 3, 6    ; STS 6
+        .byte 27, 17    ; CALL 17
+        .byte 4, 6    ; ADDS 6
+        .byte 27, 1    ; CALL 1
+        .byte 0, 0    ; END
+mp_atanh:
+        .byte 3, 6    ; STS 6
+        .byte 17, 0    ; ABS
+        .byte 49, 0    ; IFGE one, 1
+        .byte 28, 0    ; DOMERR
+        .byte 46, 2    ; IFLT half, 14
+        .byte 2, 6    ; LDS 6
+        .byte 6, 6    ; MULS 6
+        .byte 3, 7    ; STS 7
+        .byte 1, 17    ; LDK ninth
+        .byte 6, 7    ; MULS 7
+        .byte 10, 16    ; ADDK seventh
+        .byte 6, 7    ; MULS 7
+        .byte 10, 15    ; ADDK fifth
+        .byte 6, 7    ; MULS 7
+        .byte 10, 14    ; ADDK third
+        .byte 6, 7    ; MULS 7
+        .byte 10, 0    ; ADDK one
+        .byte 6, 6    ; MULS 6
+        .byte 0, 0    ; END
+        .byte 2, 6    ; LDS 6
+        .byte 10, 0    ; ADDK one
+        .byte 3, 7    ; STS 7
+        .byte 1, 0    ; LDK one
+        .byte 5, 6    ; SUBS 6
+        .byte 9, 7    ; RDIVS 7
+        .byte 27, 1    ; CALL 1
+        .byte 12, 2    ; MULK half
+        .byte 0, 0    ; END
 mv_tab:
         .word h_end, h_ldk, h_lds, h_sts, h_adds, h_subs, h_muls, h_divs, h_rsubs, h_rdivs, h_addk, h_subk, h_mulk, h_divk, h_rsubk, h_rdivk, h_neg, h_abs, h_frexp, h_itof, h_round, h_ldexp, h_decir, h_sarir, h_ifbit, h_negs, h_setir, h_call, h_domerr
 mv_progs:
-        .word mp_exp, mp_ln, mp_sqrt, mp_trig, mp_sintail, mp_costail, mp_sin, mp_cos, mp_tan, mp_atan, mp_asin, mp_acos, mp_circ0, mp_circ4
-; the programs of k circle x, indexed by k + 3 for k from -3 to 4
+        .word mp_exp, mp_ln, mp_sqrt, mp_trig, mp_sintail, mp_costail, mp_sin, mp_cos, mp_tan, mp_atan, mp_asin, mp_acos, mp_circ0, mp_circ4, mp_sinh, mp_cosh, mp_tanh, mp_circm4, mp_asinh, mp_acosh, mp_atanh
+; the programs of k circle x, indexed by k + 7 for k from -7 to 7
 mc_tab:
-        .byte 9, 11, 10, 12, 6, 7, 8, 13
+        .byte 20, 19, 18, 17, 9, 11, 10, 12, 6, 7, 8, 13, 14, 15, 16
