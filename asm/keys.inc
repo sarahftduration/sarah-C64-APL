@@ -18,6 +18,7 @@ dg_table:
         .byte $3d, $83
         .byte $3e, $89
         .byte $48, $97
+        .byte $4c, $a4
         .byte $5b, $91
         .byte $5c, $5c
         .byte $5d, $92

@@ -966,9 +966,58 @@ the REU and come back when they are next used, so a workspace can be much bigger
   with every block also moved at each allocation, all matching the model), and the real-VICE screen session, which holds seven 3 KB arrays in a 19 KB heap and asserts that
   some are in the REU at the end.
 
-Also planned later: graphics. A hires bitmap can live at `$E000` in VIC bank 3 (the RAM under the
-KERNAL, which the interpreter cannot use), with its colour map under the I/O area, so it costs no
-heap; the cost is drawing code and a way to call it from APL.
+## Graphics
+
+Done 2026-09-26: the multicolor bitmap (160 x 200, four values per pixel). The hires bitmap (320 x 200, two) is planned as
+a second mode of the same functions. Model: `apl64.py`, section Graphics; 6502: `asm/gfx.inc` (an overlay of 2.4 KB, so
+it needs an REU); tests: `tests/test_gfx.py` (py65 against the model, the picture compared byte for byte) and
+`tests/test_gfx_vice.py` (real VICE: registers, memory and a screenshot).
+
+**Where the picture lives.** The bitmap is the 8000 bytes at `$E000` (RAM under the KERNAL, in VIC bank 3, so it costs no
+heap); the CPU sees it only with `$01` bit 1 cleared and interrupts off, which the drawing loops do around themselves
+(`gq_ron`/`gq_roff`; `$01` is restored to what it was). Cell colours are the text screen's RAM (`$CC00`, 1000 bytes: the
+high nibble is the colour of pixel value 1, the low nibble that of value 2) and colour RAM (`$D800`, value 3); value 0 is
+the background (`$D021`, and the border follows it). `$D011` bit 5, `$D016` bit 4 and `$D018 = $38` switch the mode.
+The model keeps exactly these three byte arrays, and the tests compare them.
+
+**Text and graphics share the screen RAM**, so entering graphics mode (`⎕GR 1`) stashes the text screen in the REU
+(bank 0, `$E000`, above the overlay images: `ovimg.inc` checks that they end below it) and leaving puts it back and refills
+colour RAM with the text colour. While a picture is up (`gr_on` = $80) the screen driver ignores everything printed
+(`scr_put`), so no echo or message can damage the colours. The REPL, after each line, waits for a key if the line left
+a picture up (`gr_after`), then leaves graphics mode, and only then prints an error message. So a picture stays until a key
+is pressed, and several drawing statements must be on one line (with `⋄`) or in a function. (A split screen, with a
+few text lines under the picture, would need a raster interrupt: not done.)
+
+**The functions** (quad names, tokens `$A0` and up; the tokenizer takes `⎕` and up to four letters, either case, from
+`asm/quadnames.inc`, generated from `apl64.QUAD_NAMES`; on the keyboard `⎕` is pound then shifted L). None gives a
+value: like a function without a result, a call may only end a statement (`A←⎕GR 1`, `1+⎕INK 2` and `(⎕GR 1)` are VALUE
+ERROR); the evaluator drops the dummy result the overlay leaves (`qfin`).
+
+| call | does |
+|---|---|
+| `⎕GR 1` / `⎕GR 0` | picture on (cleared, palette `0 1 2 14`, ink 1) / back to text; other values DOMAIN |
+| `⎕PAL b c1 c2 c3` | the background and the three cell colours (0-15) of every cell |
+| `rows ⎕PAL c1 c2 c3` | the three cell colours of those cell rows (0-24), each of 40 cells: horizontal colour bands |
+| `⎕INK n` | the pixel value (0-3) the drawing functions use |
+| `x ⎕PLOT y` | points; x and y are vectors of the same length, or one may be a single number; off-screen points are skipped |
+| `(x0 y0) ⎕LINE (x1 y1)` | Bresenham's line, ends included; end points within ±4095 (DOMAIN otherwise: the arithmetic stays in 16 bits) |
+| `(x0 y0) ⎕BOX (x1 y1)` | the filled rectangle between two corners, clipped to the screen |
+| `⎕WAIT n` | n video frames (RUN/STOP ends it); 50 a second on a PAL machine |
+
+Coordinates are pixels from the top left, x 0-159, y 0-199. Numbers are floored (so `⌊` is not needed on computed
+coordinates) and saturate at the ends of the int16 range; CHAR arguments are DOMAIN. All but `⎕GR` and `⎕WAIT` need
+graphics mode (NO GRAPHICS, error 12). Checks run in a fixed order, which the model and the machine share: mode, CHAR
+arguments (right then left) DOMAIN, lengths LENGTH, then values DOMAIN.
+
+**Code.** `apply_mon`/`apply_dy` send tokens `$A0`-`$AF` to the overlay (`s_gfxm`/`s_gfxd`, function number in A); the
+routines are dispatched by pushing their addresses and `rts`. Arguments are read through `gq_elem` (int, bool or float
+element as a saturated int16; floats through the resident `flr_q`). Each pixel is set by `gq_pix` from a table of cell-row
+addresses. The overlay window grew from 2,216 to 2,472 bytes for it, and the resident additions took the heap from 19,112 to
+18,556 bytes.
+
+Reasons for the choices: floats need no `⌊` because demos compute coordinates all the time; `⎕PLOT` takes two vectors because
+`x y ⎕PLOT` with a matrix would need a reshape on every call; points off the screen are skipped, not errors, because a curve
+may leave the picture; lines are limited to ±4095 so the whole algorithm is 16 bit.
 
 ## Next steps
 

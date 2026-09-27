@@ -8,7 +8,7 @@ import apl64
 from harness import call, load
 
 ERR = {1: 'SYNTAX ERROR', 2: 'DOMAIN ERROR', 3: 'LIMIT ERROR', 4: 'NONCE ERROR',
-       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL', 9: 'INDEX ERROR', 10: 'INTERRUPT'}
+       5: 'VALUE ERROR', 6: 'RANK ERROR', 7: 'LENGTH ERROR', 8: 'WS FULL', 9: 'INDEX ERROR', 10: 'INTERRUPT', 12: 'NO GRAPHICS'}
 WIDTH = (1, 1, 2, 3)
 WS = 3000                      # per-array byte limit, in the model and on the 6502
 UNIMPLEMENTED = set()
@@ -38,6 +38,7 @@ class Session:
         if self.heap_size:
             self.word("hlim", self.L["HEAP_BASE"] + self.heap_size)
         self.model = apl64.Interp()
+        apl64.gfx_reset()
         self.seed(4242)
 
     def seed(self, n):
@@ -81,6 +82,25 @@ class Session:
         n = self.m.memory[self.L["symcnt"]] | self.m.memory[self.L["symcnt"] + 1] << 8
         return [self.cell_bytes(self.L["VARS"] + 4 * i) for i in range(n)]
 
+    def gfx_differences(self):
+        """What differs between the model's picture and the machine's (nothing, when both are in text mode)."""
+        m, L, g = self.m.memory, self.L, apl64.GFX
+        diffs = []
+        if m[L["gr_mode"]] != g.mode or (m[L["gr_on"]] == 0x80) != (g.mode != 0):
+            return [f"mode {m[L['gr_mode']]} (on {m[L['gr_on']]:02x}), model {g.mode}"]
+        if g.mode == 0:
+            return []
+        if m[L["gr_ink"]] != g.ink:
+            diffs.append(f"ink {m[L['gr_ink']]}, model {g.ink}")
+        if m[0xD021] != g.bg or m[0xD020] != g.bg:
+            diffs.append(f"background {m[0xD021]} border {m[0xD020]}, model {g.bg}")
+        for name, mem, want in (("bitmap", m[0xE000:0xE000 + 8000], g.bitmap), ("screen RAM", m[0xCC00:0xCC00 + 1000], g.scr),
+                                ("colour RAM", m[0xD800:0xD800 + 1000], g.col)):
+            if bytes(mem) != bytes(want):
+                bad = [i for i in range(len(want)) if mem[i] != want[i]]
+                diffs.append(f"{name}: {len(bad)} bytes differ, the first at {bad[0]} ({mem[bad[0]]:02x}, model {want[bad[0]]:02x})")
+        return diffs
+
     def run_model(self, line):
         try:
             return ('ok', b''.join(v.to_bytes() for v in self.model.run_values(line)))
@@ -117,6 +137,8 @@ def check(s, line):
     else:
         assert got == want, f"{line!r}\n  6502  {got[1].hex()}\n  model {want[1].hex()}"
     assert s.vars6502() == s.vars_model(), f"{line!r}: variables differ"
+    gfx_diff = s.gfx_differences()
+    assert not gfx_diff, f"{line!r}: the picture differs: {gfx_diff}"
     rs = sum(s.m.memory[s.L["rnd_state"] + i] << 8 * i for i in range(4))
     assert rs == apl64._RNG[0], f"{line!r}: the random number generator's state differs ({rs:08x}, model {apl64._RNG[0]:08x})"
     return got[1] if got[0] == 'err' else 'ok'

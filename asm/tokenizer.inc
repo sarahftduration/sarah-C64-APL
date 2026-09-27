@@ -92,7 +92,10 @@ m2:     lda INBUF,x
         jsr emit
         inc ip
         jmp main
-m3:     jsr isalpha
+m3:     cmp #$a4                ; ⎕: a quad function name follows
+        bne m3a
+        jmp quad
+m3a:    jsr isalpha
         bcc m4
         jmp name
 m4:     lda INBUF,x
@@ -176,6 +179,52 @@ inc1:   pla
         rts
 inc2:   clc
         rts
+
+; ⎕ and the letters after it: one of the quad function names (quadnames.inc, generated from the model), of at most four
+; letters in either case; the token is $A0 + the name's number
+quad:   inc ip
+        lda #0
+        ldx #3
+qnd0:    sta QNAME,x
+        dex
+        bpl qnd0
+        ldy #0
+qnd1:    ldx ip
+        lda INBUF,x
+        ora #$20
+        cmp #'a'
+        bcc qnd3
+        cmp #'z'+1
+        bcs qnd3
+        cpy #4
+        bcs qnd_bad
+        sta QNAME,y
+        iny
+        inc ip
+        jmp qnd1
+qnd3:    ldx #QUAD_COUNT-1
+qns1:    lda qcol0,x
+        cmp QNAME
+        bne qns_n
+        lda qcol1,x
+        cmp QNAME+1
+        bne qns_n
+        lda qcol2,x
+        cmp QNAME+2
+        bne qns_n
+        lda qcol3,x
+        cmp QNAME+3
+        beq qns_y
+qns_n:   dex
+        bpl qns1
+qnd_bad: jmp err_syn
+qns_y:   txa
+        clc
+        adc #$a0
+        jsr emit
+        jmp main
+
+        .include "quadnames.inc"
 
 ; A = char. Carry set and A = token if it is a one-glyph token.
 tokfind:

@@ -33,7 +33,7 @@ def test_loads_and_starts():
     _, L = load("eval")
     image = open("build/eval.bin", "rb").read()
     end = L["ORG"] + len(image) - 1
-    _, files = run_vice(['registers', f'save "{{DIR}}/mem.bin" 0 {L["ORG"]:04x} {end:04x}'], hex(L["start"]))
+    _, files = run_vice(['bank ram', 'registers', f'save "{{DIR}}/mem.bin" 0 {L["ORG"]:04x} {end:04x}'], hex(L["start"]))
     mem = files["mem.bin"]
     assert mem[:2] == bytes([L["ORG"] & 0xFF, L["ORG"] >> 8]), "VICE saved with an unexpected header"
     assert mem[2:] == image, "the RAM VICE ran differs from the assembled image"

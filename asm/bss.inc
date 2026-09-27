@@ -77,6 +77,7 @@ FNPFX   .fill 4
 CMDBUF  .fill 12                ; system command name
 WSNAME  .fill 20                ; workspace name: length, then up to 16 characters
 NAMETMP .fill 20                ; a name being checked
+QNAME   .fill 4                 ; the quad function name being tokenized
 defmode = FV                    ; a function is being defined
 deffn   = FV+1                  ; its symbol
 defh    = FV+2                  ; the handle of its block, which is the last one in the heap
@@ -142,7 +143,7 @@ lw      = STV+61
 osa     = STV+62                ; secondary address for open_sa
 lcnt    = STV+63                ; )LIB: lines listed on this page
 FV      .fill 80                ; user-defined functions: definition and call state (see funcs.inc)
-OVWIN_SIZE = 2216               ; the overlay window: as big as the biggest overlay (checked in ovimg.inc)
+OVWIN_SIZE = 2472               ; the overlay window: as big as the biggest overlay (checked in ovimg.inc)
 OVWIN   .fill OVWIN_SIZE
 HEAP_BASE = *
         .endv

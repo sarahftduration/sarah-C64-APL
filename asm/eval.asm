@@ -91,6 +91,9 @@ echov   = WS+$fa
 ev_pg   = WS+$fe
 
 eval_init:
+        lda #0
+        sta gr_on
+        sta gr_mode
         jsr heap_init
         lda #<echo_none
         sta echov
@@ -412,8 +415,9 @@ op4:    jmp ev_syn
 ; and then carry on with the kind saved in the index frame below.
 cont:   lda ev_pkind
         and #$8f                ; (without the axis flags)
-        beq ct_init
-        cmp #K_LEFT
+        bne ct_c0
+        jmp evloop
+ct_c0:  cmp #K_LEFT
         beq ct_left
         cmp #K_AXIS
         beq ct_ax
@@ -464,6 +468,10 @@ ctl_go: lda ev_pfn
         jsr apply_dy
         bcc *+3
         rts
+        lda ev_pfn
+        jsr qfin
+        bcc *+3
+        rts
         jmp axfin
 ct_init:
         jmp evloop
@@ -480,6 +488,32 @@ ct_ax1: txa
         rts
         stx ev_axn
         jmp evloop
+
+; A = the function just applied. A quad function gives no value: its dummy result is dropped, and nothing may be
+; waiting for the value (so the statement ends here), else VALUE ERROR. Carry set: A = the error.
+qfin:   cmp #$a0
+        bcc qf_no
+        cmp #$b0
+        bcs qf_no
+        sec
+        lda vsp
+        sbc #4
+        sta vsp
+        lda vsp+1
+        sbc #0
+        sta vsp+1
+        lda ev_i1
+        cmp ev_lo
+        bne qf_val
+        lda ev_fsp
+        bne qf_val
+        lda #1
+        sta ev_nv
+qf_no:  clc
+        rts
+qf_val: lda #E_VALUE
+        sec
+        rts
 
 ; a function that took an axis: put a transposed result back the right way round
 axfin:  lda ev_axc
@@ -782,6 +816,10 @@ rf_m2:  lda ev_tok
 rf_m1:  cmp #$c0
         bcs rf_red
         jsr apply_mon
+        bcc *+3
+        rts
+        lda ev_tok
+        jsr qfin
         bcc *+3
         rts
         jmp axfin
@@ -1241,6 +1279,11 @@ plx:    rts
 apply_mon:
         sec
         sbc #$80
+        cmp #32                 ; the quad functions, tokens $A0 to $AF
+        bcc am_0
+        cmp #48
+        bcc am_q
+am_0:   cmp #0
         beq am_plus
         cmp #10
         beq am_iota
@@ -1283,6 +1326,9 @@ apply_mon:
         lda #E_NONCE
         sec
         rts
+am_q:   sec
+        sbc #32
+        jmp s_gfxm
 am_tr:  jmp s_transpose
 am_exp: jmp p_mexp
 am_ln:  jmp p_mln
@@ -1329,7 +1375,13 @@ ad_o2:  sec
 ad_o1:  jmp p_outer
 ad_std: sec
         sbc #$80
-        cmp #10
+        cmp #32                 ; the quad functions
+        bcc ad_s1
+        cmp #48
+        bcs ad_s1
+        sbc #31                 ; (carry is clear: 32 less)
+        jmp s_gfxd
+ad_s1:  cmp #10
         bcc ad_sd
         beq ad_iof
         cmp #11

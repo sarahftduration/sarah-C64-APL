@@ -264,7 +264,10 @@ scr_home:
         rts
 
 scr_put:
-        cmp #CHNL
+        bit gr_on               ; a picture is up: screen RAM holds its colours
+        bpl sp0
+        rts
+sp0:    cmp #CHNL
         beq scr_nl
         ldy #0
         sta (scrp),y
@@ -357,7 +360,7 @@ print_z:
         jmp print_z
 pz2:    rts
 
-; A = error code 1..11: print its name and a newline
+; A = error code 1..12: print its name and a newline
 print_error:
         sec
         sbc #1
@@ -371,7 +374,7 @@ print_error:
         lda #CHNL
         jmp scr_put
 
-errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9, err10, err11
+errtab: .word err1, err2, err3, err4, err5, err6, err7, err8, err9, err10, err11, err12
 err1:   .text "SYNTAX ERROR"
         .byte 0
 err2:   .text "DOMAIN ERROR"
@@ -393,6 +396,8 @@ err9:   .text "INDEX ERROR"
 err10:  .text "INTERRUPT"
         .byte 0
 err11:  .text "NO REU"
+        .byte 0
+err12:  .text "NO GRAPHICS"
         .byte 0
 msg_noreu: .text "NO REU: LIMITED FEATURES"
         .byte 0
@@ -483,11 +488,19 @@ script_getkey:
         sta mp+1
         ldy #0
         lda (mp),y
-        beq selftest_done
+        beq script_end
         inc ksp
         bne sg9
         inc ksp+1
 sg9:    rts
+script_end:                     ; the keys are used up: let the VIC-II draw some whole frames (the tests take screenshots), then stop
+        ldy #0
+        ldx #0
+se1:    dex
+        bne se1
+        dey
+        bne se1
+        jmp selftest_done
         .if !SELFTEST
 selftest_done:
         jmp selftest_done

@@ -2,7 +2,7 @@ PY    := .venv/bin/python
 ASM   := 64tass -D SELFTEST=0 -D KEYTEST=0
 SRCS  := $(wildcard asm/*.asm)
 BINS  := $(SRCS:asm/%.asm=build/%.bin)
-INCS  := asm/pow10.inc asm/glyphs.inc asm/keys.inc $(wildcard asm/*.inc)
+INCS  := asm/pow10.inc asm/glyphs.inc asm/keys.inc asm/quadnames.inc $(wildcard asm/*.inc)
 
 .PHONY: all test test-serial timed-test model-test clean prg
 all: $(BINS)
@@ -15,6 +15,9 @@ asm/glyphs.inc: tools/gen_glyphs.py tools/glyphs.py
 
 asm/mathprog.inc: tools/gen_math.py apl64.py
 	python3 tools/gen_math.py > $@
+
+asm/quadnames.inc: tools/gen_quad.py apl64.py
+	python3 tools/gen_quad.py > $@
 
 asm/keys.inc: tools/gen_keys.py tools/keys.py
 	python3 tools/gen_keys.py > $@

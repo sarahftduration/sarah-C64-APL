@@ -26,8 +26,14 @@ OVID_TRANSP = 10
 OVID_MATH = 11
 OVID_FACT = 12
 OVID_RAND = 13
+OVID_GFX  = 14
 
 E_NOREU   = 11
+E_NOGR    = 12
+
+gr_on:   .byte 0                ; $80 while a picture is up: the screen driver keeps out of screen RAM (gfx.inc)
+gr_mode: .byte 0                ; 0 text, 1 multicolor
+gr_ink:  .byte 1                ; the pixel value ⎕PLOT, ⎕LINE and ⎕BOX draw with
 
 rnd_state: .byte $91, $f4, $45, $25   ; the random number generator's state (rand.inc; seeded at start-up, and by )SEED)
 ov_cur:  .byte 0                ; the overlay in the window, 0 for none
@@ -69,6 +75,9 @@ s_floor: .ovstub p_floor, OVID_FLOOR
 s_inner: .ovstub p_inner, OVID_INNER
 s_roll: .ovstub p_roll, OVID_RAND
 s_deal: .ovstub p_deal, OVID_RAND
+s_gfxm: .ovstub p_gfxm, OVID_GFX
+s_gfxd: .ovstub p_gfxd, OVID_GFX
+s_grexit: .ovstub p_grexit, OVID_GFX
 
 ov_call:
         sta ov_sa
@@ -141,7 +150,7 @@ ov_init:
         jmp reu_stash
 
 ; where each image is in the REU, and how long it is; indexed by id
-ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG), <(OVP_SEARCH-OVL_IMG), <(OVP_RESHAPE-OVL_IMG), <(OVP_REPL-OVL_IMG), <(OVP_FDEF-OVL_IMG), <(OVP_FLOOR-OVL_IMG), <(OVP_INNER-OVL_IMG), <(OVP_CATM-OVL_IMG), <(OVP_TRANSP-OVL_IMG), <(OVP_MATH-OVL_IMG), <(OVP_FACT-OVL_IMG), <(OVP_RAND-OVL_IMG)
-ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG), >(OVP_SEARCH-OVL_IMG), >(OVP_RESHAPE-OVL_IMG), >(OVP_REPL-OVL_IMG), >(OVP_FDEF-OVL_IMG), >(OVP_FLOOR-OVL_IMG), >(OVP_INNER-OVL_IMG), >(OVP_CATM-OVL_IMG), >(OVP_TRANSP-OVL_IMG), >(OVP_MATH-OVL_IMG), >(OVP_FACT-OVL_IMG), >(OVP_RAND-OVL_IMG)
-ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK, <OVN_SEARCH, <OVN_RESHAPE, <OVN_REPL, <OVN_FDEF, <OVN_FLOOR, <OVN_INNER, <OVN_CATM, <OVN_TRANSP, <OVN_MATH, <OVN_FACT, <OVN_RAND
-ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK, >OVN_SEARCH, >OVN_RESHAPE, >OVN_REPL, >OVN_FDEF, >OVN_FLOOR, >OVN_INNER, >OVN_CATM, >OVN_TRANSP, >OVN_MATH, >OVN_FACT, >OVN_RAND
+ov_off_lo: .byte 0, <(OVP_SYS-OVL_IMG), <(OVP_DISK-OVL_IMG), <(OVP_SEARCH-OVL_IMG), <(OVP_RESHAPE-OVL_IMG), <(OVP_REPL-OVL_IMG), <(OVP_FDEF-OVL_IMG), <(OVP_FLOOR-OVL_IMG), <(OVP_INNER-OVL_IMG), <(OVP_CATM-OVL_IMG), <(OVP_TRANSP-OVL_IMG), <(OVP_MATH-OVL_IMG), <(OVP_FACT-OVL_IMG), <(OVP_RAND-OVL_IMG), <(OVP_GFX-OVL_IMG)
+ov_off_hi: .byte 0, >(OVP_SYS-OVL_IMG), >(OVP_DISK-OVL_IMG), >(OVP_SEARCH-OVL_IMG), >(OVP_RESHAPE-OVL_IMG), >(OVP_REPL-OVL_IMG), >(OVP_FDEF-OVL_IMG), >(OVP_FLOOR-OVL_IMG), >(OVP_INNER-OVL_IMG), >(OVP_CATM-OVL_IMG), >(OVP_TRANSP-OVL_IMG), >(OVP_MATH-OVL_IMG), >(OVP_FACT-OVL_IMG), >(OVP_RAND-OVL_IMG), >(OVP_GFX-OVL_IMG)
+ov_len_lo: .byte 0, <OVN_SYS, <OVN_DISK, <OVN_SEARCH, <OVN_RESHAPE, <OVN_REPL, <OVN_FDEF, <OVN_FLOOR, <OVN_INNER, <OVN_CATM, <OVN_TRANSP, <OVN_MATH, <OVN_FACT, <OVN_RAND, <OVN_GFX
+ov_len_hi: .byte 0, >OVN_SYS, >OVN_DISK, >OVN_SEARCH, >OVN_RESHAPE, >OVN_REPL, >OVN_FDEF, >OVN_FLOOR, >OVN_INNER, >OVN_CATM, >OVN_TRANSP, >OVN_MATH, >OVN_FACT, >OVN_RAND, >OVN_GFX

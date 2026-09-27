@@ -27,7 +27,7 @@ import glyphs  # noqa: F401  (keeps the glyph tables importable from here)
 DIGRAPH_KEY = {"⍳": "i", "⍴": "r", "×": "-", "÷": "=", "≠": "8", "≤": "4", "≥": "6", "¯": "2", "¨": "1", "∘": "j",
                "⍬": "'", "⋄": ".", "⍝": ",", "∆": "h", "∇": "g", "⌈": "s", "⌊": "d", "∧": "w", "∨": "v",
                "⌽": "a", "↑": "y", "↓": "u", "∊": "e", "⍋": "7", "⍒": "3", "⍉": "t", "⍟": "*", "○": "o",
-               "→": "]"}
+               "→": "]", "⎕": "L"}
 XKEY = {" ": "space", "'": "apostrophe", "-": "minus", "=": "equal", "*": "asterisk", ".": "period",
         ",": "comma", "[": "bracketleft", "]": "bracketright", "<": "less", ">": "greater", "/": "slash",
         "(": "parenleft", ")": "parenright", "+": "plus", ";": "semicolon", ":": "colon", "!": "exclam",

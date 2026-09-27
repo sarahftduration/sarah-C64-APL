@@ -1588,6 +1588,203 @@ PRIMS[','] = (ravel, catenate)
 
 
 # =========================================================================
+# Graphics: the multicolor bitmap and the quad functions (⎕GR ⎕INK ⎕PAL ⎕PLOT ⎕LINE ⎕BOX ⎕WAIT)
+# =========================================================================
+# The picture is 160 x 200 pixels of 2 bits, stored as the VIC-II reads it: 8000 bytes, cell (cx, cy) of 4 x 8 pixels at
+# cy*320 + cx*8 with one byte per pixel row, the leftmost pixel in the top bits.  A pixel's value 0 shows the background
+# colour, 1 and 2 the high and low nibble of the cell's byte in screen RAM, 3 the cell's colour RAM.  These are the
+# machine's own memory (the 6502 keeps them at $E000, $CC00 and $D800), so the tests compare them byte for byte.
+# The functions give no value.  All but ⎕GR and ⎕WAIT need graphics mode (NO GRAPHICS); coordinates are floored and
+# saturated to the int16 range; whole-argument checks come in the order: mode, CHAR arguments (right, left) DOMAIN,
+# lengths (right, left) LENGTH, then the values (right, left) DOMAIN.
+GFX_ROWS = 25
+GFX_COLS = 40
+GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pixel values 1, 2, 3
+QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT']        # tokens $A0 + i
+QUAD_TOKEN = 0xA0
+
+
+class _Gfx:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.mode = 0                       # 0 text, 1 multicolor
+        self.ink = 1
+        self.bg = 0
+        self.bitmap = bytearray(8000)
+        self.scr = bytearray(GFX_ROWS * GFX_COLS)
+        self.col = bytearray(GFX_ROWS * GFX_COLS)
+
+
+GFX = _Gfx()
+
+
+def gfx_reset():
+    GFX.reset()
+
+
+def _q_ints(v):
+    """The elements as int16: floats are floored, and saturate at the ends of the range."""
+    out = []
+    for x in v.data:
+        if v.t == FLOAT:
+            f = f_to_fraction(x)
+            x = -32768 if f < -32768 else 32767 if f >= 32768 else math.floor(f)
+        out.append(x)
+    return out
+
+
+def _q_mode():
+    if GFX.mode == 0:
+        raise AplError('NO GRAPHICS')
+
+
+def _q_types(*vs):
+    for v in vs:
+        if v.t == CHAR:
+            raise AplError('DOMAIN ERROR')
+
+
+def _q_one(v, lo, hi):
+    """The one number in v, checked to lie in lo..hi."""
+    _q_types(v)
+    if v.count != 1:
+        raise AplError('LENGTH ERROR')
+    n = _q_ints(v)[0]
+    if not lo <= n <= hi:
+        raise AplError('DOMAIN ERROR')
+    return n
+
+
+def _q_range(vals, lo, hi):
+    if any(not lo <= x <= hi for x in vals):
+        raise AplError('DOMAIN ERROR')
+    return vals
+
+
+def q_gr(v):
+    n = _q_one(v, 0, 1)
+    if n == 0:
+        GFX.mode = 0
+        return None
+    GFX.mode = 1
+    GFX.ink = 1
+    GFX.bitmap = bytearray(8000)
+    GFX.bg = GFX_DEFAULT_PAL[0]
+    GFX.scr = bytearray([GFX_DEFAULT_PAL[1] << 4 | GFX_DEFAULT_PAL[2]] * (GFX_ROWS * GFX_COLS))
+    GFX.col = bytearray([GFX_DEFAULT_PAL[3]] * (GFX_ROWS * GFX_COLS))
+    return None
+
+
+def q_ink(v):
+    _q_mode()
+    GFX.ink = _q_one(v, 0, 3)
+
+
+def q_wait(v):
+    _q_one(v, 0, 32767)
+
+
+def q_pal(v):
+    """bg c1 c2 c3: the background and the three colours of every cell."""
+    _q_mode()
+    _q_types(v)
+    if v.count != 4:
+        raise AplError('LENGTH ERROR')
+    bg, c1, c2, c3 = _q_range(_q_ints(v), 0, 15)
+    GFX.bg = bg
+    GFX.scr = bytearray([c1 << 4 | c2] * (GFX_ROWS * GFX_COLS))
+    GFX.col = bytearray([c3] * (GFX_ROWS * GFX_COLS))
+
+
+def q_pal2(a, v):
+    """rows ⎕PAL c1 c2 c3: the colours of the cells in those rows (0 to 24)."""
+    _q_mode()
+    _q_types(v, a)
+    if v.count != 3:
+        raise AplError('LENGTH ERROR')
+    c1, c2, c3 = _q_range(_q_ints(v), 0, 15)
+    for r in _q_range(_q_ints(a), 0, GFX_ROWS - 1):
+        for c in range(GFX_COLS):
+            GFX.scr[r * GFX_COLS + c] = c1 << 4 | c2
+            GFX.col[r * GFX_COLS + c] = c3
+
+
+def gfx_plot(x, y):
+    """Set the pixel to the ink; a point off the screen is skipped."""
+    if 0 <= x < 160 and 0 <= y < 200:
+        a = (y >> 3) * 320 + (x >> 2) * 8 + (y & 7)
+        sh = 6 - 2 * (x & 3)
+        GFX.bitmap[a] = GFX.bitmap[a] & ~(3 << sh) & 0xFF | GFX.ink << sh
+
+
+def q_plot(a, b):
+    """x ⎕PLOT y: the points (x, y); either may be a single number for all the points of the other."""
+    _q_mode()
+    _q_types(b, a)
+    nx, ny = a.count, b.count
+    if nx == ny or ny == 1:
+        n = nx
+    elif nx == 1:
+        n = ny
+    else:
+        raise AplError('LENGTH ERROR')
+    xs, ys = _q_ints(a), _q_ints(b)
+    for i in range(n):
+        gfx_plot(xs[i if nx > 1 else 0], ys[i if ny > 1 else 0])
+
+
+def _q_corners(a, b, lo, hi):
+    _q_mode()
+    _q_types(b, a)
+    if b.count != 2 or a.count != 2:
+        raise AplError('LENGTH ERROR')
+    y1 = _q_range(_q_ints(b), lo, hi)
+    x0 = _q_range(_q_ints(a), lo, hi)
+    return x0[0], x0[1], y1[0], y1[1]
+
+
+def q_line(a, b):
+    """(x0 y0) ⎕LINE (x1 y1): Bresenham's line, end points within 4095 of the origin (so the arithmetic stays in 16 bits)."""
+    x0, y0, x1, y1 = _q_corners(a, b, -4095, 4095)
+    dx, dy = abs(x1 - x0), -abs(y1 - y0)
+    sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+    err = dx + dy
+    while True:
+        gfx_plot(x0, y0)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
+
+def q_box(a, b):
+    """(x0 y0) ⎕BOX (x1 y1): the filled rectangle between the corners, both included."""
+    x0, y0, x1, y1 = _q_corners(a, b, -32768, 32767)
+    for y in range(max(min(y0, y1), 0), min(max(y0, y1), 199) + 1):
+        for x in range(max(min(x0, x1), 0), min(max(x0, x1), 159) + 1):
+            gfx_plot(x, y)
+
+
+QUAD_PRIMS = {'⎕GR': (q_gr, _nonce), '⎕PAL': (q_pal, q_pal2), '⎕INK': (q_ink, _nonce), '⎕PLOT': (_nonce, q_plot),
+              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce)}
+PRIMS.update(QUAD_PRIMS)
+
+
+def _glyph_of(tok):
+    """The glyph (or ⎕NAME) of a function token."""
+    if tok >= QUAD_TOKEN:
+        return '⎕' + QUAD_NAMES[tok - QUAD_TOKEN]
+    return PRIM_GLYPHS[tok - 0x80]
+
+
+# =========================================================================
 # Output formatting
 # =========================================================================
 def fmt_elem(t, x):
@@ -1632,7 +1829,7 @@ OP_GLYPHS = '/\\¨.∘⍤'
 GLYPH_CODES = {'⍟': 0xA2, '○': 0xA3, '⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, '⍒': 0xA0, '⌽': 0x9B, '↑': 0x9C, '↓': 0x9D, '∧': 0x99, '∨': 0x9A, '⌈': 0x8D, '⌊': 0x8E, '×': 0x82, '÷': 0x83, '≠': 0x85, '≤': 0x87, '≥': 0x89,
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
-               '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98}
+               '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98, '⎕': 0xA4}
 
 
 def char_code(ch):
@@ -1647,6 +1844,7 @@ def encode_line(line):
     return bytes(char_code(c) for c in line)
 
 
+QUAD_RE = re.compile(r'[A-Za-z]+')
 NAME_RE = re.compile(r'[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*')
 LABEL_RE = re.compile(r'[ \t]*[A-Za-z_∆⍙][A-Za-z0-9_∆⍙]*:')
 
@@ -1810,6 +2008,12 @@ class Interp:
             elif c == '⍬':
                 out.append(T_EMPTY)
                 i += 1
+            elif c == '⎕':
+                m = QUAD_RE.match(line, i + 1)
+                if not m or m.group().upper() not in QUAD_NAMES:
+                    raise AplError('SYNTAX ERROR')
+                out.append(QUAD_TOKEN + QUAD_NAMES.index(m.group().upper()))
+                i = m.end()
             elif NAME_RE.match(line, i):
                 m = NAME_RE.match(line, i)
                 out += bytes([T_NAME, self.name_index(m.group())])
@@ -1980,7 +2184,7 @@ class Interp:
                 if not 0x80 <= pc < 0xC0:
                     raise AplError('SYNTAX ERROR')
                 g = OP_GLYPHS[c - 0xC0]
-                pg = PRIM_GLYPHS[pc - 0x80]
+                pg = _glyph_of(pc)
                 if g not in '/\\' or pg not in SCALAR_DYADIC:
                     raise AplError('NONCE ERROR')
                 fn = ((make_reduce if g == '/' else make_scan)(pg), _nonce)
@@ -1988,8 +2192,8 @@ class Interp:
                 val = self._apply(fn, toks, i, val)
                 i = self._pos
             elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and 0x80 <= toks[i - 2][0] < 0xC0:
-                pf = PRIM_GLYPHS[toks[i - 2][0] - 0x80]     # a f.g b: inner product
-                pg = PRIM_GLYPHS[c - 0x80]
+                pf = _glyph_of(toks[i - 2][0])     # a f.g b: inner product
+                pg = _glyph_of(c)
                 if pf not in SCALAR_DYADIC or pg not in SCALAR_DYADIC:
                     raise AplError('NONCE ERROR')
                 i -= 3
@@ -2000,7 +2204,7 @@ class Interp:
                     raise AplError('VALUE ERROR')
                 val = make_inner(pf, pg)(left, val)
             elif c >= 0x80 and i >= 2 and toks[i - 1][0] == 0xC3 and toks[i - 2][0] == 0xC4:
-                pg = PRIM_GLYPHS[c - 0x80]                  # a∘.f b: outer product
+                pg = _glyph_of(c)                  # a∘.f b: outer product
                 if pg not in SCALAR_DYADIC + MATH_DYADIC:
                     raise AplError('NONCE ERROR')
                 i -= 3
@@ -2011,10 +2215,12 @@ class Interp:
                     raise AplError('VALUE ERROR')
                 val = make_outer(pg)(left, val)
             elif c >= 0x80:
-                fn = PRIMS[PRIM_GLYPHS[c - 0x80]]
+                fn = PRIMS[_glyph_of(c)]
                 i -= 1
                 val = self._apply(fn, toks, i, val)
                 i = self._pos
+                if val is None and not (top and i < 0):
+                    raise AplError('VALUE ERROR')
             elif self._isfn(toks[i]):
                 f = self.funcs[toks[i][1]]
                 i -= 1
@@ -2045,7 +2251,7 @@ class Interp:
             raise AplError('RANK ERROR')
         k = to_ints(kv)[0]
         tk = toks[j - 1][0]
-        cat = tk < 0xC0 and PRIM_GLYPHS[tk - 0x80] == ','
+        cat = tk < 0xC0 and _glyph_of(tk) == ','
         if k not in (1, 2) or (val.rank < k and not cat):
             raise AplError('INDEX ERROR')
         if tk >= 0xC0:                                          # an operator: f/ f\ (its function) or a/ a\ (a value)
@@ -2053,7 +2259,7 @@ class Interp:
                 raise AplError('SYNTAX ERROR')
             g = OP_GLYPHS[tk - 0xC0]
             if 0x80 <= toks[j - 2][0] < 0xC0:
-                pg = PRIM_GLYPHS[toks[j - 2][0] - 0x80]
+                pg = _glyph_of(toks[j - 2][0])
                 if g not in '/\\' or pg not in SCALAR_DYADIC:
                     raise AplError('NONCE ERROR')
                 fn, pos = ((make_reduce if g == '/' else make_scan)(pg), _nonce), j - 2
@@ -2064,7 +2270,7 @@ class Interp:
             else:
                 raise AplError('SYNTAX ERROR')
         else:
-            pg = PRIM_GLYPHS[tk - 0x80]
+            pg = _glyph_of(tk)
             if pg not in ('⌽', ','):
                 raise AplError('NONCE ERROR')
             fn, pos = PRIMS[pg], j - 1

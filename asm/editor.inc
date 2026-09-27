@@ -203,6 +203,20 @@ cursor_off:
         sta (scrp),y
         rts
 
+; after a line: if it left a picture up, show it until a key is pressed, then bring the text screen back
+; (an error message is printed after that). Keeps A and the carry.
+gr_after:
+        bit gr_on
+        bmi ga_go
+        rts
+ga_go:  php
+        pha
+        jsr kbd_wait
+        jsr s_grexit
+        pla
+        plp
+        rts
+
 ; --- the read-evaluate-print loop -------------------------------------------------------------
 repl:   jsr prompt
         lda #0
@@ -242,6 +256,7 @@ rp_s2:  cmp #')'
         jsr syscmd
         jmp repl
 rp_tok: jsr do_line
+        jsr gr_after
         bcc repl_again
 rp_err: jsr print_error
 repl_again:

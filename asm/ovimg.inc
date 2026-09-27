@@ -81,6 +81,12 @@ OVP_RAND = *
         .here
 OVN_RAND = * - OVP_RAND
 
+OVP_GFX = *
+        .logical OVWIN
+        .include "gfx.inc"
+        .here
+OVN_GFX = * - OVP_GFX
+
 OVL_TOT = * - OVL_IMG
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
@@ -92,6 +98,8 @@ OVL_TOT = * - OVL_IMG
         .cerror OVN_MATH > OVWIN_SIZE, "the window is too small for the numeric functions overlay"
         .cerror OVN_FACT > OVWIN_SIZE, "the window is too small for the factorial overlay"
         .cerror OVN_RAND > OVWIN_SIZE, "the window is too small for the roll and deal overlay"
+        .cerror OVN_GFX > OVWIN_SIZE, "the window is too small for the graphics overlay"
+        .cerror OVL_TOT > $e000, "the overlay images must end below $E000, where the text screen is kept while a picture is up"
         .cerror OVL_TOT > $ffff, "the overlay images must fit one 64 KB REU bank"
         .cerror OVN_SEARCH > OVWIN_SIZE, "the window is too small for the search overlay"
         .cerror OVN_RESHAPE > OVWIN_SIZE, "the window is too small for the reshape overlay"
