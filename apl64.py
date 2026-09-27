@@ -1557,6 +1557,85 @@ def make_inner(fglyph, gglyph):
     return inner
 
 
+def _stack(vals, empty_t):
+    """A list of scalar Values as one vector, widened to their common type (empty_t if the list is empty)."""
+    if not vals:
+        return vector(empty_t, [])
+    t = vals[0].t
+    for x in vals[1:]:
+        t = join_type(t, x.t)
+    return Value(t, (len(vals),), [convert(x.t, t, x.data[0]) for x in vals])
+
+
+def decode(b, v):
+    """B⊥V: mixed-radix decode (dyadic only; monadic ⊥ is NONCE ERROR). n is the digit count: V's length, or
+    its row count if V is a matrix (each column decoded on its own, giving a vector). B is one radix per
+    digit or a single one for all (LENGTH ERROR otherwise). Horner's rule, left to right, in the ordinary
+    × and + (so an overflow promotes the running total to FLOAT exactly as it would inline, one digit at a
+    time); the first radix never affects the result, as in APL generally. Every step is one scalar × or +
+    on single elements (never a whole array), so the 6502 needs nothing but the scalar engine it already has."""
+    if b.rank > 1 or v.rank > 2:
+        raise AplError('RANK ERROR')
+    if b.t == CHAR or v.t == CHAR:
+        raise AplError('DOMAIN ERROR')
+    n = v.shape[0] if v.rank == 2 else v.count if v.rank == 1 else 1
+    bn = b.count if b.rank == 1 else 1
+    if bn not in (1, n):
+        raise AplError('LENGTH ERROR')
+    bvals = [scalar(b.t, b.data[0])] * n if bn == 1 else [scalar(b.t, x) for x in b.data]
+    k = v.shape[1] if v.rank == 2 else 1
+    outs = []
+    for c in range(k):
+        col = [v.data[r * k + c] for r in range(n)] if v.rank == 2 else v.data
+        acc = scalar(INT, 0)
+        for i in range(n):
+            acc = dyadic_scalar(_DY['×'], acc, bvals[i])
+            acc = dyadic_scalar(_DY['+'], acc, scalar(v.t, col[i]))
+        outs.append(acc)
+    return _stack(outs, INT) if v.rank == 2 else outs[0]
+
+
+def encode(b, v):
+    """B⊤V: mixed-radix encode (dyadic only; monadic ⊤ is NONCE ERROR, as is a matrix V). n = the length
+    of B (1 if a scalar): the digit count. Least-significant first, one column (one element of V) at a
+    time: each digit is the residue of what is left after the radix below it (a zero radix absorbs
+    everything left, per APL's residue, and every higher digit is then 0); what is left is divided out
+    exactly, so ÷ always promotes it to FLOAT after the first non-trivial digit (an accepted quirk: the
+    formatter prints an exact float with no '.'). Every step is a scalar |, - or ÷ on single elements."""
+    if b.rank > 1 or v.rank > 1:
+        raise AplError('RANK ERROR')
+    if b.t == CHAR or v.t == CHAR:
+        raise AplError('DOMAIN ERROR')
+    n = b.count if b.rank == 1 else 1
+    bvals = [scalar(b.t, x) for x in b.data] if b.rank == 1 else [scalar(b.t, b.data[0])]
+    vals = v.data if v.rank == 1 else [v.data[0]]
+    m = len(vals)
+    cols = []
+    for j in range(m):
+        remaining = scalar(v.t, vals[j])
+        digits = [None] * n
+        for i in range(n - 1, -1, -1):
+            bi = bvals[i]
+            zero = to_f(bi.t, bi.data[0]) == 0
+            digits[i] = dyadic_scalar(_DY['|'], bi, remaining)
+            if zero:
+                remaining = scalar(INT, 0)
+            else:
+                diff = dyadic_scalar(_DY['-'], remaining, digits[i])
+                remaining = dyadic_scalar(_DY['÷'], diff, bi)
+        cols.append(digits)
+    if v.rank == 0:
+        return _stack(cols[0], INT)
+    if n == 0 or m == 0:
+        return Value(INT, (n, m), [])
+    t = cols[0][0].t
+    for col in cols:
+        for d in col:
+            t = join_type(t, d.t)
+    data = [convert(cols[c][r].t, t, cols[c][r].data[0]) for r in range(n) for c in range(m)]
+    return Value(t, (n, m), data)
+
+
 PRIMS = {}
 for _g in SCALAR_DYADIC:
     _m = _MON.get(_g)
@@ -1586,6 +1665,8 @@ PRIMS['?'] = (roll, deal)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
 PRIMS[','] = (ravel, catenate)
+PRIMS['⊥'] = (_nonce, decode)
+PRIMS['⊤'] = (_nonce, encode)
 
 
 # =========================================================================
@@ -1604,6 +1685,8 @@ GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pi
 HIRES_DEFAULT_PAL = (0, 1)                  # the colours of pixel values 0 and 1 in hires mode
 QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'SPD', 'SPR', 'SPC', 'MOVE', 'KEY']        # tokens $A0 + i; the first 12 give no value, the rest do
 QUAD_TOKEN = 0xA0
+DECODE_GLYPHS = '⊥⊤'    # dyadic only; tokens $B0+i (not appended to PRIM_GLYPHS: $A0-$AF is the quad functions' range)
+DECODE_TOKEN = 0xB0
 QUAD_NOVALUE = 12                            # the functions below this number give no value (the machine tells them by token < $AC)
 SID_REGS = 25                               # $D400-$D418
 
@@ -1982,6 +2065,8 @@ PRIMS.update(QUAD_PRIMS)
 
 def _glyph_of(tok):
     """The glyph (or ⎕NAME) of a function token."""
+    if tok >= DECODE_TOKEN:
+        return DECODE_GLYPHS[tok - DECODE_TOKEN]
     if tok >= QUAD_TOKEN:
         return '⎕' + QUAD_NAMES[tok - QUAD_TOKEN]
     return PRIM_GLYPHS[tok - 0x80]
@@ -2033,7 +2118,7 @@ GLYPH_CODES = {'⍟': 0xA2, '○': 0xA3, '⍉': 0xA1, '∊': 0x9E, '⍋': 0x9F, 
                '⍳': 0x8A, '⍴': 0x8B, '¨': 0xC2, '∘': 0xC4, '⍤': 0xC5,
                '¯': 0x90, '←': 0x91, '→': 0x92, '⋄': 0x93, '⍬': 0x94,
                '⍝': 0x95, '∆': 0x96, '⍙': 0x97, '∇': 0x98, '⎕': 0xA4,
-               '⊖': 0xA5, '⌿': 0xA6, '⍀': 0xA7}
+               '⊖': 0xA5, '⌿': 0xA6, '⍀': 0xA7, '⊥': 0xA8, '⊤': 0xA9}
 
 
 def char_code(ch):
@@ -2227,6 +2312,9 @@ class Interp:
                 i += 1
             elif c in PRIM_GLYPHS:
                 out.append(0x80 + PRIM_GLYPHS.index(c))
+                i += 1
+            elif c in DECODE_GLYPHS:
+                out.append(DECODE_TOKEN + DECODE_GLYPHS.index(c))
                 i += 1
             elif c in OP_GLYPHS:
                 out.append(0xC0 + OP_GLYPHS.index(c))

@@ -20,12 +20,14 @@ dg_table:
         .byte $3e, $89
         .byte $3f, $a7
         .byte $41, $a5
+        .byte $42, $a9
         .byte $48, $97
         .byte $4c, $a4
         .byte $5b, $91
         .byte $5c, $5c
         .byte $5d, $92
         .byte $61, $9b
+        .byte $62, $a8
         .byte $64, $8e
         .byte $65, $9e
         .byte $67, $98

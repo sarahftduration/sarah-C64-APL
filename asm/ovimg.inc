@@ -99,6 +99,12 @@ OVP_SPR = *
         .here
 OVN_SPR = * - OVP_SPR
 
+OVP_BASE = *
+        .logical OVWIN
+        .include "baseconv.inc"
+        .here
+OVN_BASE = * - OVP_BASE
+
 OVL_TOT = * - OVL_IMG
 OVM_1 = OVN_SYS > OVN_DISK ? OVN_SYS : OVN_DISK
 OVM_2 = OVM_1 > OVN_SEARCH ? OVM_1 : OVN_SEARCH
@@ -114,7 +120,9 @@ OVM_11 = OVM_10 > OVN_FACT ? OVM_10 : OVN_FACT
 OVM_12 = OVM_11 > OVN_RAND ? OVM_11 : OVN_RAND
 OVM_13 = OVM_12 > OVN_GFX ? OVM_12 : OVN_GFX
 OVM_14 = OVM_13 > OVN_DRAW ? OVM_13 : OVN_DRAW
-OVWIN_MAX = OVM_14 > OVN_SPR ? OVM_14 : OVN_SPR          ; the window's size (bss.inc): the biggest overlay
+OVM_15 = OVM_14 > OVN_SPR ? OVM_14 : OVN_SPR
+OVWIN_MAX = OVM_15 > OVN_BASE ? OVM_15 : OVN_BASE        ; the window's size (bss.inc): the biggest overlay
+        .cerror OVN_BASE > OVWIN_SIZE, "the window is too small for the decode/encode overlay"
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
         .cerror OVN_FDEF > OVWIN_SIZE, "the window is too small for the function editor overlay"

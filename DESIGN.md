@@ -504,6 +504,43 @@ BAD COMMAND; `sysov.inc`) sets it to `n << 16 | (n xor $5A5A) | 1`, so a session
 - Tests: `tests/test_random.py` compares model and machine including the generator's state after every line (`tests/test_eval.py check`), and `)SEED` and the
   distribution in the model; the VICE key sessions use `)SEED` to repeat a run.
 
+## Decode and encode
+
+`B⊥V` and `B⊤V` (dyadic only: a monadic call is NONCE ERROR; model `decode`, `encode`; `asm/baseconv.inc`, an overlay of 1,727 bytes,
+tokens `$B0 $B1` since the quad functions already fill `$A0`-`$AC` and `PRIM_GLYPHS` fills `$80`-`$9F` — `DECODE_GLYPHS`/`DECODE_TOKEN`
+is a second small range, the same shape as the quad names' own, with `_glyph_of` checking it first). Keys: pound `b` (mnemonic: base),
+pound shift-`b` (⊤ is ⊥ upside down, so the shift of the same key).
+
+- **`B⊥V`**: mixed-radix decode. `n` is the digit count: `V`'s length, or its row count if `V` is a matrix (one result per column, a
+  vector). `B` is one radix per digit or a single one for all (LENGTH ERROR otherwise; its first element never affects the result, as
+  in APL generally). Horner's rule, left to right, in the ordinary `×` and `+`, so an int16 overflow promotes the running total to
+  FLOAT exactly as it would inline. `B` and `V` are rank 0 or 1 (2 for `V`); CHAR is DOMAIN ERROR.
+- **`B⊤V`**: mixed-radix encode (a matrix `V` is NONCE ERROR). `n` is the length of `B` (1 if a scalar): the digit count. Least
+  significant first, one element of `V` at a time: each digit is `B[i]|remaining` (a zero radix absorbs everything left, per `|`'s
+  own rule, and every higher digit is then 0); what is left is divided out exactly (`(remaining-digit)÷B[i]`), so `÷` always promotes
+  it to FLOAT after the first non-trivial digit — an accepted quirk, since the formatter prints an exact float with no `.` (a
+  monadic `⌊` after each division would keep it INT when it fits, but `⌊` is an overlay of its own, and nothing an overlay calls may
+  load another). The result is a vector (`V` a scalar) or a matrix (`V` a vector, one column per element, digits down the rows).
+
+On the 6502 (`p_decode`, `p_encode`), every step is one scalar pair through the ordinary scalar engine (`p_sdyad`, resident) — never
+a whole array — so no int16/FLOAT promotion rule is reimplemented: `bc_getelem` (using `elemaddr`, resident) fetches one element of
+`B` or `V` as a 4-byte cell, `bc_place` writes one result element into the growing result array, allocated once (`newarr`) and
+widened in place (`cvcopy`, replacing the value-stack cell, exactly as inner product widens its own result) the first time a wider
+element arrives; an empty result defaults to INT, matching the model's `_stack`/`Value` fallback. `p_sdyad`'s dyadic convention:
+**`topcell` is the left argument, `secondcell` the right** (confirmed directly — this is easy to get backwards for a non-commutative
+function like `|`, `-` or `÷`, where swapping the push order silently swaps which operand is the modulus/minuend/dividend rather
+than raising an error). Two bugs came from this file specifically: `cv` (`WS+$d0`-`$d3`, resident) is scratch that `pushcv` writes on
+every call, so nothing here may keep state in the WS+ range at all — variables live in the overlay image instead, like inner
+product's (a WS+ offset that looks free by grep is not: it is either genuinely unclaimed or, as here, owned by resident code that is
+"free" only because nothing had needed it yet); and encode's zero-radix flag had its two branches swapped, so every ordinary digit
+took the absorb path and every zero radix divided (silently wrong values, not a crash, since both paths are individually valid
+control flow — the fix was found by hooking `p_sdyad`'s own entry and comparing `topcell`/`secondcell` against an isolated push/call
+test that used the same op number and got the right answer). Checks run both ranks (RANK ERROR) before either domain (DOMAIN ERROR),
+matching the model's `if b.rank>1 or v.rank>1: ... if b.t==CHAR or v.t==CHAR: ...` order exactly.
+
+Tests: `tests/test_baseconv.py` (syntax/NONCE, a base/value pool, random decodes and encodes, matrix decodes and round trips through
+both functions together).
+
 ## Axis brackets
 
 `f/[k]A`, `f\[k]A`, `⌽[k]A` and `a⌽[k]A` (`Interp._axis` in the model): a bracket after a function or operator

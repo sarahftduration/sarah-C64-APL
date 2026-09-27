@@ -1441,7 +1441,11 @@ ad_std: sec
         bcs ad_s1
         sbc #31                 ; (carry is clear: 32 less)
         jmp s_gfxd
-ad_s1:  cmp #10
+ad_s1:  cmp #48                 ; ⊥ ⊤ (48, 49): tokens $B0, $B1, past the quad functions' range
+        beq ad_decode
+        cmp #49
+        beq ad_encode
+        cmp #10
         bcc ad_sd
         beq ad_iof
         cmp #11
@@ -1488,6 +1492,8 @@ ad_l2:  sec
 ad_rot: jmp s_rot
 ad_iof: jmp s_indexof
 ad_take: jmp s_take
+ad_decode: jmp s_decode
+ad_encode: jmp s_encode
 ad_nonce:
         cmp #$ff                ; replicate: the code $7f set by rl_val
         bne ad_n1

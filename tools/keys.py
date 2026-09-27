@@ -51,6 +51,8 @@ DIGRAPHS = {
     ord('A'): 0xA5,              # ⊖ (shift of 'a'->⌽: the axis-1 form of the same key)
     ord('/'): 0xA6,              # ⌿ (axis-1 reduce/scan: the '/' key, like the glyph itself)
     ord('?'): 0xA7,              # ⍀ (axis-1 scan/expand: shift of the same key as ⌿)
+    ord('b'): 0xA8,              # ⊥ (base value / decode)
+    ord('B'): 0xA9,              # ⊤ (encode: ⊤ is ⊥ upside down, so the shift of the same key)
     LEFT_ARROW_GLYPH: 0x5F,      # the ← key again: underscore
     PREFIX: 0x5C,                # the prefix twice: backslash
 }
