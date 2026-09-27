@@ -22,7 +22,7 @@ mv_n:    .byte 0                ; a small whole exponent
 mv_neg:  .byte 0
 mv_th:   .byte 0
 mv_tl:   .byte 0
-mv_s:    .fill 27               ; the slots
+mv_s:    .fill 39               ; the slots (12)
 
 ; A/X = the program (low, high). fa = the accumulator in, and out. Carry set: A = an error.
 mv_run: sta mp
@@ -392,6 +392,36 @@ h_setir: lda mv_arg
         sta mv_ir+1
         clc
         rts
+h_call:                         ; run another program (they share the slots and ir); the counter comes back
+        lda mp
+        pha
+        lda mp+1
+        pha
+        lda mv_arg
+        asl
+        tax
+        lda mv_progs,x
+        sta mp
+        lda mv_progs+1,x
+        sta mp+1
+        jsr mr_l
+        bcs hc_err
+        pla
+        sta mp+1
+        pla
+        sta mp
+        clc
+        rts
+hc_err: tay
+        pla
+        pla
+        tya
+        sec
+        rts
+h_domerr:
+        lda #E_DOMAIN
+        sec
+        rts
 
 ; --- the kernels ------------------------------------------------------------------------------------------
 mk_fbfa: ldx #2
@@ -534,6 +564,81 @@ mp_6:   lda mv_t,x
 mp_dom: lda #E_DOMAIN
         sec
         rts
+
+; k circle x: fa = k, fb = x
+k_fcircle:
+        jsr mk_save_a
+        jsr flr_q               ; k must be a whole number from -7 to 7
+        cmp #1
+        beq kc_dom
+        lda ia
+        sta mv_n
+        lda ia+1
+        sta mv_th
+        lda sgn
+        sta mv_neg
+        jsr m_to_f
+        ldx #2
+kc_1:   lda fa,x
+        cmp mv_ta,x
+        bne kc_dom
+        dex
+        bpl kc_1
+        lda mv_th
+        bne kc_dom
+        lda mv_n
+        cmp #8
+        bcs kc_dom
+        lda mv_neg
+        bmi kc_neg
+        lda mv_n                ; 0 to 4: the table index is k + 3
+        cmp #5
+        bcs kc_non
+        clc
+        adc #3
+        jmp kc_go
+kc_neg: lda mv_n                ; -1 to -3: 3 - the magnitude (-0 is 0)
+        cmp #4
+        bcs kc_non
+        sta mv_n
+        lda #3
+        sec
+        sbc mv_n
+kc_go:  tax
+        lda mc_tab,x
+        pha
+        jsr mk_fbfa
+        pla
+        jmp mv_runi
+kc_dom: jmp mk_dom
+kc_non: jmp mk_nonce
+
+; pi times fb
+k_fpimul:
+        jsr mk_fbfa
+        lda #MKC_PI
+        asl
+        clc
+        adc #MKC_PI
+        tax
+        lda mk_table,x
+        sta fb
+        lda mk_table+1,x
+        sta fb+1
+        lda mk_table+2,x
+        sta fb+2
+        jsr f_mul
+        jmp mv_chk
+
+; run program number A (see mv_progs) on fa
+mv_runi: asl
+        tax
+        lda mv_progs,x
+        pha
+        lda mv_progs+1,x
+        tax
+        pla
+        jmp mv_run
 
 ; the power: fa to the fb
 k_fpow: jsr mk_save_a

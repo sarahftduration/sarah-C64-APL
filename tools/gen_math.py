@@ -26,3 +26,8 @@ for prog_name, prog in apl64.MATH_PROGS.items():
         print(f"        .byte {op}, {arg}    ; {label}")
 print("mv_tab:")
 print("        .word " + ", ".join(f"h_{n.lower()}" for n in apl64.VM_OPS))
+print("mv_progs:")
+print("        .word " + ", ".join(f"mp_{n.lower()}" for n in apl64.MATH_PROG_NAMES))
+print("; the programs of k circle x, indexed by k + 3 for k from -3 to 4")
+print("mc_tab:")
+print("        .byte " + ", ".join(str(apl64.MATH_PROG_NAMES.index(apl64.CIRCLE_PROGS[k])) for k in range(-3, 5)))

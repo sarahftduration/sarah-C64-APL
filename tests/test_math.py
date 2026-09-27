@@ -27,6 +27,49 @@ def rel(got, want):
     return abs(V(got) - want) / abs(want) / 2 ** -16 if want else 0     # in units of 2^-16 of the true value
 
 
+def test_circle_accuracy():
+    """sin, cos, tan and the inverse functions against the real ones (absolute error, in units of 2^-16)."""
+    import apl64 as m
+    assert list(MATH_PROGS) == m.MATH_PROG_NAMES
+    rng = random.Random(5)
+    run = lambda name, x: V(vm_run(MATH_PROGS[name], F(x)))
+    worst = {}
+
+    def note(name, e, x):
+        if e > worst.get(name, (0, 0))[0]:
+            worst[name] = (e, x)
+    for _ in range(3000):
+        x = rng.choice([rng.uniform(-10, 10), rng.uniform(-400, 400), rng.uniform(-1, 1)])
+        xf = V(F(x))
+        note("sin", abs(run("SIN", x) - math.sin(xf)) / 2 ** -16, x)
+        note("cos", abs(run("COS", x) - math.cos(xf)) / 2 ** -16, x)
+        if abs(math.cos(xf)) > 0.1:
+            note("tan", abs(run("TAN", x) - math.tan(xf)) / abs(math.tan(xf)) / 2 ** -16, x)
+        y = rng.choice([rng.uniform(-1, 1), rng.uniform(-3, 3), rng.uniform(-1e4, 1e4)])
+        yf = V(F(y))
+        note("atan", abs(run("ATAN", y) - math.atan(yf)) / 2 ** -16, y)
+        z = rng.uniform(-1, 1)
+        zf = V(F(z))
+        note("asin", abs(run("ASIN", z) - math.asin(zf)) / 2 ** -16, z)
+        if zf != -1:
+            note("acos", abs(run("ACOS", z) - math.acos(zf)) / math.acos(zf) / 2 ** -16 if math.acos(zf) else 0, z)
+        note("circ0", abs(run("CIRC0", z) - math.sqrt(1 - zf * zf)) / 2 ** -16, z)
+        note("circ4", abs(run("CIRC4", y) - math.sqrt(1 + yf * yf)) / abs(math.sqrt(1 + yf * yf)) / 2 ** -16, y)
+    for k, (e, x) in worst.items():
+        assert e <= 6, f"{k}: {e:.2f} units at {x}"
+    assert V(vm_run(MATH_PROGS["SIN"], 0)) == 0 and V(vm_run(MATH_PROGS["COS"], 0)) == 1 and V(vm_run(MATH_PROGS["ATAN"], 0)) == 0
+    assert V(vm_run(MATH_PROGS["ACOS"], F(1))) == 0 and abs(V(vm_run(MATH_PROGS["ASIN"], F(1))) - math.pi / 2) < 1e-4
+    assert abs(V(vm_run(MATH_PROGS["ACOS"], F(-1))) - math.pi) < 1e-4
+    for x in (1.0001, -1.0001, 2, -100):
+        for name in ("ASIN", "ACOS", "CIRC0"):
+            try:
+                vm_run(MATH_PROGS[name], F(x))
+                raise AssertionError((name, x))
+            except AplError as e:
+                assert e.kind == "DOMAIN ERROR"
+    print("math: the circle functions stay within " + ", ".join(f"{k} {worst[k][0]:.1f}" for k in sorted(worst)) + " units of 2^-16 of the true values")
+
+
 def test_generated_tables():
     """asm/mathprog.inc is what tools/gen_math.py makes from the model."""
     import subprocess
@@ -96,6 +139,33 @@ def test_scalar_pool():
     print(f"math: {n} monadic and dyadic operand combinations match the model {dict(sorted(kinds.items()))}")
 
 
+def test_circle():
+    s = Session()
+    kinds = {}
+    n = 0
+    ks = ["0", "1", "2", "3", "4", "¯1", "¯2", "¯3", "5", "6", "7", "¯4", "¯5", "¯6", "¯7", "8", "¯8", "1.5", "1.0", "1 2 3", "'a'", "⍬", "2 2⍴1 2 3 4"]
+    xs = ["0", "1", "¯1", "0.5", "¯0.5", "0.999", "1.001", "2", "¯2", "3.14159", "1.5708", "1e10", "¯100", "1e¯20", "32767", "0.7071", "1 2 3", "0.1 0.5 ¯0.9", "(2 2⍴0.1 0.2 0.3 0.4)", "'b'", "⍬"]
+    for k in ks:
+        for x in xs:
+            if n % 30 == 0:
+                s.reset()
+            r = check(s, f"{k}○{x}")
+            kinds[r] = kinds.get(r, 0) + 1
+            n += 1
+    for x in xs:
+        check(s, f"○{x}")
+        n += 1
+    print(f"math: {n} circle function and pi-times cases match the model {dict(sorted(kinds.items()))}")
+    rng = random.Random(9)
+    for i in range(600):
+        if i % 30 == 0:
+            s.reset()
+        k = rng.choice(["1", "2", "3", "¯1", "¯2", "¯3", "0", "4", "1", "2", "3"])
+        x = rng.choice([f"{rng.uniform(-8, 8):.4f}", f"{rng.uniform(-1, 1):.4f}", f"{rng.uniform(-400, 400):.3f}", "1e¯5", f"{rng.uniform(-3, 3):.2f}"]).replace("-", "¯")
+        check(s, f"{k}○{x}")
+    print("math: 600 random circle function cases match the model")
+
+
 def test_random():
     rng = random.Random(7)
     s = Session()
@@ -128,7 +198,7 @@ def test_syntax():
     for line in ["*", "⍟", "2*", "*2*3", "2*3*2", "(2*3)*2", "2*(3*2)", "*⍟2", "⍟*2", "*1+1", "1+*1", "(*1)+1", "A←*1 ⋄ A", "A←2*10 ⋄ A+1", "+/*1 2 3", "*+/1 2 3", "⍳2*3", "⍴2*3",
                  "(⍳3)∘.*⍳3", "1 2 3∘.*2", "2∘.*1 2 3", "(⍳3)∘.⍟⍳3", "*∘.+1", "1 2∘.*'a'", "+.*1", "1 2+.*3 4", "1 2*.+3 4", "*/1 2", "*\\1 2", "2*/1 2", "1 2 3*/[1]4",
                  "*[1]2", "*[1]1 2", "2*[1]3", "*.", "*.5", "2*.5", "2 *. 5", "*'a'", "⍟'a'", "*''", "⍟⍬", "2*⍬", "⍬*2", "⍬*⍬", "1 2*1 2 3", "1 2 3*1 2", "(2 3⍴1)*(2 3⍴2)", "(2 3⍴1)*(3 2⍴2)",
-                 "?", "!", "○", "?1", "!1", "○1", "1?2", "1!2", "1○2", "*2 3⍴⍳6", "2*2 3⍴⍳6", "M←2 3⍴⍳6 ⋄ ⍟M", "M←2 3⍴⍳6 ⋄ M*2", "M←2 3⍴⍳6 ⋄ (⍉M)*0.5", "*1 2 ⋄ ⍟5", "2*3 ⋄ 4",
+                 "?", "!", "○", "?1", "!1", "○1", "1?2", "1!2", "1○2", "1○", "○○1", "1○1○1", "(1○1)○1", "1 2○", "+/1○1 2 3", "1○+/1 2 3", "○/1 2", "1○∘.+1", "1 2∘.○3 4", "(⍳3)∘.○(⍳3)÷3", "1 2+.○3 4", "1○[1]2 3⍴1", "*2 3⍴⍳6", "2*2 3⍴⍳6", "M←2 3⍴⍳6 ⋄ ⍟M", "M←2 3⍴⍳6 ⋄ M*2", "M←2 3⍴⍳6 ⋄ (⍉M)*0.5", "*1 2 ⋄ ⍟5", "2*3 ⋄ 4",
                  "∇R←F X", "R←*X", "∇", "F 1", "F 1 2 3", "F ¯200", "F 100", "∇R←G X", "R←X*X", "∇", "G 3", "G 0.5", "G ¯2", "G 1e10"]:
         check(s, line)
     print("math: syntax, NONCE and edge cases match the model")
@@ -145,7 +215,7 @@ def test_sizes():
 # --- the interpreter itself: random programs through both ------------------------------------------------------------
 OPS_ARG = {"LDK": 22, "LDS": 8, "STS": 8, "ADDS": 8, "SUBS": 8, "MULS": 8, "DIVS": 8, "RSUBS": 8, "RDIVS": 8, "ADDK": 22, "SUBK": 22, "MULK": 22,
            "DIVK": 22, "RSUBK": 22, "RDIVK": 22, "NEGS": 8, "SETIR": 40}
-OPS_NOARG = ["NEG", "ABS", "FREXP", "ITOF", "ROUND", "LDEXP", "DECIR", "SARIR"]
+OPS_NOARG = ["NEG", "ABS", "FREXP", "ITOF", "ROUND", "LDEXP", "DECIR", "SARIR", "NEG", "ABS"]
 
 
 def random_program(rng):
@@ -156,6 +226,10 @@ def random_program(rng):
             prog.append((rng.choice([OP_IFLT, OP_IFGE]) + rng.randint(0, 4), rng.randrange(len(MATH_CONSTS))))
         elif r < .2:
             prog.append((VM_OPS.index("IFBIT"), rng.randint(0, 1) << 4 | rng.randint(0, 4)))
+        elif r < .27:
+            prog.append((VM_OPS.index("CALL"), rng.randrange(len(MATH_PROGS))))
+        elif r < .28:
+            prog.append((VM_OPS.index("DOMERR"), 0))
         elif r < .5:
             prog.append((VM_OPS.index(rng.choice(OPS_NOARG)), 0))
         else:
@@ -214,6 +288,8 @@ def test_interpreter():
 if __name__ == "__main__":
     test_generated_tables()
     test_accuracy()
+    test_circle_accuracy()
+    test_circle()
     test_interpreter()
     test_syntax()
     test_scalar_pool()

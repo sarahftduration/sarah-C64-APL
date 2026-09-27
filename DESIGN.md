@@ -451,8 +451,8 @@ NONCE ERROR. The evaluator marks the function as an outer product by adding `$60
 
 ## Numeric functions
 
-`*` (monadic: e to the x; dyadic: power) and `⍟` (monadic: natural logarithm; dyadic: logarithm to a base). Both give FLOAT.
-The glyph `⍟` is pound `*`, `○` pound `o` (`○ ! ?` are reserved: tokens `$9c $9d $9e`, NONCE ERROR until they are done).
+`*` (monadic: e to the x; dyadic: power), `⍟` (monadic: natural logarithm; dyadic: logarithm to a base) and `○` (pi times; the circle functions). Both give FLOAT.
+The glyph `⍟` is pound `*`, `○` pound `o` (`! ?` are reserved: tokens `$9d $9e`, NONCE ERROR until they are done).
 float24 has a 16-bit significand, so each function is a short program of `+ - × ÷` on it, run by a small interpreter
 (`vm_run` in the model, `mv_run` in `asm/math.inc`, an overlay of about 1.6 KB): an accumulator, eight float slots, an integer
 register and two-byte instructions (an opcode and a constant, slot, count or bit; `IFLT` and `IFGE` run the next n instructions
@@ -470,6 +470,15 @@ powers are exact).
 - **a\*b**: `b = 0` is 1 (also `0*0`); `a = 0` is 0, or DOMAIN ERROR for negative `b`; a whole `b` of magnitude 1 to 127 is a product by
   repeated squaring (`2*10` is exactly 1024), reciprocal for negative `b`, and works for negative `a`; other `b` need `a > 0`
   (DOMAIN ERROR otherwise) and give `exp(b ln a)`. **a⍟b** is `ln b ÷ ln a`.
+- **○**: monadic `○x` is `π×x`; dyadic `k○x` takes `k` a whole number from -7 to 7 (DOMAIN ERROR otherwise) and gives `0` √(1-x²), `1` sin,
+  `2` cos, `3` tan, `4` √(1+x²), `¯1` asin, `¯2` acos, `¯3` atan; the hyperbolic ones (5 to 7, ¯4 to ¯7) are NONCE ERROR. Trigonometry
+  reduces `x` by `k = round(2x/π)` (π/2 in three pieces, the first two of 8 bits so `k×piece` is exact for `|k| ≤ 255`, that is `|x|` up to
+  about 400; beyond that `x` itself has too few bits to mean much, and `|x|` above about 51,000 is DOMAIN ERROR), polynomials for sin r and
+  cos r, and the quadrant `k & 3` chooses which and the sign. atan works on `|x|`, inverted if it is 1 or more, then `(a-1)/(a+1)` with π/4 added
+  above tan(π/8), then a series; asin is `atan(x/√((1-|x|)(1+|x|)))` (|x| > 1 is DOMAIN ERROR, |x| = 1 is ±π/2) and acos is
+  `2 atan √((1-x)/(1+x))`. The interpreter's `CALL` runs another program (shared slots and integer register; a caller keeps what it needs in
+  slots 6 and up) and `DOMERR` raises DOMAIN ERROR. Accuracy against the real functions: sin and cos within 1.3, tan 3.5, atan 1.7, asin 2.3,
+  acos 3.4 units of 2^-16 (absolute for the first four, relative for tan and acos).
 - They are scalar functions in the engine (operations 17 to 24; the kernels are in the overlay, loaded when the engine sets up an
   operation), so they work on arrays and in outer product (`(⍳5)∘.*2`); reduce, scan and inner product do not take them (NONCE ERROR:
   the kernels' overlay cannot be loaded while the inner product's is running).

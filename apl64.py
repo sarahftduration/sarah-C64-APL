@@ -658,7 +658,7 @@ _MON = {'+': _m_id, '-': _m_neg, '×': _m_sign, '÷': _m_recip,
 # an opcode and an operand: a constant, slot, count or bit.
 VM_OPS = ['END', 'LDK', 'LDS', 'STS', 'ADDS', 'SUBS', 'MULS', 'DIVS', 'RSUBS', 'RDIVS', 'ADDK', 'SUBK', 'MULK',
           'DIVK', 'RSUBK', 'RDIVK', 'NEG', 'ABS', 'FREXP', 'ITOF', 'ROUND', 'LDEXP', 'DECIR', 'SARIR', 'IFBIT',
-          'NEGS', 'SETIR']
+          'NEGS', 'SETIR', 'CALL', 'DOMERR']
 OP_IFLT, OP_IFGE = 32, 48        # 32+n, 48+n: run the next n instructions only if acc < / >= the constant, else skip them
 MATH_CONST_NAMES = []
 MATH_CONSTS = []
@@ -686,13 +686,41 @@ _mconst('sq0', 0.41731)
 _mconst('sq1', 0.59016)
 _mconst('m100', -100)
 _mconst('p89', 89)
+_mconst('zero', 0)
+_mconst('tiny', 1e-30)
+_mconst('onep', 1 + 2 ** -15)                # the float after 1
+_mconst('pi', math.pi)
+_mconst('pio2', math.pi / 2)
+_mconst('pio4', math.pi / 4)
+_mconst('tan8', math.tan(math.pi / 8))
+_mconst('twoopi', 2 / math.pi)
+_A = 201 / 128                               # pi/2 in three pieces, the first two of 8 bits (k times them is exact)
+_B = round((math.pi / 2 - _A) * 2 ** 19) / 2 ** 19
+_mconst('pio2a', _A)
+_mconst('pio2b', _B)
+_mconst('pio2c', math.pi / 2 - _A - _B)
+_mconst('sn3', -1 / 6)
+_mconst('sn5', 1 / 120)
+_mconst('sn7', -1 / 5040)
+_mconst('cs2', -1 / 2)
+_mconst('cs4', 1 / 24)
+_mconst('cs6', -1 / 720)
+_mconst('cs8', 1 / 40320)
+for _i in (3, 5, 7, 9, 11, 13):
+    _mconst('at%d' % _i, (-1) ** ((_i - 1) // 2) / _i)
+
+
+MATH_PROG_NAMES = ['EXP', 'LN', 'SQRT', 'TRIG', 'SINTAIL', 'COSTAIL', 'SIN', 'COS', 'TAN', 'ATAN', 'ASIN', 'ACOS', 'CIRC0', 'CIRC4']
 
 
 def _asm(*ops):
-    """Assemble (name, operand ...) tuples into (opcode, operand) pairs."""
+    """Assemble (name, operand ...) tuples into (opcode, operand) pairs; CALL takes a program's name."""
     out = []
     for o in ops:
         name = o[0]
+        if name == 'CALL':
+            out.append((VM_OPS.index('CALL'), MATH_PROG_NAMES.index(o[1])))
+            continue
         if name in ('IFLT', 'IFGE'):
             out.append(((OP_IFLT if name == 'IFLT' else OP_IFGE) + o[2], MATH_CONST_NAMES.index(o[1])))
         elif name == 'IFBIT':
@@ -725,12 +753,53 @@ MATH_PROGS = {
                  ('LDS', 0), ('DIVS', 1), ('ADDS', 1), ('MULK', 'half'), ('STS', 1),
                  ('LDS', 0), ('DIVS', 1), ('ADDS', 1), ('MULK', 'half'),
                  ('SARIR',), ('LDEXP',), ('END',)),
+    # sin and cos: k = round(x 2/pi), r = x - k pi/2 (three pieces), polynomials for sin r and cos r in slots 4 and 5, ir = k
+    'TRIG': _asm(('STS', 0), ('MULK', 'twoopi'), ('ROUND',), ('ITOF',), ('STS', 1), ('MULK', 'pio2a'), ('RSUBS', 0), ('STS', 2),
+                 ('LDS', 1), ('MULK', 'pio2b'), ('RSUBS', 2), ('STS', 2), ('LDS', 1), ('MULK', 'pio2c'), ('RSUBS', 2), ('STS', 2),
+                 ('MULS', 2), ('STS', 3),
+                 ('LDK', 'sn7'), ('MULS', 3), ('ADDK', 'sn5'), ('MULS', 3), ('ADDK', 'sn3'), ('MULS', 3), ('ADDK', 'one'), ('MULS', 2), ('STS', 4),
+                 ('LDK', 'cs8'), ('MULS', 3), ('ADDK', 'cs6'), ('MULS', 3), ('ADDK', 'cs4'), ('MULS', 3), ('ADDK', 'cs2'), ('MULS', 3), ('ADDK', 'one'), ('STS', 5),
+                 ('END',)),
+    # the quadrant k & 3 picks sin r or cos r, and the sign
+    'SINTAIL': _asm(('LDS', 4), ('IFBIT', 0, 1), ('LDS', 5), ('IFBIT', 1, 1), ('NEG',), ('END',)),
+    'COSTAIL': _asm(('LDS', 5), ('IFBIT', 0, 1), ('LDS', 4), ('IFBIT', 0, 1), ('NEG',), ('IFBIT', 1, 1), ('NEG',), ('END',)),
+    'SIN': _asm(('CALL', 'TRIG'), ('CALL', 'SINTAIL'), ('END',)),
+    'COS': _asm(('CALL', 'TRIG'), ('CALL', 'COSTAIL'), ('END',)),
+    'TAN': _asm(('CALL', 'TRIG'), ('CALL', 'SINTAIL'), ('STS', 6), ('CALL', 'COSTAIL'), ('STS', 7), ('LDS', 6), ('DIVS', 7), ('END',)),
+    # atan of |x| brought into [0, tan(pi/8)]: 1/a if a >= 1 (ir = 1), then (a-1)/(a+1) with pi/4 added; the series; the sign of x
+    'ATAN': _asm(('STS', 0), ('ABS',), ('STS', 1), ('SETIR', 0), ('LDK', 'zero'), ('STS', 2),
+                 ('LDS', 1), ('IFGE', 'one', 3), ('RDIVK', 'one'), ('STS', 1), ('SETIR', 1),
+                 ('LDS', 1), ('IFGE', 'tan8', 8), ('SUBK', 'one'), ('STS', 3), ('LDS', 1), ('ADDK', 'one'), ('RDIVS', 3), ('STS', 1), ('LDK', 'pio4'), ('STS', 2),
+                 ('LDS', 1), ('MULS', 1), ('STS', 3),
+                 ('LDK', 'at13'), ('MULS', 3), ('ADDK', 'at11'), ('MULS', 3), ('ADDK', 'at9'), ('MULS', 3), ('ADDK', 'at7'), ('MULS', 3),
+                 ('ADDK', 'at5'), ('MULS', 3), ('ADDK', 'at3'), ('MULS', 3), ('ADDK', 'one'), ('MULS', 1), ('ADDS', 2),
+                 ('IFBIT', 0, 1), ('RSUBK', 'pio2'), ('NEGS', 0), ('END',)),
+    # asin x = atan(x / sqrt((1-a)(1+a))), a = |x|; |x| > 1 is DOMAIN ERROR and |x| = 1 gives +-pi/2
+    'ASIN': _asm(('STS', 6), ('ABS',), ('STS', 7), ('IFGE', 'onep', 1), ('DOMERR',),
+                 ('RSUBK', 'one'), ('STS', 8), ('LDS', 7), ('ADDK', 'one'), ('MULS', 8),
+                 ('IFLT', 'tiny', 3), ('LDK', 'pio2'), ('NEGS', 6), ('END',),
+                 ('CALL', 'SQRT'), ('STS', 8), ('LDS', 6), ('DIVS', 8), ('CALL', 'ATAN'), ('END',)),
+    # acos x = 2 atan(sqrt((1-x)/(1+x))); acos(-1) = pi, acos(1) = 0
+    'ACOS': _asm(('STS', 6), ('ABS',), ('IFGE', 'onep', 1), ('DOMERR',),
+                 ('LDS', 6), ('RSUBK', 'one'), ('STS', 7), ('LDS', 6), ('ADDK', 'one'),
+                 ('IFLT', 'tiny', 2), ('LDK', 'pi'), ('END',),
+                 ('RDIVS', 7), ('IFLT', 'tiny', 1), ('END',), ('CALL', 'SQRT'), ('CALL', 'ATAN'), ('MULK', 'two'), ('END',)),
+    # 0 circle x = sqrt(1 - x^2) and 4 circle x = sqrt(1 + x^2)
+    'CIRC0': _asm(('ABS',), ('STS', 7), ('IFGE', 'onep', 1), ('DOMERR',),
+                  ('RSUBK', 'one'), ('STS', 8), ('LDS', 7), ('ADDK', 'one'), ('MULS', 8),
+                  ('IFLT', 'tiny', 1), ('END',), ('CALL', 'SQRT'), ('END',)),
+    'CIRC4': _asm(('STS', 7), ('MULS', 7), ('ADDK', 'one'), ('CALL', 'SQRT'), ('END',)),
 }
 
 
 def vm_run(prog, x):
     """Run a program on the float24 x; returns the accumulator."""
-    S, ir, acc, pc = [0] * 8, 0, x, 0
+    return _vm(prog, x, [0] * 12, [0])
+
+
+def _vm(prog, acc, S, st):
+    """The interpreter proper: S is the slots, st[0] the integer register (both shared with called programs)."""
+    ir, pc = st[0], 0
     while True:
         op, arg = prog[pc]
         pc += 1
@@ -741,7 +810,14 @@ def vm_run(prog, x):
             continue
         name = VM_OPS[op]
         if name == 'END':
+            st[0] = ir
             return acc
+        elif name == 'CALL':
+            st[0] = ir
+            acc = _vm(MATH_PROGS[MATH_PROG_NAMES[arg]], acc, S, st)
+            ir = st[0]
+        elif name == 'DOMERR':
+            raise AplError('DOMAIN ERROR')
         elif name == 'LDK':
             acc = MATH_CONSTS[arg]
         elif name == 'LDS':
@@ -869,6 +945,24 @@ def f_pow(a, b):
 def f_log(a, b):
     """The logarithm of b to the base a."""
     return f_div(f_ln(b), f_ln(a))
+
+
+def f_pi_times(x):
+    return f_mul(x, _k('pi'))
+
+
+# k circle x: 0 sqrt(1-x^2), 1 sin, 2 cos, 3 tan, 4 sqrt(1+x^2), -1 asin, -2 acos, -3 atan (the hyperbolic ones,
+# 5 to 7 and -4 to -7, are NONCE ERROR; anything else is DOMAIN ERROR)
+CIRCLE_PROGS = {0: 'CIRC0', 1: 'SIN', 2: 'COS', 3: 'TAN', 4: 'CIRC4', -1: 'ASIN', -2: 'ACOS', -3: 'ATAN'}
+
+
+def f_circle(k, x):
+    n = f_whole(k)
+    if n is None or not -7 <= n <= 7:
+        raise AplError('DOMAIN ERROR')
+    if n not in CIRCLE_PROGS:
+        raise AplError('NONCE ERROR')
+    return vm_run(MATH_PROGS[CIRCLE_PROGS[n]], x)
 
 
 def _float_fn1(fn):
@@ -1393,7 +1487,9 @@ _DY['⍟'] = _float_fn2(f_log)
 for _g, _m in (('*', f_exp), ('⍟', f_ln)):
     PRIMS[_g] = ((lambda f: (lambda v: monadic_scalar(_float_fn1(f), v)))(_m),
                  (lambda f: (lambda a, b: dyadic_scalar(f, a, b)))(_DY[_g]))
-for _g in '○!?':
+_DY['○'] = _float_fn2(f_circle)
+PRIMS['○'] = (lambda v: monadic_scalar(_float_fn1(f_pi_times), v), lambda a, b: dyadic_scalar(_DY['○'], a, b))
+for _g in '!?':
     PRIMS[_g] = (_nonce, _nonce)
 PRIMS['⍒'] = (grade(True), _nonce)
 PRIMS['⍴'] = (shape_of, reshape)
@@ -2352,7 +2448,7 @@ def selftest():
         ('+/[1]A', '95'),
         ('*0', '1'), ('*1', '2.718'), ('*¯1', '0.3679'), ('*89', '!DOMAIN ERROR'), ('*¯200', '0'), ('⍟1', '0'), ('⍟¯1', '!DOMAIN ERROR'), ('⍟0', '!DOMAIN ERROR'), ('⍟10', '2.303'),
         ('2*10', '1024'), ('2*¯1', '0.5'), ('0*0', '1'), ('0*¯1', '!DOMAIN ERROR'), ('¯2*3', '¯8'), ('¯2*0.5', '!DOMAIN ERROR'), ('16*0.5', '4'), ('2⍟8', '3'), ('1⍟5', '!DOMAIN ERROR'),
-        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'),
+        ('(⍳3)∘.*⍳3', '1 1  1|2 4  8|3 9 27'), ('○1', '3.142'), ('1○0', '0'), ('2○0', '1'), ('¯3○1', '0.7854'), ('¯1○2', '!DOMAIN ERROR'), ('5○1', '!NONCE ERROR'), ('1.5○1', '!DOMAIN ERROR'), ('0○1', '0'), ('4○0', '1'), ("'a'*2", '!DOMAIN ERROR'), ('*/1 2', '!NONCE ERROR'), ('1 2+.*3 4', '!NONCE ERROR'), ('?1', '!NONCE ERROR'), ('!1', '!NONCE ERROR'),
         ('+/[1]2 3⍴⍳6', '5 7 9'), ('+/[2]2 3⍴⍳6', '6 15'), ('+\\[1]2 3⍴⍳6', '1 2 3|5 7 9'), ('⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'), ('1⌽[1]2 3⍴⍳6', '4 5 6|1 2 3'),
         ('+/[1]⍳4', '10'), ('+/[2]⍳4', '!INDEX ERROR'), ('+/[0]2 3⍴⍳6', '!INDEX ERROR'), ('+/[1.5]2 3⍴⍳6', '!DOMAIN ERROR'), ('+/[1 2]2 3⍴⍳6', '!RANK ERROR'),
         ('+[1]2 3⍴⍳6', '!NONCE ERROR'), ('1 0/[1]2 3⍴⍳6', '1 2 3'), ('⌽[1]', '!SYNTAX ERROR'), ('2×+/[1]2 3⍴⍳6', '10 14 18'), ('+/[1]⌽2 3⍴⍳6', '9 7 5'),

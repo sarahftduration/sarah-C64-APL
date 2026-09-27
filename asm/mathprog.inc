@@ -22,6 +22,30 @@ MKC_SQ0 = 18
 MKC_SQ1 = 19
 MKC_M100 = 20
 MKC_P89 = 21
+MKC_ZERO = 22
+MKC_TINY = 23
+MKC_ONEP = 24
+MKC_PI = 25
+MKC_PIO2 = 26
+MKC_PIO4 = 27
+MKC_TAN8 = 28
+MKC_TWOOPI = 29
+MKC_PIO2A = 30
+MKC_PIO2B = 31
+MKC_PIO2C = 32
+MKC_SN3 = 33
+MKC_SN5 = 34
+MKC_SN7 = 35
+MKC_CS2 = 36
+MKC_CS4 = 37
+MKC_CS6 = 38
+MKC_CS8 = 39
+MKC_AT3 = 40
+MKC_AT5 = 41
+MKC_AT7 = 42
+MKC_AT9 = 43
+MKC_AT11 = 44
+MKC_AT13 = 45
 mk_table:
         .byte $81, $00, $00    ; one
         .byte $82, $00, $00    ; two
@@ -45,6 +69,30 @@ mk_table:
         .byte $80, $17, $15    ; sq1
         .byte $87, $c8, $00    ; m100
         .byte $87, $32, $00    ; p89
+        .byte $00, $00, $00    ; zero
+        .byte $1d, $22, $42    ; tiny
+        .byte $81, $00, $01    ; onep
+        .byte $82, $49, $10    ; pi
+        .byte $81, $49, $10    ; pio2
+        .byte $80, $49, $10    ; pio4
+        .byte $7f, $54, $14    ; tan8
+        .byte $80, $22, $fa    ; twoopi
+        .byte $81, $49, $00    ; pio2a
+        .byte $75, $7e, $00    ; pio2b
+        .byte $6c, $ab, $bc    ; pio2c
+        .byte $7e, $aa, $ab    ; sn3
+        .byte $7a, $08, $89    ; sn5
+        .byte $74, $d0, $0d    ; sn7
+        .byte $80, $80, $00    ; cs2
+        .byte $7c, $2a, $ab    ; cs4
+        .byte $77, $b6, $0b    ; cs6
+        .byte $71, $50, $0d    ; cs8
+        .byte $7f, $aa, $ab    ; at3
+        .byte $7e, $4c, $cd    ; at5
+        .byte $7e, $92, $49    ; at7
+        .byte $7d, $63, $8e    ; at9
+        .byte $7d, $ba, $2f    ; at11
+        .byte $7d, $1d, $8a    ; at13
 mp_exp:
         .byte 3, 0    ; STS 0
         .byte 12, 3    ; MULK log2e
@@ -140,5 +188,187 @@ mp_sqrt:
         .byte 23, 0    ; SARIR
         .byte 21, 0    ; LDEXP
         .byte 0, 0    ; END
+mp_trig:
+        .byte 3, 0    ; STS 0
+        .byte 12, 29    ; MULK twoopi
+        .byte 20, 0    ; ROUND
+        .byte 19, 0    ; ITOF
+        .byte 3, 1    ; STS 1
+        .byte 12, 30    ; MULK pio2a
+        .byte 8, 0    ; RSUBS
+        .byte 3, 2    ; STS 2
+        .byte 2, 1    ; LDS 1
+        .byte 12, 31    ; MULK pio2b
+        .byte 8, 2    ; RSUBS 2
+        .byte 3, 2    ; STS 2
+        .byte 2, 1    ; LDS 1
+        .byte 12, 32    ; MULK pio2c
+        .byte 8, 2    ; RSUBS 2
+        .byte 3, 2    ; STS 2
+        .byte 6, 2    ; MULS 2
+        .byte 3, 3    ; STS 3
+        .byte 1, 35    ; LDK sn7
+        .byte 6, 3    ; MULS 3
+        .byte 10, 34    ; ADDK sn5
+        .byte 6, 3    ; MULS 3
+        .byte 10, 33    ; ADDK sn3
+        .byte 6, 3    ; MULS 3
+        .byte 10, 0    ; ADDK one
+        .byte 6, 2    ; MULS 2
+        .byte 3, 4    ; STS 4
+        .byte 1, 39    ; LDK cs8
+        .byte 6, 3    ; MULS 3
+        .byte 10, 38    ; ADDK cs6
+        .byte 6, 3    ; MULS 3
+        .byte 10, 37    ; ADDK cs4
+        .byte 6, 3    ; MULS 3
+        .byte 10, 36    ; ADDK cs2
+        .byte 6, 3    ; MULS 3
+        .byte 10, 0    ; ADDK one
+        .byte 3, 5    ; STS 5
+        .byte 0, 0    ; END
+mp_sintail:
+        .byte 2, 4    ; LDS 4
+        .byte 24, 1    ; IFBIT 1
+        .byte 2, 5    ; LDS 5
+        .byte 24, 17    ; IFBIT 17
+        .byte 16, 0    ; NEG
+        .byte 0, 0    ; END
+mp_costail:
+        .byte 2, 5    ; LDS 5
+        .byte 24, 1    ; IFBIT 1
+        .byte 2, 4    ; LDS 4
+        .byte 24, 1    ; IFBIT 1
+        .byte 16, 0    ; NEG
+        .byte 24, 17    ; IFBIT 17
+        .byte 16, 0    ; NEG
+        .byte 0, 0    ; END
+mp_sin:
+        .byte 27, 3    ; CALL 3
+        .byte 27, 4    ; CALL 4
+        .byte 0, 0    ; END
+mp_cos:
+        .byte 27, 3    ; CALL 3
+        .byte 27, 5    ; CALL 5
+        .byte 0, 0    ; END
+mp_tan:
+        .byte 27, 3    ; CALL 3
+        .byte 27, 4    ; CALL 4
+        .byte 3, 6    ; STS 6
+        .byte 27, 5    ; CALL 5
+        .byte 3, 7    ; STS 7
+        .byte 2, 6    ; LDS 6
+        .byte 7, 7    ; DIVS 7
+        .byte 0, 0    ; END
+mp_atan:
+        .byte 3, 0    ; STS 0
+        .byte 17, 0    ; ABS
+        .byte 3, 1    ; STS 1
+        .byte 26, 0    ; SETIR
+        .byte 1, 22    ; LDK zero
+        .byte 3, 2    ; STS 2
+        .byte 2, 1    ; LDS 1
+        .byte 51, 0    ; IFGE one, 3
+        .byte 15, 0    ; RDIVK one
+        .byte 3, 1    ; STS 1
+        .byte 26, 1    ; SETIR 1
+        .byte 2, 1    ; LDS 1
+        .byte 56, 28    ; IFGE tan8, 8
+        .byte 11, 0    ; SUBK one
+        .byte 3, 3    ; STS 3
+        .byte 2, 1    ; LDS 1
+        .byte 10, 0    ; ADDK one
+        .byte 9, 3    ; RDIVS 3
+        .byte 3, 1    ; STS 1
+        .byte 1, 27    ; LDK pio4
+        .byte 3, 2    ; STS 2
+        .byte 2, 1    ; LDS 1
+        .byte 6, 1    ; MULS 1
+        .byte 3, 3    ; STS 3
+        .byte 1, 45    ; LDK at13
+        .byte 6, 3    ; MULS 3
+        .byte 10, 44    ; ADDK at11
+        .byte 6, 3    ; MULS 3
+        .byte 10, 43    ; ADDK at9
+        .byte 6, 3    ; MULS 3
+        .byte 10, 42    ; ADDK at7
+        .byte 6, 3    ; MULS 3
+        .byte 10, 41    ; ADDK at5
+        .byte 6, 3    ; MULS 3
+        .byte 10, 40    ; ADDK at3
+        .byte 6, 3    ; MULS 3
+        .byte 10, 0    ; ADDK one
+        .byte 6, 1    ; MULS 1
+        .byte 4, 2    ; ADDS 2
+        .byte 24, 1    ; IFBIT 1
+        .byte 14, 26    ; RSUBK pio2
+        .byte 25, 0    ; NEGS
+        .byte 0, 0    ; END
+mp_asin:
+        .byte 3, 6    ; STS 6
+        .byte 17, 0    ; ABS
+        .byte 3, 7    ; STS 7
+        .byte 49, 24    ; IFGE onep, 1
+        .byte 28, 0    ; DOMERR
+        .byte 14, 0    ; RSUBK one
+        .byte 3, 8    ; STS 8
+        .byte 2, 7    ; LDS 7
+        .byte 10, 0    ; ADDK one
+        .byte 6, 8    ; MULS 8
+        .byte 35, 23    ; IFLT tiny, 3
+        .byte 1, 26    ; LDK pio2
+        .byte 25, 6    ; NEGS 6
+        .byte 0, 0    ; END
+        .byte 27, 2    ; CALL 2
+        .byte 3, 8    ; STS 8
+        .byte 2, 6    ; LDS 6
+        .byte 7, 8    ; DIVS 8
+        .byte 27, 9    ; CALL 9
+        .byte 0, 0    ; END
+mp_acos:
+        .byte 3, 6    ; STS 6
+        .byte 17, 0    ; ABS
+        .byte 49, 24    ; IFGE onep, 1
+        .byte 28, 0    ; DOMERR
+        .byte 2, 6    ; LDS 6
+        .byte 14, 0    ; RSUBK one
+        .byte 3, 7    ; STS 7
+        .byte 2, 6    ; LDS 6
+        .byte 10, 0    ; ADDK one
+        .byte 34, 23    ; IFLT tiny, 2
+        .byte 1, 25    ; LDK pi
+        .byte 0, 0    ; END
+        .byte 9, 7    ; RDIVS 7
+        .byte 33, 23    ; IFLT tiny, 1
+        .byte 0, 0    ; END
+        .byte 27, 2    ; CALL 2
+        .byte 27, 9    ; CALL 9
+        .byte 12, 1    ; MULK two
+        .byte 0, 0    ; END
+mp_circ0:
+        .byte 17, 0    ; ABS
+        .byte 3, 7    ; STS 7
+        .byte 49, 24    ; IFGE onep, 1
+        .byte 28, 0    ; DOMERR
+        .byte 14, 0    ; RSUBK one
+        .byte 3, 8    ; STS 8
+        .byte 2, 7    ; LDS 7
+        .byte 10, 0    ; ADDK one
+        .byte 6, 8    ; MULS 8
+        .byte 33, 23    ; IFLT tiny, 1
+        .byte 0, 0    ; END
+        .byte 27, 2    ; CALL 2
+        .byte 0, 0    ; END
+mp_circ4:
+        .byte 3, 7    ; STS 7
+        .byte 6, 7    ; MULS 7
+        .byte 10, 0    ; ADDK one
+        .byte 27, 2    ; CALL 2
+        .byte 0, 0    ; END
 mv_tab:
-        .word h_end, h_ldk, h_lds, h_sts, h_adds, h_subs, h_muls, h_divs, h_rsubs, h_rdivs, h_addk, h_subk, h_mulk, h_divk, h_rsubk, h_rdivk, h_neg, h_abs, h_frexp, h_itof, h_round, h_ldexp, h_decir, h_sarir, h_ifbit, h_negs, h_setir
+        .word h_end, h_ldk, h_lds, h_sts, h_adds, h_subs, h_muls, h_divs, h_rsubs, h_rdivs, h_addk, h_subk, h_mulk, h_divk, h_rsubk, h_rdivk, h_neg, h_abs, h_frexp, h_itof, h_round, h_ldexp, h_decir, h_sarir, h_ifbit, h_negs, h_setir, h_call, h_domerr
+mv_progs:
+        .word mp_exp, mp_ln, mp_sqrt, mp_trig, mp_sintail, mp_costail, mp_sin, mp_cos, mp_tan, mp_atan, mp_asin, mp_acos, mp_circ0, mp_circ4
+; the programs of k circle x, indexed by k + 3 for k from -3 to 4
+mc_tab:
+        .byte 9, 11, 10, 12, 6, 7, 8, 13

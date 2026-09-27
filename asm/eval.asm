@@ -1274,12 +1274,15 @@ apply_mon:
         beq am_exp
         cmp #27
         beq am_ln
+        cmp #28
+        beq am_pi
         lda #E_NONCE
         sec
         rts
 am_tr:  jmp s_transpose
 am_exp: jmp p_mexp
 am_ln:  jmp p_mln
+am_pi:  jmp p_mpi
 am_ceil: jmp s_ceil
 am_floor: jmp s_floor
 am_abs: jmp p_abs
