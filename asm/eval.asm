@@ -493,7 +493,7 @@ ct_ax1: txa
 ; waiting for the value (so the statement ends here), else VALUE ERROR. Carry set: A = the error.
 qfin:   cmp #$a0
         bcc qf_no
-        cmp #$a8                ; ($A8 and up, ⎕KEY, give a value)
+        cmp #$ac                ; ($AC and up, ⎕KEY, give a value)
         bcs qf_no
         sec
         lda vsp

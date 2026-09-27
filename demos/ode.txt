@@ -1,25 +1,29 @@
-# Ode to Joy with its real rhythm (quarters, a dotted quarter and an eighth, a half): sound and graphics, a bar per note as long as the note
+# Ode to Joy with its real rhythm (quarters, a dotted quarter and an eighth, a half): sound, graphics, a bar per note as long as the note, and a sprite ball that hops from note to note
 @pace 0.16
 @wait 1
 @speed 3
-∇PLAY;N;E;F;S;I
+∇PLAY;N;E;F;S;I;X;Y
 N←¯5 ¯5 ¯4 ¯2 ¯2 ¯4 ¯5 ¯7 ¯9 ¯9 ¯7 ¯5
 N←(N,¯5 ¯7 ¯7),N,¯7 ¯9 ¯9
 E←(12⍴2),3 1 4
 E←E,E
 F←⌊0.5+7492.5×2*N÷12
 S←0,¯1↓+\E
+X←(⍳24)-12 ⋄ Y←(⍳21)-11
+0 ⎕SPD 100≥(Y×Y)∘.+X×X
 ⎕GR 1 ⋄ ⎕PAL 6 1 7 13 ⋄ ⎕SND 15 ⋄ I←1
 L:⎕INK 1+3|I ⋄ ((16+2×S[I]),199) ⎕BOX ((14+2×S[I]+E[I]),199-12×N[I]+11)
+0 ⎕SPR (20+(4×S[I])+2×E[I]),(178-12×N[I]+11),0 7
 1 ⎕SND F[I],2 0 9 10 4
 ⎕WAIT (12×E[I])-4
 1 ⎕SND F[I],0
 ⎕WAIT 4
 I←I+1 ⋄ →L×⍳I≤30
+⎕SPR 0
 ∇
 @speed 1
 @wait 1
 PLAY
-@wait 18
+@wait 24
 @key Return
 @wait 2

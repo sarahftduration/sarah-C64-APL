@@ -12,6 +12,11 @@
 g1      .block
 ; --- the entry points, by function number: GR PAL INK PLOT LINE BOX WAIT (the drawing functions are in draw.inc) --------------
 p_gfxm: cmp #9
+        bcc gq_mt
+        cmp #11
+        bcs gq_mt
+        jmp s_sprm              ; ⎕SPR, ⎕SPC: the sprite overlay
+gq_mt:  cmp #13
         bcs gq_nonce
         asl
         tax
@@ -24,6 +29,10 @@ p_gfxd: cmp #1
         beq gq_dpal
         cmp #7
         beq gq_dsnd
+        cmp #8
+        beq gq_dspr
+        cmp #9
+        beq gq_dspr
         cmp #3
         bcc gq_nonce
         cmp #6
@@ -31,7 +40,8 @@ p_gfxd: cmp #1
         jmp s_drawd             ; PLOT LINE BOX: the other overlay
 gq_dpal: jmp d_pal
 gq_dsnd: jmp d_snd
-gq_mtab: .word m_gr-1, m_pal-1, m_ink-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, m_wait-1, m_snd-1, m_key-1
+gq_dspr: jmp s_sprd             ; ⎕SPD, ⎕SPR: the sprite overlay
+gq_mtab: .word m_gr-1, m_pal-1, m_ink-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, m_wait-1, m_snd-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, gq_nonce-1, m_key-1
 
         .include "gfxcom.inc"
 

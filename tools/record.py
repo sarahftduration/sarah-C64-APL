@@ -1,7 +1,9 @@
 """Record APL/64 running in VICE as an mp4: python3 tools/record.py DEMO.txt OUT.mp4
 
 VICE is started on a private virtual display (Xvfb) at real speed; ffmpeg captures the VICE window (menu and
-status bar included) at 50 fps; keys go in through xdotool, so the typing goes through the real keyboard path.
+status bar included) at 50 fps. Keys are put into the KERNAL's keyboard buffer through VICE's binary monitor, one every
+so often like a typist, as the PETSCII codes the keyboard would give (tests/test_keys.py does the same); typing through X events
+(xdotool) lost or doubled a key now and then whatever the timing, which ruins a program that is being typed in.
 Recording starts once the program is up. The sound is VICE's output to a PulseAudio null sink of its own, recorded by the
 same ffmpeg as the picture (so they stay together); VICE 3.9's own wav recorder writes nothing here. No PulseAudio: no sound.
 
@@ -9,18 +11,19 @@ A demo file is lines of typing, except:
     # ...            a comment
     @wait SECONDS    let the machine run
     @pace SECONDS    the delay between typed keys from here on (default 0.09)
-    @key NAME        one xdotool key, e.g. Return
+    @key NAME        one key: Return, space, BackSpace or Up
     @type TEXT       type TEXT without pressing Return
     @speed N         play the video from here on N times faster (a time-lapse of the typing); @speed 1 for real time again
 APL glyphs in the text are typed as the pound-key digraphs (tools/keys.py), so write them as they display.
 """
 import os
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 
-HOLD, GAP = 0.10, 0.06        # a key is held for a few frames (the KERNAL scans the keyboard once a frame), then released before the next; shorter holds lose shifted keys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import glyphs  # noqa: F401  (keeps the glyph tables importable from here)
@@ -37,49 +40,90 @@ XKEY = {" ": "space", "'": "apostrophe", "-": "minus", "=": "equal", "*": "aster
         "&": "ampersand", "_": "underscore", "|": "bar", "\\": "backslash", "~": "asciitilde", "^": "asciicircum"}
 
 
-def keys_for(text):
-    """The xdotool key names that type TEXT."""
+def petscii_for(text):
+    """The PETSCII codes the keys that type TEXT give: glyphs by digraph (the pound key, then a key), letters lower or shifted."""
     out = []
+
+    def key(ch):
+        o = ord(ch)
+        if "a" <= ch <= "z":
+            return o - 0x20              # unshifted letters are $41-$5A
+        if "A" <= ch <= "Z":
+            return o + 0x80              # shifted: $C1-$DA
+        return o
     for ch in text:
         if ch in DIGRAPH_KEY:
-            out += ["backslash", XKEY.get(DIGRAPH_KEY[ch], DIGRAPH_KEY[ch])]
+            out += [0x5C, key(DIGRAPH_KEY[ch])]
         elif ch == "←":
-            out.append("End")                          # VICE maps End to the C64 left-arrow key
+            out.append(0x5F)
         elif ch == "\\":
-            out += ["backslash", "backslash"]         # the pound key twice: a real backslash (scan, expand)
-        elif ch.isalnum() and ch.isascii():
-            out.append(ch)
+            out += [0x5C, 0x5C]           # the pound key twice: a real backslash (scan, expand)
         else:
-            out.append(XKEY.get(ch, ch))
+            out.append(key(ch))
     return out
+
+
+NAMED_KEYS = {"Return": 13, "space": 32, "BackSpace": 0x14, "Up": 0x91}
+
+
+class BinaryMonitor:
+    """Just enough of VICE's binary monitor protocol: memory get and set, ping and exit. The machine stops while a command is being
+    handled and runs again on `resume`."""
+
+    def __init__(self, port, timeout=30):
+        deadline = time.time() + timeout
+        while True:
+            try:
+                self.s = socket.create_connection(("127.0.0.1", port), timeout=5)
+                break
+            except OSError:
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.3)
+        self.s.settimeout(20)
+        self.rid = 0
+        self.cmd(0x81)
+
+    def recvn(self, n):
+        b = b""
+        while len(b) < n:
+            c = self.s.recv(n - len(b))
+            if not c:
+                raise EOFError("the binary monitor closed")
+            b += c
+        return b
+
+    def cmd(self, t, body=b""):
+        self.rid += 1
+        self.s.sendall(struct.pack("<BBIIB", 2, 2, len(body), self.rid, t) + body)
+        while True:                                   # (events arrive with the id $FFFFFFFF: skipped)
+            _, _, n, typ, err, rid = struct.unpack("<BBIBBI", self.recvn(12))
+            b = self.recvn(n)
+            if rid == self.rid:
+                assert err == 0, f"binary monitor command {t:#x} failed: {err}"
+                return b
+
+    def get(self, addr, n):
+        return self.cmd(0x01, struct.pack("<BHHBH", 0, addr, addr + n - 1, 0, 0))[2:2 + n]
+
+    def put(self, addr, data):
+        self.cmd(0x02, struct.pack("<BHHBH", 0, addr, addr + len(data) - 1, 0, 0) + bytes(data))
+
+    def resume(self):
+        self.cmd(0xAA)
+
+    def type_key(self, code):
+        """Put one key in the keyboard buffer (waiting for the last to be taken), and let the machine run."""
+        while self.get(0xC6, 1)[0]:                  # the buffer's count of keys
+            self.resume()
+            time.sleep(0.02)
+        self.put(0x277, [code])
+        self.put(0xC6, [1])
+        self.resume()
 
 
 def run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
-
-
-SHIFTED = {"plus": "equal", "asterisk": "8", "parenleft": "9", "parenright": "0", "exclam": "1", "at": "2", "numbersign": "3", "dollar": "4",
-           "percent": "5", "asciicircum": "6", "ampersand": "7", "underscore": "minus", "quotedbl": "apostrophe", "colon": "semicolon",
-           "less": "comma", "greater": "period", "question": "slash", "asciitilde": "grave"}
-
-
-def press(k, env, pace):
-    """One key held for a few frames (VICE scans the keyboard once a frame). A shifted one has the shift key pressed first and
-    held throughout: a bare keysym that needs a shift sends both at once, and under load VICE sometimes sees the key without it."""
-    base = SHIFTED.get(k) or (k.lower() if len(k) == 1 and k.isupper() else None)
-    if base:
-        run(["xdotool", "keydown", "Shift_L"], env=env)
-        time.sleep(0.04)
-        run(["xdotool", "keydown", base], env=env)
-        time.sleep(HOLD)
-        run(["xdotool", "keyup", base], env=env)
-        time.sleep(0.03)
-        run(["xdotool", "keyup", "Shift_L"], env=env)
-    else:
-        run(["xdotool", "keydown", k], env=env)
-        time.sleep(HOLD)
-        run(["xdotool", "keyup", k], env=env)
-    time.sleep(max(pace - HOLD, GAP))
 
 
 def retime(src, dst, marks, total, audio):
@@ -119,6 +163,7 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
         disp = f":{700 + os.getpid() % 200}"
         xvfb = subprocess.Popen(["Xvfb", disp, "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        port = 6510 + os.getpid() % 1000
         env = dict(os.environ, DISPLAY=disp)
         procs = [xvfb]
         sink = null_sink()
@@ -130,7 +175,8 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
                 ["x64sc", "-default", "+saveres", "-sounddev", "pulse" if sink else "dummy",
                  "-kernal", f"{ROOT}/roms/kernal.bin", "-basic", f"{ROOT}/roms/basic.bin",
                  "-chargen", f"{ROOT}/roms/chargen.bin", "-autostartprgmode", "1", "-autostart", prg,
-                 "-reu", "-reusize", str(reu_kb), "-VICIIfilter", "0"],
+                 "-reu", "-reusize", str(reu_kb), "-VICIIfilter", "0",
+                 "-binarymonitor", "-binarymonitoraddress", f"ip4://127.0.0.1:{port}"],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             procs.append(vice)
             win = None
@@ -146,18 +192,19 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
             geo = run(["xdotool", "getwindowgeometry", "--shell", win], env=env).stdout
             g = dict(l.split("=") for l in geo.split())
             x, y, w, h = int(g["X"]), int(g["Y"]), int(g["WIDTH"]) & ~1, int(g["HEIGHT"]) & ~1
-            run(["xdotool", "windowfocus", win], env=env)
+            mon = BinaryMonitor(port)
+            mon.resume()
             time.sleep(boot if boot is not None else 8)   # the welcome screen (REU overlays are stashed first)
             silent = os.path.join(tmp, "v.mp4")
-            ff = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", "0",
+            ff = subprocess.Popen(["nice", "-n", "5", "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", "0",
                                    "-framerate", "50", "-video_size", f"{w}x{h}", "-i", f"{disp}+{x},{y}",
                                    *(["-f", "pulse", "-i", "apl64rec.monitor"] if sink else []),
-                                   "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+                                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
                                    *(["-c:a", "aac"] if sink else []), silent],
                                   env=env, stdin=subprocess.PIPE)
             t0 = time.time()
             marks = [(0.0, 1.0)]                # (seconds since the capture began, the speed of the video from then on)
-            pace = 0.09
+            pace = 0.16
             for line in demo.splitlines():
                 line = line.rstrip("\n")
                 if line.startswith("#") or (not line and False):
@@ -172,11 +219,13 @@ def record(demo, out, prg=None, boot=None, reu_kb=4096):
                     marks.append((time.time() - t0, float(line[7:])))
                     continue
                 if line.startswith("@key "):
-                    press(line[5:], env, pace)
+                    mon.type_key(NAMED_KEYS[line[5:]])
+                    time.sleep(pace)
                     continue
                 text, ret = (line[6:], False) if line.startswith("@type ") else (line, True)
-                for k in keys_for(text) + (["Return"] if ret else []):
-                    press(k, env, pace)
+                for code in petscii_for(text) + ([13] if ret else []):
+                    mon.type_key(code)
+                    time.sleep(pace)
             ff.stdin.write(b"q")
             ff.stdin.flush()
             ff.wait(timeout=30)

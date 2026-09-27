@@ -92,6 +92,16 @@ class Session:
             sid = bytes(m[0xD400:0xD400 + apl64.SID_REGS])
             if sid != bytes(g.sid):
                 diffs.append(f"SID registers {sid.hex()}, model {bytes(g.sid).hex()}")
+        if getattr(self, "check_spr", False):
+            regs = list(range(0, 0x11)) + [0x15, 0x17, 0x1B, 0x1C, 0x1D] + list(range(0x25, 0x2F))
+            bad = [f"{r:02x}: {m[0xD000 + r]:02x} (model {g.vic[r]:02x})" for r in regs if m[0xD000 + r] != g.vic[r]]
+            if bad:
+                diffs.append("sprite registers " + ", ".join(bad))
+            if bytes(m[0xCFF8:0xD000]) != bytes(g.ptr):
+                diffs.append(f"sprite pointers {bytes(m[0xCFF8:0xD000]).hex()}, model {bytes(g.ptr).hex()}")
+            if bytes(m[0xD800:0xD800 + 1792]) != bytes(g.shapes):
+                first = next(i for i in range(1792) if m[0xD800 + i] != g.shapes[i])
+                diffs.append(f"sprite shapes differ, the first at {first}")
         if g.mode == 0:
             return diffs
         if m[L["gr_ink"]] != g.ink:

@@ -93,6 +93,12 @@ OVP_DRAW = *
         .here
 OVN_DRAW = * - OVP_DRAW
 
+OVP_SPR = *
+        .logical OVWIN
+        .include "spr.inc"
+        .here
+OVN_SPR = * - OVP_SPR
+
 OVL_TOT = * - OVL_IMG
 OVM_1 = OVN_SYS > OVN_DISK ? OVN_SYS : OVN_DISK
 OVM_2 = OVM_1 > OVN_SEARCH ? OVM_1 : OVN_SEARCH
@@ -107,7 +113,8 @@ OVM_10 = OVM_9 > OVN_MATH ? OVM_9 : OVN_MATH
 OVM_11 = OVM_10 > OVN_FACT ? OVM_10 : OVN_FACT
 OVM_12 = OVM_11 > OVN_RAND ? OVM_11 : OVN_RAND
 OVM_13 = OVM_12 > OVN_GFX ? OVM_12 : OVN_GFX
-OVWIN_MAX = OVM_13 > OVN_DRAW ? OVM_13 : OVN_DRAW          ; the window's size (bss.inc): the biggest overlay
+OVM_14 = OVM_13 > OVN_DRAW ? OVM_13 : OVN_DRAW
+OVWIN_MAX = OVM_14 > OVN_SPR ? OVM_14 : OVN_SPR          ; the window's size (bss.inc): the biggest overlay
         .cerror OVN_SYS > OVWIN_SIZE, "the window is too small for the system command overlay"
         .cerror OVN_DISK > OVWIN_SIZE, "the window is too small for the disk overlay"
         .cerror OVN_FDEF > OVWIN_SIZE, "the window is too small for the function editor overlay"
@@ -120,6 +127,7 @@ OVWIN_MAX = OVM_13 > OVN_DRAW ? OVM_13 : OVN_DRAW          ; the window's size (
         .cerror OVN_RAND > OVWIN_SIZE, "the window is too small for the roll and deal overlay"
         .cerror OVN_GFX > OVWIN_SIZE, "the window is too small for the graphics overlay"
         .cerror OVN_DRAW > OVWIN_SIZE, "the window is too small for the drawing overlay"
+        .cerror OVN_SPR > OVWIN_SIZE, "the window is too small for the sprite overlay"
         .cerror OVL_TOT > $e000, "the overlay images must end below $E000, where the text screen is kept while a picture is up"
         .cerror OVL_TOT > $ffff, "the overlay images must fit one 64 KB REU bank"
         .cerror OVN_SEARCH > OVWIN_SIZE, "the window is too small for the search overlay"

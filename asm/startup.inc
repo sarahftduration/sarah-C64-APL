@@ -66,6 +66,7 @@ su2:    sta (cd),y
         bne su1
         lda #15                 ; the sound chip's volume (a fresh chip has 0)
         sta SID_VOLUME
+        jsr spr_clear
         jsr bss_init            ; RAM holds anything at power-up
         jsr tok_init
         jsr eval_init           ; (sets the test log pointer, which the cursor shares)
@@ -111,6 +112,38 @@ nmi_handler:
         lda $dd0d               ; acknowledge, or the NMI line stays low and never fires again
         pla
         rti
+
+; the sprite pointers name shapes 0 to 7 (pointer 96 + shape), which lie in the RAM under the I/O area from $D800
+spr_setptrs:
+        ldx #7
+sp_p1:  txa
+        clc
+        adc #96
+        sta SPR_PTRS,x
+        dex
+        bpl sp_p1
+        rts
+
+; the 28 sprite shapes start empty (RAM holds anything at power-up)
+spr_clear:
+        lda #$34                ; (I/O out, RAM under it in; interrupts are off during start-up)
+        sta $01
+        lda #<SPR_SHAPES
+        sta cd
+        lda #>SPR_SHAPES
+        sta cd+1
+        ldx #7
+        lda #0
+        tay
+sp_c1:  sta (cd),y
+        iny
+        bne sp_c1
+        inc cd+1
+        dex
+        bne sp_c1
+        lda #$36
+        sta $01
+        rts
 
 ; zero the small variable blocks (the big tables are set up by their own init routines)
 bss_init:
@@ -255,6 +288,7 @@ scl2:   sta (cd),y
         inc cd+1
         dex
         bne scl1
+        jsr spr_setptrs            ; (the sprite pointers are the last 8 bytes of screen RAM)
 scr_home:
         lda #<SCREEN
         sta scrp

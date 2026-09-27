@@ -162,6 +162,59 @@ def test_text_returns():
     print("gfx vice: after the picture a key brings the text screen back, with its colours and the prompt")
 
 
+def sprite_grid(g):
+    """The colour of each pixel of the 320 x 200 picture with the model's sprites over the (hires) picture, sprite 0 in front."""
+    grid = colour_grid(g)
+    if g.mode == 1:
+        grid = [[c for c in row for _ in (0, 1)] for row in grid]
+    v = g.vic
+    for n in range(7, -1, -1):
+        if not v[0x15] >> n & 1:
+            continue
+        x = v[2 * n] + (256 if v[0x10] >> n & 1 else 0) - 24
+        y = v[2 * n + 1] - 50
+        slot = g.ptr[n] - 96
+        data = g.shapes[64 * slot:64 * slot + 63]
+        multi, xw, yw = v[0x1C] >> n & 1, 1 + (v[0x1D] >> n & 1), 1 + (v[0x17] >> n & 1)
+        for r in range(21):
+            for c in range(24):
+                if multi:
+                    val = data[r * 3 + c // 8] >> (6 - 2 * (c % 8 // 2)) & 3
+                    col = (None, v[0x25], v[0x27 + n], v[0x26])[val]
+                else:
+                    col = v[0x27 + n] if data[r * 3 + c // 8] >> (7 - c % 8) & 1 else None
+                if col is None:
+                    continue
+                for dy in range(yw):
+                    for dx in range(xw):
+                        px, py = x + c * xw + dx, y + r * yw + dy
+                        if 0 <= px < 320 and 0 <= py < 200:
+                            grid[py][px] = col
+    return grid
+
+
+def test_sprites():
+    """Sprites in real VICE: every pixel of the screen, sprites included, as the model has it (colours compared by looking alike)."""
+    lines = ["⎕GR 2", "0 ⎕SPD 21 24⍴1 1 0 1 1 0 0 0", "1 ⎕SPD 21 12⍴0 1 2 3 3 2 1 0", "⎕SPC 2 5", "0 ⎕SPR 100 60 0 7", "1 ⎕SPR 200 100 1 3 1", "2 ⎕SPR 50 150 0 8 6", "3 ⎕SPR 300 30 0 1 8",
+             "4 ⎕SPR ¯10 ¯20 1 6 3"]
+    text = quad(" ⋄ ".join(lines)) + "{RET}"
+    assert len(" ⋄ ".join(lines)) < 250
+    files = run(text)
+    g = model_picture(lines)
+    w, h, rows = png_pixels(files["shot.png"])
+    seen, bad = {}, 0
+    for y, grow in enumerate(sprite_grid(g)):
+        for x, c in enumerate(grow):
+            px = rows[35 + y][32 + x]
+            if seen.setdefault(c, px) != px:
+                bad += 1
+    assert not bad, f"sprites: {bad} pixels of the screenshot show the wrong colour"
+    assert len(set(seen.values())) == len(seen), f"two colours look the same {seen}"
+    vic = files["vic.bin"]
+    assert vic[0x15] == g.vic[0x15] and vic[0x10] == g.vic[0x10] and bytes(vic[0:16]) == bytes(g.vic[0:16]), (vic[:0x30].hex(), bytes(g.vic).hex())
+    print(f"gfx vice: 5 sprites (hires, multicolor, expanded, past the edges) sit where and look as the model says ({len(seen)} colours)")
+
+
 def test_sound_and_keys():
     """⎕SND writes the SID's registers (VICE lets the monitor read them back), ⎕KEY takes the next key: here the scripted one."""
     lines = ["1 ⎕SND 4000 1 0 9 15 5 1000", "2 ⎕SND 300 8", "⎕SND 12", "A←⎕KEY 60", "A"]
@@ -188,3 +241,4 @@ if __name__ == "__main__":
         test_pictures()
         test_text_returns()
         test_sound_and_keys()
+        test_sprites()

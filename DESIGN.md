@@ -989,7 +989,23 @@ a picture up (`gr_after`), then leaves graphics mode, and only then prints an er
 is pressed, and several drawing statements must be on one line (with `⋄`) or in a function. (A split screen, with a
 few text lines under the picture, would need a raster interrupt: not done.)
 
-**Sound and keys** share the quad names and the overlay `gfx.inc`; they work in text mode. `⎕SND` has no dependence on graphics; the tests compare the 25 SID registers with the model's copy. The quad functions with a token below `$A8` give no value (`qfin` drops their dummy result); `⎕KEY` is the first to give one.
+**Sprites** (asm/spr.inc, a third graphics overlay of 1.3 KB; model section Sprites; `tests/test_spr.py`, and a screenshot check in `test_gfx_vice.py`). They work in text and graphics modes alike.
+The VIC-II's 8 sprites are 24 x 21 pixels. Their 28 shapes live in the RAM under the I/O area (`$D800`-`$DEFF`, 64 bytes each: pointers 96 to 123; `$DF00` up is left alone
+because the REU's registers are there), and the pointers are the last 8 bytes of screen RAM (`$CFF8`, which screen clearing rewrites: `spr_setptrs`). Start-up empties the shapes and
+points sprite n at shape n. Sprites are never switched off by leaving graphics mode: `⎕SPR 0` hides them all.
+
+| call | does |
+|---|---|
+| `s ⎕SPD shape` | shape slot s (0-27) is defined by a 21 x 24 matrix of 0/1 (hires sprite), a 21 x 12 matrix of 0-3 (multicolor: two bits a pixel, so half as wide) or 63 bytes |
+| `n ⎕SPR x y shape colour flags` | sprite n (0-7) goes to (x, y) and is switched on; the first 2, 3, 4 or 5 numbers: `shape` 0-27, `colour` 0-15, `flags` 0-15 = 1 multicolor + 2 double width + 4 double height + 8 behind the picture |
+| `⎕SPR m` | the sprites switched on: bit n of m for sprite n (`⎕SPR 0` hides all) |
+| `⎕SPC a b` | the two colours multicolor sprites share: pixel value 1 shows a, value 3 shows b, value 2 the sprite's own colour, 0 is clear |
+
+Coordinates are the 320 x 200 screen's physical pixels with (0, 0) at the top left of the picture: x from -24 to 487 (past the right edge, and off the left), y from -50 to 205; numbers are floored,
+anything outside is DOMAIN. (Multicolor pictures have pixels two physical pixels wide, so x is doubled against `⎕PLOT`'s.) Lower-numbered sprites are in front. The model keeps the VIC-II's
+sprite registers, the pointers and the shape memory as bytes, and the tests compare them; VICE compares every pixel of a screenshot with sprites rendered from the model.
+
+**Sound and keys** share the quad names and the overlay `gfx.inc`; they work in text mode. `⎕SND` has no dependence on graphics; the tests compare the 25 SID registers with the model's copy. The quad functions with a token below `$AC` give no value (`qfin` drops their dummy result); `⎕KEY` (index 12) is the first to give one.
 
 **The functions** (quad names, tokens `$A0` and up; the tokenizer takes `⎕` and up to four letters, either case, from
 `asm/quadnames.inc`, generated from `apl64.QUAD_NAMES`; on the keyboard `⎕` is pound then shifted L). None gives a

@@ -202,7 +202,9 @@ qnd1:    ldx ip
         iny
         inc ip
         jmp qnd1
-qnd3:    ldx #QUAD_COUNT-1
+qnd3:    cpy #0                  ; (no letters: not a name)
+        beq qnd_bad
+        ldx #QUAD_COUNT-1
 qns1:    lda qcol0,x
         cmp QNAME
         bne qns_n

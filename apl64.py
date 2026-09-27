@@ -1601,9 +1601,9 @@ GFX_ROWS = 25
 GFX_COLS = 40
 GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pixel values 1, 2, 3
 HIRES_DEFAULT_PAL = (0, 1)                  # the colours of pixel values 0 and 1 in hires mode
-QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'KEY']        # tokens $A0 + i; the first 8 give no value, the rest do
+QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT', 'SND', 'SPD', 'SPR', 'SPC', '', 'KEY']        # tokens $A0 + i; the first 12 give no value, the rest do
 QUAD_TOKEN = 0xA0
-QUAD_NOVALUE = 8                             # the functions below this number give no value (the machine tells them by token < $A8)
+QUAD_NOVALUE = 12                            # the functions below this number give no value (the machine tells them by token < $AC)
 SID_REGS = 25                               # $D400-$D418
 
 
@@ -1620,6 +1620,9 @@ class _Gfx:
         self.col = bytearray(GFX_ROWS * GFX_COLS)
         self.sid = bytearray(SID_REGS)      # what the SID's registers were last given (they cannot be read back)
         self.keys = []                      # the keys waiting, for ⎕KEY (the tests put them here; the machine reads the keyboard)
+        self.vic = bytearray(0x30)          # the sprite registers of the VIC-II, by address - $D000 (the others are the mode's business)
+        self.ptr = bytearray(range(96, 104))            # the sprite pointers ($CFF8 on): sprite n shows shape n
+        self.shapes = bytearray(28 * 64)    # the 28 shapes of 64 bytes, in the RAM under the I/O area from $D800
 
 
 GFX = _Gfx()
@@ -1859,8 +1862,79 @@ def q_snd2(a, v):
         r[base + 2], r[base + 3] = nums[6] & 255, nums[6] >> 8
 
 
+# --- sprites ----------------------------------------------------------------------------------------------------
+# Eight sprites of 24 x 21 pixels.  Their shapes are kept, 28 of them, in the RAM under the I/O area ($D800-$DEFF: pointer 96 + slot; $DF00 up is left alone, where the REU's registers are),
+# and a sprite shows the shape its pointer names.  Coordinates are the 320 x 200 screen's own physical pixels: x from -24 to 487,
+# y from -50 to 205, (0, 0) being the top left of the picture (sprite registers count from 24 and 50).
+SPR_ENABLE, SPR_MSB, SPR_XEXP, SPR_YEXP, SPR_PRIO, SPR_MULTI, SPR_COL0, SPR_MC1 = 0x15, 0x10, 0x1D, 0x17, 0x1B, 0x1C, 0x27, 0x25
+
+
+def _q_bit(reg, n, on):
+    GFX.vic[reg] = GFX.vic[reg] & ~(1 << n) & 255 | (1 << n if on else 0)
+
+
+def q_spr1(v):
+    """⎕SPR mask: which sprites are on (bit n for sprite n)."""
+    _q_types(v)
+    if v.count != 1:
+        raise AplError('LENGTH ERROR')
+    GFX.vic[SPR_ENABLE] = _q_range(_q_ints(v), 0, 255)[0]
+
+
+def q_spc(v):
+    """⎕SPC a b: the two colours multicolor sprites share."""
+    _q_types(v)
+    if v.count != 2:
+        raise AplError('LENGTH ERROR')
+    a, b = _q_range(_q_ints(v), 0, 15)
+    GFX.vic[SPR_MC1], GFX.vic[SPR_MC1 + 1] = a, b
+
+
+def q_spr2(a, v):
+    """n ⎕SPR x y shape colour flags (the first 2, 3, 4 or 5): sprite n (0-7) is put at (x, y) and switched on; shape 0-27; colour 0-15;
+    flags 0-15: 1 multicolor, 2 double width, 4 double height, 8 behind the picture.  Numbers are floored."""
+    _q_types(v, a)
+    if a.count != 1 or not 2 <= v.count <= 5:
+        raise AplError('LENGTH ERROR')
+    n = _q_range(_q_ints(a), 0, 7)[0]
+    nums = _q_ints(v)
+    for x, (lo, hi) in zip(nums, ((-24, 487), (-50, 205), (0, 27), (0, 15), (0, 15))):
+        _q_range([x], lo, hi)
+    x, y = nums[0] + 24, nums[1] + 50
+    GFX.vic[2 * n], GFX.vic[2 * n + 1] = x & 255, y
+    _q_bit(SPR_MSB, n, x > 255)
+    if len(nums) >= 3:
+        GFX.ptr[n] = 96 + nums[2]
+    if len(nums) >= 4:
+        GFX.vic[SPR_COL0 + n] = nums[3]
+    if len(nums) == 5:
+        _q_bit(SPR_MULTI, n, nums[4] & 1)
+        _q_bit(SPR_XEXP, n, nums[4] & 2)
+        _q_bit(SPR_YEXP, n, nums[4] & 4)
+        _q_bit(SPR_PRIO, n, nums[4] & 8)
+    _q_bit(SPR_ENABLE, n, True)
+
+
+def q_spd(a, v):
+    """slot ⎕SPD shape: a shape from 21 x 24 zeros and ones (a hires sprite), 21 x 12 numbers 0-3 (multicolor: two bits a pixel) or 63 bytes."""
+    _q_types(v, a)
+    if a.count != 1 or not (v.rank == 1 and v.count == 63 or v.rank == 2 and tuple(v.shape) in ((21, 24), (21, 12))):
+        raise AplError('LENGTH ERROR')
+    slot = _q_range(_q_ints(a), 0, 27)[0]
+    nums = _q_ints(v)
+    if v.rank == 1:
+        data = _q_range(nums, 0, 255)
+    elif v.shape[1] == 24:
+        bits = _q_range(nums, 0, 1)
+        data = [sum(bits[r * 24 + c * 8 + k] << 7 - k for k in range(8)) for r in range(21) for c in range(3)]
+    else:
+        px = _q_range(nums, 0, 3)
+        data = [sum(px[r * 12 + c * 4 + k] << 6 - 2 * k for k in range(4)) for r in range(21) for c in range(3)]
+    GFX.shapes[64 * slot:64 * slot + 63] = bytes(data)
+
+
 QUAD_PRIMS = {'⎕GR': (q_gr, _nonce), '⎕PAL': (q_pal, q_pal2), '⎕INK': (q_ink, _nonce), '⎕PLOT': (_nonce, q_plot),
-              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce), '⎕SND': (q_snd1, q_snd2),
+              '⎕LINE': (_nonce, q_line), '⎕BOX': (_nonce, q_box), '⎕WAIT': (q_wait, _nonce), '⎕SND': (q_snd1, q_snd2), '⎕SPD': (_nonce, q_spd), '⎕SPR': (q_spr1, q_spr2), '⎕SPC': (q_spc, _nonce),
               '⎕KEY': (q_key, _nonce)}
 PRIMS.update(QUAD_PRIMS)
 
