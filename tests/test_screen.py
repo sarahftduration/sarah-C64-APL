@@ -26,7 +26,7 @@ LINES = [
     "A[2]←9", "A", "M[1;2]←0", "M", "M[;1]←7 8 9", "M", "A[1]←1.5", "A", "A[7]←1", "A[1]←'a'", "1+A[1]←2",
     "∇R←SQ X", "R←X×X", "∇", "SQ 7", "SQ ⍳5", "1+SQ 2", "∇R←A ADD B;T", "T←A+B", "T", "R←T×2", "∇", "1 ADD 2",
     "∇SHOW X", "X", "'done'", "∇", "SHOW 3", "1+SHOW 3", "∇R←BAD X", "R←X÷0", "∇", "BAD 1", "SQ", "∇1", "∇R←LOOP", "R←LOOP", "∇", "LOOP",
-    "∇R←SUMTO N;I", "R←0", "I←1", "TOP:R←R+I", "I←I+1", "→TOP×⍳I≤N", "∇", "SUMTO 10", "SUMTO 100", "→1", "10 20 30⍳20 40", "'abc'⍳'cz'", "1 2 3∊2", "'ab'∊'b'", "⍋3 1 2", "⍒3 1 2 1", "⍋'hello'", "⍋⍳0", "⍋5", "⌽1 2 3", "2⌽⍳5", "⌽2 3⍴⍳6", "1⌽2 3⍴⍳6", "3↑1 2", "¯2↑⍳5", "2 2↑3 3⍴⍳9", "1↓⍳4", "1 1↓3 3⍴⍳9", "5↑'ab'", "⌽'abc'", "⍴3 0↑⍳4", "1∧0", "1 0 1∨0 0 0", "~1 0", "~2", "(3>2)∧(1<2)", "∧/1 1 0", "∨/0 0 1", "3⌈5", "1.5⌊¯2", "⌊2.5 ¯2.5", "⌈¯0.3", "|¯7 3", "3|10 ¯10", "1|2.75", "⌈/4 9 2", "⌊/⍳0", "|'a'", "1 0 1/4 5 6", "+\\⍳6", "-\\1 2 3 4", "+\\2 3⍴⍳6", "1 2 3∘.×1 2 3", "+/[1]2 3⍴⍳6", "*1", "*¯1 0 1", "!5", "!⍳6", "2!5", "!34", "○1", "1○○0.5", "2○0", "3○0.5", "¯3○1", "¯1○2", "5○1", "⍟10", "2*10", "2*0.5", "10⍟1000", "(⍳3)∘.*⍳3", "*100", "⍟0", "¯2*0.5", "(2 3⍴⍳6),(2 2⍴7 8 9 10)", "(2 2⍴1 2 3 4),[1]5 6", "1 2,[2]2 2⍴3 4 5 6", "1 0 1/2 3⍴⍳6", "1 0/[1]2 3⍴⍳6", "1 0 1\\2 2⍴7 8 9 10", "(2 3⍴1),(3 2⍴1)", "+\\[1]2 3⍴⍳6", "⌽[1]2 3⍴⍳6", "1⌽[2]2 3⍴⍳6", "+/[3]2 3⍴⍳6", "+/[1]⍳4", "⍉2 3⍴⍳6", "2 1⍉3 2⍴⍳6", "1 2 3 4~2 4", "1 0 1\\7 8", "'abc'~'b'", "0 1 0\\'x'", "1 2 3+.×4 5 6", "(2 3⍴⍳6)+.×3 2⍴⍳6", "(2 2⍴1 0 0 1)∧.=2 2⍴1 0 1 1", "1 2+.×2 3⍴1.5", "1 2 3+.×4 5", "(⍳4)∘.≤⍳4", "0.5 2∘.+1 2", "2 2⍴1∘.+1", "(2 2⍴1)∘.+1", "2 2⍴1 2\\3", "2/1 2", "(A>2)/A", "'abcd'/1", "∇R←FACT N", "R←1", "→0×⍳N<2",
+    "∇R←SUMTO N;I", "R←0", "I←1", "TOP:R←R+I", "I←I+1", "→TOP×⍳I≤N", "∇", "SUMTO 10", "SUMTO 100", "→1", "10 20 30⍳20 40", "'abc'⍳'cz'", "1 2 3∊2", "'ab'∊'b'", "⍋3 1 2", "⍒3 1 2 1", "⍋'hello'", "⍋⍳0", "⍋5", "⌽1 2 3", "2⌽⍳5", "⌽2 3⍴⍳6", "1⌽2 3⍴⍳6", "3↑1 2", "¯2↑⍳5", "2 2↑3 3⍴⍳9", "1↓⍳4", "1 1↓3 3⍴⍳9", "5↑'ab'", "⌽'abc'", "⍴3 0↑⍳4", "1∧0", "1 0 1∨0 0 0", "~1 0", "~2", "(3>2)∧(1<2)", "∧/1 1 0", "∨/0 0 1", "3⌈5", "1.5⌊¯2", "⌊2.5 ¯2.5", "⌈¯0.3", "|¯7 3", "3|10 ¯10", "1|2.75", "⌈/4 9 2", "⌊/⍳0", "|'a'", "1 0 1/4 5 6", "+\\⍳6", "-\\1 2 3 4", "+\\2 3⍴⍳6", "1 2 3∘.×1 2 3", "+/[1]2 3⍴⍳6", "A←⍳1500 ⋄ B←A+1 ⋄ C←B×2 ⋄ D←C-A ⋄ E←D+B ⋄ F←E+C ⋄ G←F-A", "+/A", "+/B", "+/C ⋄ +/D", "E[1 2 3 1500]", "F[1 2 1500]", "A[1500]←0 ⋄ +/A", "+/B×C", "+/D-E", "H←F,A ⋄ ⍴H", "+/H", "+/G", "*1", "*¯1 0 1", "!5", "!⍳6", "2!5", "!34", "○1", "1○○0.5", "2○0", "3○0.5", "¯3○1", "¯1○2", "5○1", "⍟10", "2*10", "2*0.5", "10⍟1000", "(⍳3)∘.*⍳3", "*100", "⍟0", "¯2*0.5", "(2 3⍴⍳6),(2 2⍴7 8 9 10)", "(2 2⍴1 2 3 4),[1]5 6", "1 2,[2]2 2⍴3 4 5 6", "1 0 1/2 3⍴⍳6", "1 0/[1]2 3⍴⍳6", "1 0 1\\2 2⍴7 8 9 10", "(2 3⍴1),(3 2⍴1)", "+\\[1]2 3⍴⍳6", "⌽[1]2 3⍴⍳6", "1⌽[2]2 3⍴⍳6", "+/[3]2 3⍴⍳6", "+/[1]⍳4", "⍉2 3⍴⍳6", "2 1⍉3 2⍴⍳6", "1 2 3 4~2 4", "1 0 1\\7 8", "'abc'~'b'", "0 1 0\\'x'", "1 2 3+.×4 5 6", "(2 3⍴⍳6)+.×3 2⍴⍳6", "(2 2⍴1 0 0 1)∧.=2 2⍴1 0 1 1", "1 2+.×2 3⍴1.5", "1 2 3+.×4 5", "(⍳4)∘.≤⍳4", "0.5 2∘.+1 2", "2 2⍴1∘.+1", "(2 2⍴1)∘.+1", "2 2⍴1 2\\3", "2/1 2", "(A>2)/A", "'abcd'/1", "∇R←FACT N", "R←1", "→0×⍳N<2",
     "R←N×FACT N-1", "∇", "FACT 5", "FACT 6", "∇F", "'a'", "→4", "'b'", "'c'", "∇", "F",
 ]
 
@@ -134,6 +134,7 @@ def build_selftest(lines):
 def check_session(lines, full):
     L = build_selftest(lines)
     script = ['save "{DIR}/screen.bin" 0 cc00 cfe7', 'save "{DIR}/zp.bin" 0 0000 00ff',
+              f'save "{{DIR}}/hth.bin" 0 {L["HTH"]:04x} {L["HTH"] + 255:04x}',
               'save "{DIR}/low.bin" 0 0280 03ff', 'bank ram', 'save "{DIR}/charset.bin" 0 d000 d7ff',
               'bank io', 'save "{DIR}/vic.bin" 0 d000 d02e', 'save "{DIR}/cia2.bin" 0 dd00 dd0f', 'bank cpu']
     _, files = _run_selftest(script, hex(L["selftest_done"]))
@@ -158,6 +159,9 @@ def check_session(lines, full):
     nmi = low[0x0318 - 0x0280] | low[0x0319 - 0x0280] << 8
     assert nmi == L["nmi_handler"], "NMI vector not patched"
     assert zp[0xA2] > 0 or zp[0xA1] > 0, "the KERNAL interrupt is not running (jiffy clock stopped)"
+    spilled = [h for h, v in enumerate(files["hth.bin"][2:]) if v == 0xFF]
+    assert spilled, "the session holds more array data than the heap, so some array should be in the REU: none is"
+    print(f"screen: {len(spilled)} arrays were in the REU at the end of the session (real DMA)")
 
 
 
@@ -194,7 +198,7 @@ def _run_selftest(script, initbreak, prg=None):
             f.write("\n".join(l.replace("{DIR}", d) for l in script) + "\nquit\n")
         cmd = ["x64sc", "-default", "+saveres", "-console", "-silent", "+sound", "-warp", "-kernal", "roms/kernal.bin", "-basic",
                "roms/basic.bin", "-chargen", "roms/chargen.bin", "-autostartprgmode", "1", "-initbreak", initbreak,
-               "-limitcycles", "400000000", "-autostart", prg, "-moncommands", mon, "-reu", "-reusize", "512"]
+               "-limitcycles", "400000000", "-autostart", prg, "-moncommands", mon, "-reu", "-reusize", "4096"]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         files = {n: open(os.path.join(d, n), "rb").read() for n in os.listdir(d) if n != "mon.txt"}
         return r.stdout + r.stderr, files

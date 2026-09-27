@@ -944,17 +944,27 @@ must be resident too: that is why `elemaddr` (index), `k_ires`, `k_fres`, `flr_q
 New features are written as overlays, so they cost the stubs and (if bigger than 1,891 bytes) window growth,
 not heap.
 
-**Next:** the new features, as overlays; then array spill.
+**Array spill (built).** When an allocation does not fit even after garbage collection, arrays that only a variable holds are moved to
+the REU and come back when they are next used, so a workspace can be much bigger than main RAM. Code: the end of `asm/heap.inc`.
 
-**Array spill (after that).** Each handle is either resident in the heap or held in the REU, and
-`getval` (the one place an array's data address is derived) makes an array resident before use. When the
-heap is full, instead of WS FULL, live arrays that are not the operands of the current operation (the top
-one or two stack cells) or its pinned result are moved out. Marking needs no change, since `gcmark` reads
-only cells. One operation's operands and result must still fit in main RAM together (chunked operations
-are a later step). A table of where each spilled array is: about 512 bytes. `tests/test_stress.py`
-already enforces the precondition, that no data address survives an allocation. Test: the same sessions
-with a tiny main heap and an REU must give the results of the model, whether or not arrays spilled.
-Also possible: `)SAVE` / `)LOAD` to an REU "drive" and workspace snapshots.
+- **Where they go.** Each handle has a fixed 16 KB slot in the REU: handle `h` is at `$10000 + h × $4000` (bank `1 + h>>2`, four to a bank; bank 0 holds the overlay
+  images), so where a spilled array is needs no table. A slot holds the block as it was in the heap (header and data, without the handle byte; at most 16,007
+  bytes). A handle whose bank is beyond the REU's size has no slot: its array is never spilled. Full coverage of all 256 handles needs an REU of 4,160 KB; a
+  4 MB one (the launcher's) covers handles up to 251. A spilled array has `HTH = $FF` and no block in the heap.
+- **What may spill.** `gc` marks handles: 2 = in use (an operand on the value stack, the pinned result, or a function's block, which is run in place and never
+  moves), 1 = only a variable holds it; only marks of 1 are candidates. The rule that makes it safe: **everything on the value stack is in the heap**, so a
+  routine that has looked at its operands can allocate without them moving out from under it. `pushcv` (the one way anything is pushed) brings a spilled array back
+  first (`fault_in`), `ensure_res` does the same for code that reads a variable directly (`)SAVE`), and `getval` traps (`spill_bug`) if it ever meets a spilled array.
+- **When.** `alloc`: try, collect, try, and then (if `reu_banks` is not 0) `spill_for`: pick the biggest candidate, stash it (DMA), mark it `$FF`, repeat until the free space
+  plus what was freed covers the request, then compact (which drops the spilled blocks) and try again; WS FULL if that is still not enough or nothing can move. `fault_in`
+  reads the block's header from the slot, works out its size, allocates it (which may spill others) and fetches it, under the same handle number. `gc` also frees a
+  spilled handle nothing refers to any more.
+- **Limit.** One operation's operands and result must fit in the heap together (chunked operations would lift that); with no REU nothing changes.
+- **The heap's top is a variable** (`hlim`, initially `HEAP_LIMIT`) so the tests can make the heap small.
+- **Tests.** `tests/test_heap.py` (invariants with spilled handles, the stack never spills, `pushcv` faults arrays in), `tests/test_spill.py` (the evaluator's own cases, a
+  random workspace of a dozen 100-400 element variables, and function sessions in heaps of 1.2 to 20 KB, some squeezed to a few hundred bytes free at every allocation, some
+  with every block also moved at each allocation, all matching the model), and the real-VICE screen session, which holds seven 3 KB arrays in a 19 KB heap and asserts that
+  some are in the REU at the end.
 
 Also planned later: graphics. A hires bitmap can live at `$E000` in VIC bank 3 (the RAM under the
 KERNAL, which the interpreter cannot use), with its colour map under the I/O area, so it costs no

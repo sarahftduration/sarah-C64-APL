@@ -9,11 +9,18 @@ WIDTH = (1, 1, 2, 3)
 E_LIMIT, E_WSFULL = 3, 8
 
 
+SPILLED = 0xFF                      # HTH of an array that is in the REU
+
+
 class Heap:
-    def __init__(self):
-        self.m, self.L = load("eval")
+    def __init__(self, reu_kb=8192, size=None):
+        """reu_kb: the REU (0: none, so nothing can spill); size: make the heap only this many bytes."""
+        self.m, self.L = load("eval", reu_kb=reu_kb)
         call(self.m, self.L["heap_init"])
         self.HEAP_BASE, self.HEAP_LIMIT = self.L["HEAP_BASE"], self.L["HEAP_LIMIT"]
+        if size:
+            self.HEAP_LIMIT = self.HEAP_BASE + size
+            self.zp("hlim", self.HEAP_LIMIT, 2)
         self.VARS = self.L["VARS"]
         self.shadow = {}                    # handle -> bytes of header + data
         self.vars = {}                      # slot -> handle
@@ -75,6 +82,21 @@ class Heap:
     def roots(self):
         return set(self.vars.values()) | set(self.stack)
 
+    def spilled(self):
+        return {h for h in range(256) if self.m.memory[self.L["HTH"] + h] == SPILLED}
+
+    def slot(self, h):
+        return 0x10000 + h * 0x4000
+
+    def fault(self, h, tag):
+        """Push the cell of handle h the way the evaluator pushes a variable's value (pushcv brings a spilled array back)."""
+        m, L = self.m, self.L
+        m.memory[L["cv"]:L["cv"] + 4] = [tag, h, 0, 0]
+        call(m, L["pushcv"], max_steps=5_000_000)
+        assert not m.p & 1, m.a
+        self.stack.append(h)
+        assert m.memory[L["HTH"] + h] not in (0, SPILLED)
+
     def check(self, after_gc=False):
         m, L = self.m, self.L
         top = self.rd("htop", 2)
@@ -91,17 +113,26 @@ class Heap:
             live.add(h)
             p += size
         assert p == top, "blocks do not tile the heap"
+        spilled = self.spilled()
         for h in range(256):
-            if m.memory[L["HTH"] + h]:
+            if m.memory[L["HTH"] + h] and h not in spilled:
                 assert h in live, f"handle {h} in table but not in heap"
+        assert not spilled & live, "an array is both in the heap and in the REU"
+        assert all(h in live for h in self.stack), "an array on the stack is not in the heap"
+        for h in spilled:
+            assert h not in self.stack, f"handle {h} is in the REU but on the stack"
+            assert h in self.shadow and self.slot(h) + len(self.shadow[h]) <= self.slot(h) + 0x4000
+            assert bytes(m.reu.mem[self.slot(h):self.slot(h) + len(self.shadow[h])]) == self.shadow[h][0:], f"handle {h} corrupted in the REU"
         for h in self.roots():
-            assert h in live, f"rooted handle {h} lost"
+            assert h in live or h in spilled, f"rooted handle {h} lost"
+            if h in spilled:
+                continue
             addr = m.memory[L["HTL"] + h] | m.memory[L["HTH"] + h] << 8
             want = self.shadow[h]
             assert bytes(m.memory[addr:addr + len(want)]) == want, f"handle {h} corrupted"
         if after_gc:
             pinned = {m.memory[L["hpin"]]} if m.memory[L["hpinf"]] else set()
-            assert live == self.roots() | pinned, (sorted(live), sorted(self.roots()))
+            assert live | spilled == self.roots() | pinned, (sorted(live), sorted(spilled), sorted(self.roots()))
         return live, top
 
 
@@ -162,7 +193,7 @@ def test_random():
 
 
 def test_exhaustion():
-    h = Heap()
+    h = Heap(reu_kb=0)
     random.seed(1)
     n = 0
     while True:                                      # fill the heap with rooted 2000-byte arrays
@@ -186,6 +217,67 @@ def test_exhaustion():
     h.set_var(0, handle, 2 | 1 << 2)
     h.check()
     print(f"heap exhaustion: filled with {n} arrays, then reclaimed after dropping them")
+
+
+def test_spill():
+    """A small heap and an REU: allocations go on succeeding by moving arrays that only variables hold out to the REU."""
+    h = Heap(size=9000)
+    random.seed(5)
+    tag = 2 | 1 << 2
+    for i in range(30):                                         # 30 arrays of 1000 bytes in a 9000 byte heap
+        handle, blob = h.new(2, 1, 500, 500)
+        assert handle is not None, i
+        h.shadow[handle] = blob
+        h.set_var(i, handle, tag)
+        h.check()
+    spilled = h.spilled()
+    assert len(spilled) >= 20, len(spilled)
+    # every array can be brought back and still holds what it held
+    for slot in range(30):
+        handle = h.vars[slot]
+        h.fault(handle, tag)
+        h.check()
+        h.pop()
+    # something on the stack is never moved: fill up again, holding the first array on the stack
+    handle = h.vars[0]
+    h.fault(handle, tag)
+    for i in range(30, 60):
+        hh, blob = h.new(2, 1, 500, 500)
+        assert hh is not None, i
+        h.shadow[hh] = blob
+        h.set_var(i, hh, tag)
+        h.check()
+        assert h.m.memory[h.L["HTH"] + handle] not in (0, SPILLED)
+    print(f"heap spill: 60 arrays of 1000 bytes in a 9000 byte heap; {len(h.spilled())} in the REU; each comes back intact; one held on the stack stayed put")
+
+
+def test_spill_limits():
+    """No REU: WS FULL as before. Functions' blocks and arrays on the stack are not moved; a single array too big for the heap is WS FULL."""
+    h = Heap(reu_kb=0, size=9000)
+    for i in range(12):
+        handle, blob = h.new(2, 1, 500, 500)
+        if handle is None:
+            assert blob == E_WSFULL and i >= 8, (i, blob)
+            break
+        h.shadow[handle] = blob
+        h.set_var(i, handle, 2 | 1 << 2)
+    else:
+        raise AssertionError("no WS FULL without an REU")
+    assert not h.spilled()
+    h = Heap(size=9000)
+    handle, err = h.new(2, 1, 4600, 4600)                        # 9,200 bytes: more than the whole heap
+    assert handle is None and err == E_WSFULL
+    keep = []
+    for i in range(3):                                           # arrays on the stack: three of 2900 bytes nearly fill the heap
+        hh, blob = h.new(2, 1, 1450, 1450)
+        assert hh is not None
+        h.shadow[hh] = blob
+        h.push(hh, 2 | 1 << 2)
+        keep.append(hh)
+    hh, err = h.new(2, 1, 1450, 1450)                            # nothing may move: WS FULL
+    assert hh is None and err == E_WSFULL and not h.spilled()
+    h.check()
+    print("heap spill limits: none without an REU, nothing on the stack moves, an array bigger than the heap is WS FULL")
 
 
 def test_handles():
@@ -215,6 +307,8 @@ def test_size_limit():
 
 if __name__ == "__main__":
     test_random()
+    test_spill()
+    test_spill_limits()
     test_exhaustion()
     test_handles()
     test_size_limit()

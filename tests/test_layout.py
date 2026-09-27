@@ -7,6 +7,7 @@ sys.path.insert(0, os.getcwd())
 from harness import ZP_ALLOWED, load
 
 _, L = load("eval")
+startup_src = open("asm/startup.inc", encoding="utf-8").read()
 code_end = L["OVL_IMG"]                 # the resident code; the overlay images follow it in the PRG
 
 
@@ -43,6 +44,14 @@ def test_layout():
     assert L["OVL_TOT"] < 0x10000 and L["OVWIN"] + L["OVWIN_SIZE"] == L["HEAP_BASE"]
     biggest = max(L[n] for n in L if n.startswith("OVN_"))
     assert biggest <= L["OVWIN_SIZE"] and L["OVWIN_SIZE"] - biggest < 64, "the window should be as small as the biggest overlay allows"
+    # build_charset reads the glyph data with the character ROM mapped in: that must leave RAM at $A000-$BFFF (where the data may end
+    # up in a long test build), so $01 = $32 (BASIC out), not $33
+    assert "lda #$32" in startup_src[startup_src.index("build_charset:"):startup_src.index("build_charset:") + 200]
+    # the images are copied to the REU by DMA, which sees the memory map the CPU has: start-up must bank BASIC out (RAM at $A000-$BFFF)
+    # before that copy, because the images may reach up there
+    body = startup_src[startup_src.index("startup:"):]
+    assert body.index("sta $01") < body.index("jsr ov_init"), "the overlay images are stashed before $01 is set"
+    assert "lda #$36" in body[:body.index("sta $01") + 10]
     # the heap: at least 12 KB (the floor DESIGN.md sets), ending under the screen; the test log lives above the machine's RAM map
     assert L["HEAP_LIMIT"] == 0xCC00 and L["HEAP_LIMIT"] - L["HEAP_BASE"] >= 0x3000
     assert L["LOGBUF"] >= 0xD000

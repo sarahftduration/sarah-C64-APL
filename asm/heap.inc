@@ -138,11 +138,22 @@ bs1:    lda gt
 bs2:    rts
 
 ; --- alloc: in asz = block bytes; out carry clear: hnew, hadr; else A = error ---
+; When collecting is not enough, arrays that only a variable holds are moved to the REU (see below).
+hlim:   .word HEAP_LIMIT        ; the top of the heap (a variable so that the tests can make it small)
+
 alloc:  jsr alloc_try
         bcc alok
         jsr gc
         jsr alloc_try
+        bcc alok
+        lda reu_banks           ; still no room: with an REU, move arrays out of the way
+        beq alfail
+        jsr spill_for
+        jsr alloc_try
 alok:   rts
+alfail: lda #E_WSFULL
+        sec
+        rts
 
 alloc_try:
         clc
@@ -153,9 +164,9 @@ alloc_try:
         adc asz+1
         sta t0+1
         bcs afull
-        lda #<HEAP_LIMIT
+        lda hlim
         cmp t0
-        lda #>HEAP_LIMIT
+        lda hlim+1
         sbc t0+1
         bcc afull
         ldx #0
@@ -200,10 +211,12 @@ gc:     ldx #0
 gcm:    sta HM,x
         inx
         bne gcm
+        lda #2                  ; marks: 2 = in use (on the stack, pinned, or a function's block), 1 = only a variable holds it
+        sta gmk
         lda hpinf
         beq gc0
         ldx hpin
-        lda #1
+        lda #2
         sta HM,x
 gc0:    lda #<VSTACK
         sta gp
@@ -217,7 +230,9 @@ gcv:    lda gp+1
         beq gcvars
 gcv1:   jsr gcmark
         jmp gcv
-gcvars: lda #<VARS
+gcvars: lda #1
+        sta gmk
+        lda #<VARS
         sta gp
         lda #>VARS
         sta gp+1
@@ -225,18 +240,38 @@ gcw:    jsr gcmark
         lda gp+1
         cmp #>(VARS+1024)
         bne gcw
-        jmp gccompact
+        jsr gccompact
+        ldx #0                  ; a spilled array nothing refers to any more goes
+gcs:    lda HTH,x
+        cmp #$ff
+        bne gcs1
+        lda HM,x
+        bne gcs1
+        lda #0
+        sta HTH,x
+gcs1:   inx
+        bne gcs
+        rts
+
+gmk:    .byte 0
 
 ; mark the cell at gp if it is an array; advance gp by one cell
 gcmark: ldy #0
         lda (gp),y
         bmi gcm2
+        sta gt
         and #$0c
         beq gcm2
         iny
         lda (gp),y
         tax
-        lda #1
+        lda gt
+        and #$10                ; (TAG_FN) a function's code runs where it is: never moved out
+        beq gm_v
+        lda #2
+        bne gm_o
+gm_v:   lda gmk
+gm_o:   ora HM,x
         sta HM,x
 gcm2:   clc
         lda gp
@@ -301,7 +336,10 @@ gcnocopy:
         adc gsz+1
         sta gdst+1
         jmp gcnext
-gcfree: lda #0
+gcfree: lda HTH,x
+        cmp #$ff                ; (an array that has just been moved out: its handle stays)
+        beq gcnext
+        lda #0
         sta HTH,x
 gcnext: clc
         lda gsrc
@@ -340,7 +378,18 @@ mcl:    lda (cs),y
 mcx:    rts
 
 ; --- value stack ------------------------------------------------------------
-pushcv: lda vsp+1
+pushcv: lda cv                  ; an array that has been moved out to the REU comes back before it goes on the stack:
+        bmi pc0                 ; whatever is on the stack is always in the heap
+        and #$0c
+        beq pc0
+        ldx cv+1
+        lda HTH,x
+        cmp #$ff
+        bne pc0
+        jsr fault_in
+        bcc pc0
+        rts
+pc0:    lda vsp+1
         cmp #>VSTACK_END
         bcs pcfull
         ldy #3
@@ -411,6 +460,11 @@ getval: ldy #0
 gvarr:  iny
         lda (cptr),y
         tax
+        lda HTH,x
+        cmp #$ff
+        bne gv_ok
+        jmp spill_bug           ; (an array in the REU where the heap is expected: never happens; the tests trap here)
+gv_ok:
         lda HTL,x
         sta gp
         lda HTH,x
@@ -569,4 +623,246 @@ na2:    lda nrk
 naret:  rts
 nafull: lda #E_WSFULL
         sec
+        rts
+
+; --- arrays in the REU ------------------------------------------------------------------------------------------------
+; When collecting garbage does not make room, arrays that only a variable holds (gc marks them 1) are moved to the REU: each
+; handle has a 16 KB slot there (bank 1 on, four handles to a bank), so where a spilled array is needs no table. A spilled
+; array has HTH = $ff and no block in the heap; pushcv (and ensure_res) bring it back into the heap, and its handle number stays.
+; Everything on the value stack is in the heap, so a routine that has looked at its operands can allocate without them moving
+; out from under it. Functions' blocks (run in place) are never moved. Without an REU (reu_banks = 0) nothing changes.
+
+spl_h:   .byte 0
+spl_fr:  .word 0                ; bytes freed by the arrays moved out so far
+spl_bx:  .byte 0                ; the best victim so far, and its block size
+spl_bs:  .word 0
+spl_any: .byte 0
+spl_mv:  .byte 0                ; something was moved out in this round
+fi_h:    .byte 0                ; (fault_in's own: the spilling inside alloc uses spl_h)
+spl_hdr: .byte 0, 0, 0, 0       ; a spilled block's first bytes (a dummy handle byte, tag, count)
+
+spill_bug:
+        jmp spill_bug
+
+; REU_ADDR = the slot of handle A; carry set if the REU is too small to have one. Keeps X and Y.
+spl_slot:
+        pha
+        lsr
+        lsr
+        clc
+        adc #1
+        cmp reu_banks
+        bcs ss_no
+        sta REU_ADDR+2
+        pla
+        and #3
+        asl
+        asl
+        asl
+        asl
+        asl
+        asl
+        sta REU_ADDR+1
+        lda #0
+        sta REU_ADDR
+        clc
+        rts
+ss_no:  pla
+        sec
+        rts
+
+; the biggest array only a variable holds and the REU has a slot for: carry clear, X = its handle, spl_bs = its block size
+spill_pick:
+        lda #0
+        sta spl_bs
+        sta spl_bs+1
+        sta spl_any
+        ldx #0
+sp_l:   lda HM,x
+        cmp #1
+        bne sp_n
+        lda HTH,x
+        beq sp_n
+        cmp #$ff
+        beq sp_n
+        txa
+        jsr spl_slot
+        bcs sp_n
+        stx spl_h
+        sec
+        lda HTL,x
+        sbc #1
+        sta gsrc
+        lda HTH,x
+        sbc #0
+        sta gsrc+1
+        jsr blocksize
+        ldx spl_h
+        lda gsz+1
+        cmp spl_bs+1
+        bcc sp_n
+        bne sp_b
+        lda gsz
+        cmp spl_bs
+        bcc sp_n
+        beq sp_n
+sp_b:   lda gsz
+        sta spl_bs
+        lda gsz+1
+        sta spl_bs+1
+        stx spl_bx
+        inc spl_any
+sp_n:   inx
+        bne sp_l
+        lda spl_any
+        beq sp_none
+        ldx spl_bx
+        clc
+        rts
+sp_none: sec
+        rts
+
+; move array X (its block size in spl_bs) to its slot; its block stays in the heap until the next compaction
+spill_out:
+        stx spl_h
+        txa
+        jsr spl_slot
+        ldx spl_h
+        lda HTL,x
+        sta REU_C64
+        lda HTH,x
+        sta REU_C64+1
+        sec
+        lda spl_bs
+        sbc #1
+        sta REU_LEN
+        lda spl_bs+1
+        sbc #0
+        sta REU_LEN+1
+        jsr reu_stash
+        ldx spl_h
+        lda #$ff
+        sta HTH,x
+        lda #0
+        sta HM,x
+        clc
+        lda spl_fr
+        adc spl_bs
+        sta spl_fr
+        lda spl_fr+1
+        adc spl_bs+1
+        sta spl_fr+1
+        rts
+
+; make room for asz bytes: move arrays out until the free space plus what they take would do, then compact
+spill_for:
+        lda #0
+        sta spl_fr
+        sta spl_fr+1
+        sta spl_mv
+sf_l:   sec
+        lda hlim
+        sbc htop
+        sta t0
+        lda hlim+1
+        sbc htop+1
+        sta t0+1
+        clc
+        lda t0
+        adc spl_fr
+        sta t0
+        lda t0+1
+        adc spl_fr+1
+        sta t0+1
+        lda t0
+        cmp asz
+        lda t0+1
+        sbc asz+1
+        bcs sf_done
+        jsr spill_pick
+        bcs sf_done
+        jsr spill_out
+        lda #1
+        sta spl_mv
+        jmp sf_l
+sf_done:
+        lda spl_mv
+        beq sf_r
+        jsr gccompact
+sf_r:   rts
+
+; X = a spilled array's handle: bring it back into the heap, under the same handle. Carry set (A = WS FULL) if there is no room.
+fault_in:
+        stx fi_h
+        txa
+        jsr spl_slot
+        lda #<(spl_hdr+1)
+        sta REU_C64
+        lda #>(spl_hdr+1)
+        sta REU_C64+1
+        lda #3
+        sta REU_LEN
+        lda #0
+        sta REU_LEN+1
+        jsr reu_fetch
+        lda #<spl_hdr
+        sta gsrc
+        lda #>spl_hdr
+        sta gsrc+1
+        jsr blocksize
+        lda gsz
+        sta asz
+        lda gsz+1
+        sta asz+1
+        jsr alloc
+        bcc fi_1
+        rts
+fi_1:   ldx hnew                ; the handle alloc chose is not wanted: the array keeps its own
+        lda #0
+        sta HTH,x
+        ldx fi_h
+        ldy #0
+        txa
+        sta (hadr),y
+        clc
+        lda hadr
+        adc #1
+        sta HTL,x
+        lda hadr+1
+        adc #0
+        sta HTH,x
+        txa
+        jsr spl_slot            ; (alloc may have used the DMA registers to move other arrays out)
+        ldx fi_h
+        lda HTL,x
+        sta REU_C64
+        lda HTH,x
+        sta REU_C64+1
+        sec
+        lda asz
+        sbc #1
+        sta REU_LEN
+        lda asz+1
+        sbc #0
+        sta REU_LEN+1
+        jsr reu_fetch
+        ldx fi_h
+        clc
+        rts
+
+; the cell at cptr: if it is an array that is in the REU, bring it back (for code that reads variables directly)
+ensure_res:
+        ldy #0
+        lda (cptr),y
+        bmi er_ok
+        and #$0c
+        beq er_ok
+        iny
+        lda (cptr),y
+        tax
+        lda HTH,x
+        cmp #$ff
+        bne er_ok
+        jmp fault_in
+er_ok:  clc
         rts

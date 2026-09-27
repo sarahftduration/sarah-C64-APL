@@ -14,7 +14,7 @@ from harness import load
 ROMS = ["chargen.bin", "basic.bin", "kernal.bin"]
 
 
-def run_vice(monitor_lines, initbreak, cycles=60_000_000, extra=("-reu", "-reusize", "512")):
+def run_vice(monitor_lines, initbreak, cycles=60_000_000, extra=("-reu", "-reusize", "4096")):
     """Autostart build/apl.prg (injected into RAM); at the breakpoint run the monitor script."""
     with tempfile.TemporaryDirectory() as d:
         script = os.path.join(d, "mon.txt")

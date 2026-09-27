@@ -211,8 +211,8 @@ def test_fuzz_functions(n=300, seed=5):
 
 
 def test_call_heap_full():
-    """A call that cannot save its context gives WS FULL and leaves nothing behind."""
-    s = Session()
+    """A call that cannot save its context gives WS FULL and leaves nothing behind (no room in the REU for arrays: with it, they would move out)."""
+    s = Session(spill=False)
     s.reset()
     for line in [D + "R←F X;T", "T←X", "R←T+1", D]:
         check(s, line)
@@ -343,8 +343,8 @@ def test_line_limit():
 
 
 def test_heap_full():
-    """The 6502 refuses a line that does not fit in the heap (WS FULL) and stays usable."""
-    s = Session()
+    """The 6502 refuses a line that does not fit in the heap (WS FULL) and stays usable (no room in the REU for arrays, so nothing moves out)."""
+    s = Session(spill=False)
     s.reset()
     check(s, D + "F")
     line = "'" + "a" * 240 + "'"

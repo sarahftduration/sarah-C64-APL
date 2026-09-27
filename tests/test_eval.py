@@ -15,8 +15,13 @@ UNIMPLEMENTED = set()
 
 
 class Session:
-    def __init__(self):
-        self.m, self.L = load("eval")
+    def __init__(self, reu_kb=512, heap_size=None, spill=True):
+        """heap_size: make the heap this many bytes (tests of spilling to the REU); reu_kb: the REU's size; spill=False: an REU
+        for the overlays but no room in it for arrays (the machine reports one 64 KB bank), so the heap cannot grow."""
+        self.heap_size = heap_size
+        self.m, self.L = load("eval", reu_kb=reu_kb)
+        if not spill:
+            self.m.memory[self.L["reu_banks"]] = 1
         apl64.WS_BYTES = WS
         self.reset()
 
@@ -30,6 +35,8 @@ class Session:
         call(self.m, self.L["eval_init"])
         self.word("echov", self.L["echo_log"])
         self.word("wsmax", WS)
+        if self.heap_size:
+            self.word("hlim", self.L["HEAP_BASE"] + self.heap_size)
         self.model = apl64.Interp()
         self.seed(4242)
 
@@ -62,6 +69,10 @@ class Session:
         if rank == 0:
             return bytes([tag, 1, 0]) + bytes(m.memory[addr + 1:addr + 1 + WIDTH[t]])
         h = m.memory[addr + 1]      # (a function's block is a CHAR vector too)
+        if m.memory[L["HTH"] + h] == 0xFF:                  # in the REU: its slot holds the block
+            a, mem = 0x10000 + h * 0x4000, m.reu.mem
+            n = mem[a + 1] | mem[a + 2] << 8
+            return bytes(mem[a:a + 3 + 2 * rank + n * WIDTH[t]])
         a = m.memory[L["HTL"] + h] | m.memory[L["HTH"] + h] << 8
         n = m.memory[a + 1] | m.memory[a + 2] << 8
         return bytes(m.memory[a:a + 3 + 2 * rank + n * WIDTH[t]])
@@ -93,6 +104,10 @@ class Session:
 def check(s, line):
     got = s.run6502(line)
     want = s.run_model(line)
+    if got == ('err', 'WS FULL') and want != got and getattr(s, 'tolerate_wsfull', False):
+        s.wsfull_skips = getattr(s, 'wsfull_skips', 0) + 1          # (a deliberately small heap: the model has more room)
+        s.reset()
+        return 'wsfull'
     if got == ('err', 'NONCE ERROR') and want != got:
         assert UNIMPLEMENTED & set(line), f"unexpected NONCE for {line!r}, model {want}"
         s.reset()

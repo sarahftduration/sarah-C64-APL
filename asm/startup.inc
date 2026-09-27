@@ -15,6 +15,8 @@ startup:
         cld
         ldx #$ff
         txs
+        lda #$36                ; BASIC out, so that RAM shows at $A000-$BFFF: the REU's DMA sees what the CPU does, and the
+        sta $01                 ; images being copied may reach up there. (KERNAL and I/O stay in.)
         jsr reu_detect          ; first of all: the overlay images sit where the tables go
         bcs su_nr
         jsr ov_init
@@ -127,10 +129,10 @@ bi3:    sta CMDBUF,x
         rts
 
 ; --- the character set -------------------------------------------------------------------------
-; Interrupts are off and $01 = $33 (character ROM visible at $D000): reads at $D800 give
+; Interrupts are off and $01 = $32 (character ROM visible at $D000, BASIC out): reads at $D800 give
 ; ROM shapes, writes at $D000 go to the RAM underneath.
 build_charset:
-        lda #$33
+        lda #$32                ; character ROM visible at $D000, BASIC out (RAM shows at $A000-$BFFF, where the glyph data may be)
         sta $01
         lda #<CHARSET
         sta cd

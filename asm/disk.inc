@@ -393,7 +393,10 @@ wshead: .text "APLW"
 
 ; the value in the cell at cptr
 save_value:
-        jsr getval
+        jsr ensure_res          ; (it may be in the REU)
+        bcc sv_r
+        rts
+sv_r:   jsr getval
         lda vtag
         jsr wbyte
         bcc *+5
