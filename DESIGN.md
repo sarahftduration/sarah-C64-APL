@@ -968,8 +968,8 @@ the REU and come back when they are next used, so a workspace can be much bigger
 
 ## Graphics
 
-Done 2026-09-26: the multicolor bitmap (160 x 200, four values per pixel). The hires bitmap (320 x 200, two) is planned as
-a second mode of the same functions. Model: `apl64.py`, section Graphics; 6502: two overlays (so an REU is needed), `asm/gfx.inc` (mode and colours, 1.4 KB) and
+Done 2026-09-26: the multicolor bitmap (160 x 200, four values per pixel) and the hires bitmap (320 x 200, two values), two modes of the
+same functions (`⎕GR 1`, `⎕GR 2`). Model: `apl64.py`, section Graphics; 6502: two overlays (so an REU is needed), `asm/gfx.inc` (mode and colours, 1.4 KB) and
 `asm/draw.inc` (plot, line, box, 1.8 KB), which share `asm/gfxcom.inc` by including it each inside a `.block` of its own (`g1`, `g2`); tests: `tests/test_gfx.py` (py65 against the model, the picture compared byte for byte) and
 `tests/test_gfx_vice.py` (real VICE: registers, memory and a screenshot).
 
@@ -979,6 +979,7 @@ heap); the CPU sees it only with `$01` bit 1 cleared and interrupts off, which t
 high nibble is the colour of pixel value 1, the low nibble that of value 2) and colour RAM (`$D800`, value 3); value 0 is
 the background (`$D021`, and the border follows it). `$D011` bit 5, `$D016` bit 4 and `$D018 = $38` switch the mode.
 The model keeps exactly these three byte arrays, and the tests compare them.
+**Hires** (`$D016` bit 4 clear): one bit per pixel, the leftmost in bit 7 of the byte; pixel value 1 shows the high nibble of the cell's screen RAM byte, 0 the low nibble; colour RAM is not used (left as it was, and not compared); the border follows pixel value 0's colour. The code that differs by mode is table-driven (`gq_mo`, `gq_xm`, `gq_xlim`, tables indexed by the pixel's place in its byte plus 0 or 4).
 
 **Text and graphics share the screen RAM**, so entering graphics mode (`⎕GR 1`) stashes the text screen in the REU
 (bank 0, `$E000`, above the overlay images: `ovimg.inc` checks that they end below it) and leaving puts it back and refills
@@ -995,17 +996,17 @@ ERROR); the evaluator drops the dummy result the overlay leaves (`qfin`).
 
 | call | does |
 |---|---|
-| `⎕GR 1` / `⎕GR 0` | picture on (cleared, palette `0 1 2 14`, ink 1) / back to text; other values DOMAIN |
+| `⎕GR 1`, `⎕GR 2` / `⎕GR 0` | multicolor (160 x 200, cleared, palette `0 1 2 14`, ink 1) or hires (320 x 200, white on black) picture on / back to text; other values DOMAIN. Going from one mode to the other clears the picture |
 | `⎕PAL b c1 c2 c3` | the background and the three cell colours (0-15) of every cell |
-| `rows ⎕PAL c1 c2 c3` | the three cell colours of those cell rows (0-24), each of 40 cells: horizontal colour bands |
-| `rows ⎕PAL cs` | the same with three colours for each row: `cs` has 3 times as many numbers as `rows`, a vector or a matrix with a row per row; one call sets a whole gradient |
-| `⎕INK n` | the pixel value (0-3) the drawing functions use |
+| `rows ⎕PAL c1 c2 c3` | the three cell colours of those cell rows (0-24), each of 40 cells: horizontal colour bands. Hires: two colours `c0 c1` |
+| `rows ⎕PAL cs` | the same with three colours for each row: `cs` has 3 times as many numbers as `rows`, a vector or a matrix with a row per row; one call sets a whole gradient (in hires, two colours per row) |
+| `⎕INK n` | the pixel value (0-3, hires 0-1) the drawing functions use |
 | `x ⎕PLOT y` | points; x and y are vectors of the same length, or one may be a single number; off-screen points are skipped |
 | `(x0 y0) ⎕LINE (x1 y1)` | Bresenham's line, ends included; end points within ±4095 (DOMAIN otherwise: the arithmetic stays in 16 bits) |
 | `(x0 y0) ⎕BOX (x1 y1)` | the filled rectangle between two corners, clipped to the screen |
 | `⎕WAIT n` | n video frames (RUN/STOP ends it); 50 a second on a PAL machine |
 
-Coordinates are pixels from the top left, x 0-159, y 0-199. Numbers are floored (so `⌊` is not needed on computed
+Coordinates are pixels from the top left, x 0-159 (hires 0-319), y 0-199. Numbers are floored (so `⌊` is not needed on computed
 coordinates) and saturate at the ends of the int16 range; CHAR arguments are DOMAIN. All but `⎕GR` and `⎕WAIT` need
 graphics mode (NO GRAPHICS, error 12). Checks run in a fixed order, which the model and the machine share: mode, CHAR
 arguments (right then left) DOMAIN, lengths LENGTH, then values DOMAIN.

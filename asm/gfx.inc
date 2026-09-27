@@ -46,7 +46,9 @@ gq_yn:  .word 0
 gq_rp:  .word 0                 ; the next row and colour to read
 gq_cp:  .word 0
 gq_rw:  .byte 0                 ; the row being set
-gq_uni: .byte 0                 ; the same three colours for every row
+gq_uni: .byte 0                 ; the same colours for every row
+gq_kk:  .byte 0                 ; the colours of a row (3 or 2), and twice that
+gq_k2:  .byte 0
 
 gq_defpal: .word 0, 1, 2, 14    ; background and the colours of the pixel values 1, 2 and 3 after ⎕GR 1
 gq_r40: .for i = 0, i < 25, i += 1
@@ -121,13 +123,23 @@ gq_setpal:
         lda gq_c
         sta $d020
         sta $d021
-        lda gq_c+2
+        lda gr_mode
+        cmp #2
+        bcs gqs_h
+        lda gq_c+2              ; multicolor: the colours of pixel values 1 and 2 in screen RAM, that of 3 in colour RAM
         asl
         asl
         asl
         asl
         ora gq_c+4
-        pha
+        jmp gqs_f
+gqs_h:  lda gq_c+2              ; hires: pixel value 1 in the high nibble, 0 in the low
+        asl
+        asl
+        asl
+        asl
+        ora gq_c
+gqs_f:  pha
         lda #<SCREEN
         sta cd
         lda #>SCREEN
@@ -138,7 +150,11 @@ gq_setpal:
         sta gq_cnt+1
         pla
         jsr gq_fill
-        lda #<COLORRAM
+        lda gr_mode
+        cmp #2
+        bcc gqs_c
+        rts                     ; (hires does not use colour RAM)
+gqs_c:  lda #<COLORRAM
         sta cd
         lda #>COLORRAM
         sta cd+1
@@ -169,22 +185,30 @@ gq_scrxfer:
         pla
         jmp reu_go
 
+; A = the mode: 1 multicolor, 2 hires
 gq_enter:
+        pha
         bit gr_on               ; the text screen is kept in the REU the first time only
         bmi gqe_in
         lda #REUCMD_STASH
         jsr gq_scrxfer
 gqe_in: lda #$80
         sta gr_on
-        lda #1
+        pla
         sta gr_mode
+        lda #1
         sta gr_ink
         ldx #7                  ; the default palette
 gqe_p:  lda gq_defpal,x
         sta gq_c,x
         dex
         bpl gqe_p
-        jsr gq_setpal
+        lda gr_mode
+        cmp #2
+        bcc gqe_s
+        lda #1                  ; hires: black and white
+        sta gq_c+2
+gqe_s:  jsr gq_setpal
         lda #<GQ_BITMAP
         sta cd
         lda #>GQ_BITMAP
@@ -200,9 +224,13 @@ gqe_p:  lda gq_defpal,x
         lda $d011               ; bitmap mode, multicolor, the bitmap at $E000 and the colours at $CC00
         ora #$20
         sta $d011
-        lda $d016
+        lda $d016               ; the multicolor bit, for mode 1 only
+        and #$ef
+        ldx gr_mode
+        cpx #2
+        bcs gqe_h
         ora #$10
-        sta $d016
+gqe_h:  sta $d016
         lda #$38
         sta $d018
         rts
@@ -253,7 +281,7 @@ m_gr:   jsr gq_top
         bne gmg_dom
         lda gq_v
         beq gmg_off
-        cmp #2
+        cmp #3
         bcs gmg_dom
         jsr gq_enter
         jmp gq_ret1
@@ -271,8 +299,10 @@ m_ink:  jsr gq_mode
         bcs gmi_r
         lda gq_v+1
         bne gmi_dom
+        jsr gq_ncol
+        sta gq_lim
         lda gq_v
-        cmp #4
+        cmp gq_lim
         bcs gmi_dom
         sta gr_ink
         jmp gq_ret1
@@ -316,17 +346,27 @@ gqw_2:  lda $d012
 gq_fret: rts
 
 ; --- ⎕PAL c0 c1 c2 c3 and rows ⎕PAL c1 c2 c3 ---------------------------------------------------------------------------------
+; A = the colours in a palette: 4 in multicolor mode (the background and three), 2 in hires
+gq_ncol: lda gr_mode
+        asl
+        sta gq_a
+        lda #6
+        sec
+        sbc gq_a
+        rts
+
 m_pal:  jsr gq_mode
         bcs gmp_r
         jsr gq_top
         jsr gq_type
         bcs gmp_r
-        lda #4
+        jsr gq_ncol
         jsr gq_isn
         bcs gmp_r
         ldx #0
         jsr gq_readn
-        lda #8
+        jsr gq_ncol
+        asl
         sta gq_k
         jsr gq_ck15
         bcs gmp_r
@@ -365,28 +405,37 @@ gdp_3:  lda vt
         sta gq_xn
         lda vn+1
         sta gq_xn+1
-        lda #0                  ; three colours for all the rows, or three for each row?
+        lda #4                  ; the colours of a row: 3 in multicolor mode, 2 in hires
+        sec
+        sbc gr_mode
+        sta gq_kk
+        asl
+        sta gq_k2
+        lda #0                  ; the same for all the rows, or for each row?
         sta gq_uni
         lda gq_yn+1
         bne gdp_ea
         lda gq_yn
-        cmp #3
+        cmp gq_kk
         bne gdp_ea
         inc gq_uni
         jsr gq_sec
         ldx #0
         jsr gq_readn
-        lda #6
+        lda gq_k2
         sta gq_k
         jsr gq_ck15
         bcc gdp_go
         rts
-gdp_ea: lda gq_xn               ; 3 * the rows
+gdp_ea: lda gq_xn               ; the colours of a row times the rows
         asl
         sta gq_t
         lda gq_xn+1
         rol
         sta gq_t+1
+        lda gq_kk
+        cmp #3
+        bcc gdp_t2
         clc
         lda gq_t
         adc gq_xn
@@ -394,6 +443,7 @@ gdp_ea: lda gq_xn               ; 3 * the rows
         lda gq_t+1
         adc gq_xn+1
         sta gq_t+1
+gdp_t2:
         lda gq_t
         cmp gq_yn
         bne gdp_len
@@ -468,7 +518,7 @@ gdp_c:  lda gq_cp
         inc gq_cp+1
 gdp_5:  inx
         inx
-        cpx #6
+        cpx gq_k2
         bcc gdp_c
 gdp_set: lda gq_pass
         beq gdp_nx
@@ -505,6 +555,9 @@ gq_row: lda gq_rw
         lda gq_r40+1,x
         adc #>COLORRAM
         sta cs+1
+        lda gr_mode
+        cmp #2
+        bcs gqw_h
         lda gq_c
         asl
         asl
@@ -519,6 +572,17 @@ gqw_f:  lda gq_t
         sta (cs),y
         dey
         bpl gqw_f
+        rts
+gqw_h:  lda gq_c+2              ; hires: c1 in the high nibble, c0 in the low; colour RAM is not used
+        asl
+        asl
+        asl
+        asl
+        ora gq_c
+        ldy #39
+gqw_g:  sta (cd),y
+        dey
+        bpl gqw_g
         rts
 
 gq_n:   .word 0

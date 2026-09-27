@@ -10,6 +10,7 @@ from harness import call, load
 from test_eval import Session, check
 
 ON = "⎕GR 1 ⋄ "
+ON2 = "⎕GR 2 ⋄ "
 
 
 def session():
@@ -52,6 +53,25 @@ def test_model_sanity():
     assert sum(bin(b).count("1") for b in g.bitmap) == 32000
     g = run("⎕GR 1", "⎕PAL 3 4 5 6", "(0 24) ⎕PAL 7 8 9")
     assert g.bg == 3 and g.scr[0] == 0x78 and g.col[0] == 9 and g.scr[40] == 0x45 and g.col[40] == 6 and g.scr[24 * 40] == 0x78
+    g = run("⎕GR 2")
+    assert g.mode == 2 and not any(g.bitmap) and set(g.scr) == {0x10} and g.bg == 0
+    g = run("⎕GR 2", "0 ⎕PLOT 0")
+    assert g.bitmap[0] == 0x80 and sum(g.bitmap) == 0x80
+    g = run("⎕GR 2", "7 ⎕PLOT 0")
+    assert g.bitmap[0] == 0x01
+    g = run("⎕GR 2", "8 ⎕PLOT 9")                        # the second cell, pixel row 1 of cell row 1
+    assert g.bitmap[320 + 8 + 1] == 0x80 and sum(g.bitmap) == 0x80
+    g = run("⎕GR 2", "319 ⎕PLOT 199")
+    assert g.bitmap[7999] == 0x01 and sum(g.bitmap) == 1
+    g = run("⎕GR 2", "320 ⎕PLOT 0 ⋄ 0 ⎕PLOT ¯1 ⋄ 0 ⎕PLOT 200")
+    assert not any(g.bitmap)
+    g = run("⎕GR 2", "(0 0) ⎕BOX (319 199)")
+    assert all(b == 255 for b in g.bitmap)
+    g = run("⎕GR 2", "⎕PAL 4 5", "(0 24) ⎕PAL 7 8", "⎕INK 0")
+    assert g.bg == 4 and g.scr[0] == 0x87 and g.scr[40] == 0x54 and g.scr[24 * 40] == 0x87
+    for x0, y0, x1, y1 in ((0, 0, 319, 199), (5, 5, 5, 5), (10, 3, 2, 3), (300, 190, 7, 10)):
+        g = run("⎕GR 2", f"({x0} {y0}) ⎕LINE ({x1} {y1})")
+        assert sum(bin(b).count("1") for b in g.bitmap) == max(abs(x1 - x0), abs(y1 - y0)) + 1
     print("gfx: the model's pixels, lines, boxes and palettes are where the VIC-II wants them")
 
 
@@ -69,18 +89,20 @@ def test_pool():
     s = session()
     kinds = {}
     n = 0
-    for on in (False, True):
+    for on in (None, 1, 2):
         s.reset()
+        if on:
+            check(s, f"⎕GR {on}")
         for f in FUNCS[1:] + FUNCS[:1]:                # (⎕GR last: it changes the mode)
             for a in NUMS:
                 for line in [f"{f} {a}"] + [f"{a} {f} {b}" for b in PAIRS if f in DYADIC]:
                     if on and n % 200 == 0:
-                        check(s, "⎕GR 1")           # (a fresh picture now and then)
+                        check(s, f"⎕GR {on}")       # (a fresh picture now and then)
                     k = check(s, line)
                     kinds[k] = kinds.get(k, 0) + 1
                     n += 1
-                    if not on and f == "⎕GR":
-                        check(s, "⎕GR 0")
+                    if f == "⎕GR":
+                        check(s, f"⎕GR {on or 0}")
     print(f"gfx: {n} calls with every kind of argument match the model, picture included {dict(sorted(kinds.items()))}")
 
 
@@ -94,6 +116,10 @@ def test_forms():
              ON + "(⍳3)[2] ⎕PLOT 5", ON + "(1 2)(3) ⎕PLOT 1", ON + "→⎕GR 1", ON + "2 ⎕PLOT ⎕GR 1", ON + "⎕PLOT", ON + "5 ⎕PLOT",
              ON + "⎕INK 1 ⋄ ⎕INK 2 ⋄ ⎕INK 3 ⋄ 5 5 ⎕PLOT 6 6", ON + "⎕INK 0 ⋄ 5 5 ⎕PLOT 6 6", "⎕WAIT 0 ⍝ nothing", "⎕GR 1 ⍝ up", "⎕WAIT ¯1", "⎕WAIT 1e10",
              "⎕WAIT 0.5", "⎕WAIT 'a'", "⎕WAIT 0 0", "⎕WAIT ⍬",
+             ON2 + "⎕PAL 1 2", ON2 + "⎕PAL 1 2 3 4", ON2 + "⎕PAL 1 16", ON2 + "⎕INK 1", ON2 + "⎕INK 2", ON2 + "⎕INK 0 ⋄ 5 ⎕PLOT 5", ON2 + "(0 1) ⎕PAL 3 4",
+             ON2 + "(0 1) ⎕PAL 3 4 5 6", ON2 + "(0 1) ⎕PAL 3 4 5", ON2 + "(0 1 2) ⎕PAL 3 4 5 6 7 8", ON2 + "(0 1 2) ⎕PAL 3 2⍴3 4 5 6 7 8", ON2 + "(0 1) ⎕PAL 3 4 5",
+             ON2 + "(200 300 319 320) ⎕PLOT 5", ON2 + "(0 0) ⎕BOX (319 0)", ON2 + "(319 199) ⎕BOX (0 0)", ON2 + "(300 10) ⎕BOX (400 20)", ON2 + "(¯5 10) ⎕BOX (5 20)",
+             ON2 + "(0 0) ⎕LINE (319 199)", ON2 + "(319 0) ⎕LINE (0 199)", ON2 + "⎕GR 1 ⋄ ⎕INK 3 ⋄ 5 ⎕PLOT 5", ON + "⎕GR 2 ⋄ ⎕INK 1", ON + "⎕GR 2 ⋄ ⎕PAL 1 2 3 4",
              ON + "(0 1 2) ⎕PAL 3 4 5 6 7 8 9 10 11", ON + "(0 1) ⎕PAL 3 4 5 6 7 8", ON + "(0 1) ⎕PAL 3 4 5 6 7", ON + "(0 1) ⎕PAL 3 4 5 6 7 8 9", ON + "(2) ⎕PAL 1 2 3",
              ON + "(⍳0) ⎕PAL ⍬", ON + "(⍳0) ⎕PAL 1 2 3", ON + "(⍳0) ⎕PAL 1 2 3 4", ON + "(¯1+⍳25) ⎕PAL ⍉3 25⍴(25⍴15),(25⍴14),25⍴13", ON + "(¯1+⍳25) ⎕PAL 25 3⍴1+⍳15",
              ON + "(0 1 2 3) ⎕PAL 4 3⍴1+⍳12", ON + "(0 1) ⎕PAL 3 2⍴1", ON + "(0 1) ⎕PAL 2 3⍴0 16 3 4 5 6", ON + "(25 1) ⎕PAL 1 2 3 4 5 6", ON + "(0 1) ⎕PAL 1 2 3 4 5 16",
@@ -122,8 +148,10 @@ def test_functions():
 def test_random():
     rng = random.Random(64)
     s = session()
+    mode = 1
 
-    def num(lo=-20, hi=220):
+    def num(lo=-20, hi=None):
+        hi = hi or (220 if mode == 1 else 340)
         r = rng.random()
         if r < 0.7:
             return str(rng.randint(lo, hi)).replace("-", "¯")
@@ -136,55 +164,59 @@ def test_random():
     for i in range(300):
         if i % 20 == 0:
             s.reset()
-            check(s, "⎕GR 1")
+            mode = 1 + (i // 20) % 2
+            check(s, f"⎕GR {mode}")
         r = rng.random()
+        hi = 200 if mode == 1 else 320
         if r < 0.35:
             n = rng.randint(1, 12)
             line = f"{vec(n)} ⎕PLOT {vec(n)}"
         elif r < 0.6:
-            line = f"({num(-40, 200)} {num(-40, 240)}) ⎕LINE ({num(-40, 200)} {num(-40, 240)})"
+            line = f"({num(-40, hi)} {num(-40, 240)}) ⎕LINE ({num(-40, hi)} {num(-40, 240)})"
         elif r < 0.75:
             line = f"({num()} {num()}) ⎕BOX ({num()} {num()})"
         elif r < 0.85:
             line = f"⎕INK {rng.randint(0, 3)}"
         elif r < 0.93:
-            line = "⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(4))
+            line = "⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(4 if mode == 1 else 2))
         elif r < 0.97:
-            line = f"{vec(rng.randint(1, 4)).replace('.', '')} ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(3))
+            line = f"{vec(rng.randint(1, 4)).replace('.', '')} ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(5 - mode))
         else:
             n = rng.randint(1, 6)
-            line = f"(¯1+⍳{n}) ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(3 * n))
+            line = f"(¯1+⍳{n}) ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range((5 - mode) * n))
         check(s, line)
-    print("gfx: 300 random calls give the same picture")
+    print("gfx: 300 random calls, in both modes, give the same picture")
 
 
 def test_lines_and_boxes():
-    """Every octant, and the lines the tests above are unlikely to draw: all of them from a point to a ring of points."""
+    """Every octant, and the lines the tests above are unlikely to draw: all of them from a point to a ring of points; boxes at every alignment."""
     s = session()
-    check(s, "⎕GR 1")
-    n = 0
-    for x1, y1 in [(80 + dx, 100 + dy) for dx in (-90, -60, -30, -7, -1, 0, 1, 7, 30, 60, 90) for dy in (-110, -50, -13, -1, 0, 1, 13, 50, 110)]:
-        if n % 12 == 0:
-            check(s, "⎕GR 1")
-        check(s, f"⎕INK {1 + n % 3}")
-        check(s, f"(80 100) ⎕LINE ({x1} {y1})")
-        n += 1
-    for line in ["(0 0) ⎕LINE (0 0)", "(159 199) ⎕LINE (159 199)", "(¯4095 ¯4095) ⎕LINE (4095 4095)", "(4095 ¯4095) ⎕LINE (¯4095 4095)", "(0 ¯4095) ⎕LINE (0 4095)",
-                 "(¯4095 50) ⎕LINE (4095 51)", "(¯4096 0) ⎕LINE (0 0)", "(0 0) ⎕LINE (0 4096)", "(1e10 0) ⎕LINE (0 0)", "(80 100) ⎕LINE (80 100.5)"]:
-        check(s, line)
-    for line in ["(0 0) ⎕BOX (159 199)", "(159 199) ⎕BOX (0 0)", "(0 199) ⎕BOX (159 0)", "(50 50) ⎕BOX (50 50)", "(¯1 ¯1) ⎕BOX (0 0)", "(159 199) ⎕BOX (160 200)",
-                 "(160 200) ⎕BOX (170 210)", "(¯30 ¯30) ⎕BOX (¯1 300)", "(¯1e10 ¯1e10) ⎕BOX (1e10 1e10)", "(3 3) ⎕BOX (7 9)", "(7 9) ⎕BOX (3 3)", "(0 0) ⎕BOX (159 0)", "(0 0) ⎕BOX (0 199)"]:
-        check(s, "⎕GR 1")
-        check(s, "⎕INK 2")
-        check(s, line)
-    check(s, "⎕GR 1")
-    n = 0
-    for x0 in list(range(0, 9)) + list(range(148, 160)):        # boxes whose ends fall on every pixel of a byte, in one byte, two or several
-        for x1 in range(x0, min(x0 + 11, 160)):
-            check(s, f"⎕INK {1 + (x0 + x1) % 3}")
-            check(s, f"({x0} {3 + n % 5}) ⎕BOX ({x1} {4 + n % 9})")
+    for mode, w in ((1, 160), (2, 320)):
+        check(s, f"⎕GR {mode}")
+        n = 0
+        for x1, y1 in [(w // 2 + dx, 100 + dy) for dx in (-w // 2 - 10, -60, -30, -7, -1, 0, 1, 7, 30, 60, w // 2 + 10) for dy in (-110, -50, -13, -1, 0, 1, 13, 50, 110)]:
+            if n % 12 == 0:
+                check(s, f"⎕GR {mode}")
+            check(s, f"⎕INK {n % (4 if mode == 1 else 2)}")
+            check(s, f"({w // 2} 100) ⎕LINE ({x1} {y1})")
             n += 1
-    print("gfx: lines in every direction, and boxes at and beyond the edges, match the model")
+        for line in ["(0 0) ⎕LINE (0 0)", f"({w - 1} 199) ⎕LINE ({w - 1} 199)", "(¯4095 ¯4095) ⎕LINE (4095 4095)", "(4095 ¯4095) ⎕LINE (¯4095 4095)", "(0 ¯4095) ⎕LINE (0 4095)",
+                     "(¯4095 50) ⎕LINE (4095 51)", "(¯4096 0) ⎕LINE (0 0)", "(0 0) ⎕LINE (0 4096)", "(1e10 0) ⎕LINE (0 0)", "(80 100) ⎕LINE (80 100.5)"]:
+            check(s, line)
+        for line in [f"(0 0) ⎕BOX ({w - 1} 199)", f"({w - 1} 199) ⎕BOX (0 0)", f"(0 199) ⎕BOX ({w - 1} 0)", "(50 50) ⎕BOX (50 50)", "(¯1 ¯1) ⎕BOX (0 0)", f"({w - 1} 199) ⎕BOX ({w} 200)",
+                     f"({w} 200) ⎕BOX ({w + 10} 210)", "(¯30 ¯30) ⎕BOX (¯1 300)", "(¯1e10 ¯1e10) ⎕BOX (1e10 1e10)", "(3 3) ⎕BOX (7 9)", "(7 9) ⎕BOX (3 3)", f"(0 0) ⎕BOX ({w - 1} 0)", "(0 0) ⎕BOX (0 199)",
+                     "(200 5) ⎕BOX (300 9)", "(256 5) ⎕BOX (263 9)", "(255 5) ⎕BOX (256 9)", "(159 5) ⎕BOX (160 9)"]:
+            check(s, f"⎕GR {mode}")
+            check(s, f"⎕INK {mode}")
+            check(s, line)
+        check(s, f"⎕GR {mode}")
+        n = 0
+        for x0 in list(range(0, 17)) + list(range(w - 20, w)):   # boxes whose ends fall on every pixel of a byte, in one byte, two or several
+            for x1 in range(x0, min(x0 + 19, w)):
+                check(s, f"⎕INK {1 + (x0 + x1) % (3 if mode == 1 else 1)}")
+                check(s, f"({x0} {3 + n % 5}) ⎕BOX ({x1} {4 + n % 9})")
+                n += 1
+    print("gfx: lines in every direction, and boxes at and beyond the edges, match the model in both modes")
 
 
 def test_text_screen_returns():

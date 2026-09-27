@@ -26,7 +26,10 @@ gq_ix:  .byte 0                 ; bytes from one x element to the next (0 for a 
 gq_iy:  .byte 0
 gq_m:   .byte 0                 ; the mask of the pixel in its byte
 gq_pat: .byte 0
-gq_ink55: .byte 0               ; the ink in all four pixels of a byte
+gq_ink55: .byte 0               ; the ink in all the pixels of a byte
+gq_mo:  .byte 0                 ; 0 in multicolor mode, 4 in hires: where the mode's entries start in the tables
+gq_xm:  .byte 0                 ; x mod the pixels in a byte: 3 or 7
+gq_xlim: .word 0                ; the width of the picture: 160 or 320
 gq_dx:  .word 0                 ; the line
 gq_dy:  .word 0
 gq_err: .word 0
@@ -38,30 +41,76 @@ gq_rm:  .byte 0
 gq_nb:  .byte 0
 gq_bx:  .byte 0
 
-gq_mask: .byte $c0, $30, $0c, $03
-gq_inkt: .byte $00, $55, $aa, $ff
-gq_lmask: .byte $ff, $3f, $0f, $03   ; the pixels of a byte from the one with this x mod 4 rightwards
-gq_rmask: .byte $c0, $f0, $fc, $ff   ; ... and those up to it
+; the tables are indexed by the pixel's place in its byte (x mod 4 or x mod 8), plus gq_mo: 0 in multicolor mode, 4 in hires
+gq_mask: .byte $c0, $30, $0c, $03, $80, $40, $20, $10, $08, $04, $02, $01
+gq_inkt: .byte $00, $55, $aa, $ff, $00, $ff, $00, $ff   ; the ink in all the pixels of a byte (by ink, plus gq_mo)
+gq_lmask: .byte $ff, $3f, $0f, $03, $ff, $7f, $3f, $1f, $0f, $07, $03, $01   ; the pixels of a byte from this one rightwards
+gq_rmask: .byte $c0, $f0, $fc, $ff, $80, $c0, $e0, $f0, $f8, $fc, $fe, $ff   ; ... and those up to it
 gq_r320: .for i = 0, i < 25, i += 1
         .word GQ_BITMAP + i * 320
         .next
 
+; what depends on the mode, and the ink, for the drawing that follows
 gq_setink:
-        ldx gr_ink
+        ldx #0
+        stx gq_mo
+        lda #3
+        sta gq_xm
+        lda #<160
+        sta gq_xlim
+        lda #>160
+        sta gq_xlim+1
+        lda gr_mode
+        cmp #2
+        bcc gqi_1
+        lda #4
+        sta gq_mo
+        lda #7
+        sta gq_xm
+        lda #<320
+        sta gq_xlim
+        lda #>320
+        sta gq_xlim+1
+gqi_1:  lda gr_ink
+        clc
+        adc gq_mo
+        tax
         lda gq_inkt,x
         sta gq_ink55
         rts
 
+; A = the byte column of the x in the word at gq_c,x
+gq_bxof: lda gq_c+1,x
+        sta gq_t+1
+        lda gq_c,x
+        sta gq_t
+        lsr gq_t+1
+        ror gq_t
+        lsr gq_t+1
+        ror gq_t
+        lda gr_mode
+        cmp #2
+        bcc gqb_r
+        lsr gq_t+1
+        ror gq_t
+gqb_r:  lda gq_t
+        rts
+
 ; set the pixel (gq_px, gq_py) to the ink; a pixel off the screen is skipped. The bitmap must be visible (gq_ron).
 gq_pix: lda gq_py+1
-        ora gq_px+1
-        bne gqp_out
-        lda gq_py
+        beq gqp_a
+        rts
+gqp_a:  lda gq_py
         cmp #200
-        bcs gqp_out
-        lda gq_px
-        cmp #160
-        bcs gqp_out
+        bcc gqp_b
+        rts
+gqp_b:  lda gq_px
+        cmp gq_xlim
+        lda gq_px+1
+        sbc gq_xlim+1
+        bcc gqp_c
+        rts
+gqp_c:
         lda gq_py
         lsr
         lsr
@@ -72,13 +121,23 @@ gq_pix: lda gq_py+1
         sta cd
         lda gq_r320+1,x
         sta cd+1
-        lda gq_px               ; plus cell column * 8 plus the pixel row in the cell
+        lda gr_mode             ; plus cell column * 8 plus the pixel row in the cell
+        cmp #2
+        bcs gqp_h
+        lda gq_px
         and #$fc
         asl
         sta gq_t
         lda #0
         rol
         sta gq_t+1
+        jmp gqp_r
+gqp_h:  lda gq_px
+        and #$f8
+        sta gq_t
+        lda gq_px+1
+        sta gq_t+1
+gqp_r:
         lda gq_py
         and #7
         clc
@@ -94,7 +153,9 @@ gqp_1:  clc
         adc gq_t+1
         sta cd+1
         lda gq_px
-        and #3
+        and gq_xm
+        clc
+        adc gq_mo
         tax
         lda gq_mask,x
         sta gq_m
@@ -453,6 +514,7 @@ gbx_r:   rts
 d_box:  jsr gq_corners
         bcc *+3
         rts
+        jsr gq_setink
         lda gq_c                ; x0 < x1 (signed)? if not, swap them, and the same for y
         cmp gq_c+4
         lda gq_c+1
@@ -487,24 +549,30 @@ gbx_2:   lda gq_c+3
         lda #0
         sta gq_c+2
         sta gq_c+3
-gbx_3:   lda gq_c+1              ; x0 above 159 or y0 above 199: nothing to draw
-        bne gbx_done
-        lda gq_c
-        cmp #160
-        bcs gbx_done
-        lda gq_c+3
-        bne gbx_done
-        lda gq_c+2
+gbx_3:   lda gq_c               ; x0 beyond the picture or y0 above 199: nothing to draw
+        cmp gq_xlim
+        lda gq_c+1
+        sbc gq_xlim+1
+        bcc gbx_3a
+        jmp gbx_done
+gbx_3a: lda gq_c+3
+        beq gbx_3b
+        jmp gbx_done
+gbx_3b: lda gq_c+2
         cmp #200
-        bcs gbx_done
-        lda gq_c+5              ; x1 above 159: 159, y1 above 199: 199
-        bne gbx_x
-        lda gq_c+4
-        cmp #160
+        bcc gbx_3c
+        jmp gbx_done
+gbx_3c: lda gq_c+4              ; x1 beyond the picture: its last column, y1 above 199: 199
+        cmp gq_xlim
+        lda gq_c+5
+        sbc gq_xlim+1
         bcc gbx_4
-gbx_x:   lda #159
+        sec
+        lda gq_xlim
+        sbc #1
         sta gq_c+4
-        lda #0
+        lda gq_xlim+1
+        sbc #0
         sta gq_c+5
 gbx_4:   lda gq_c+7
         bne gbx_y2
@@ -515,25 +583,26 @@ gbx_y2:  lda #199
         sta gq_c+6
         lda #0
         sta gq_c+7
-gbx_5:  jsr gq_setink           ; the clipped rectangle, row by row: the bytes of a row are set whole, the two ends under a mask
-        jsr gq_ron
+gbx_5:  jsr gq_ron              ; the clipped rectangle, row by row: the bytes of a row are set whole, the two ends under a mask
         lda gq_c
-        and #3
+        and gq_xm
+        clc
+        adc gq_mo
         tax
         lda gq_lmask,x          ; the pixels of the first byte at or right of x0
         sta gq_lm
         lda gq_c+4
-        and #3
+        and gq_xm
+        clc
+        adc gq_mo
         tax
         lda gq_rmask,x          ; the pixels of the last byte at or left of x1
         sta gq_rm
-        lda gq_c+4              ; the bytes between the first and the last
-        lsr
-        lsr
+        ldx #4                  ; the bytes between the first and the last
+        jsr gq_bxof
         sta gq_nb
-        lda gq_c
-        lsr
-        lsr
+        ldx #0
+        jsr gq_bxof
         sta gq_bx
         lda gq_nb
         sec

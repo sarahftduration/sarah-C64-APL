@@ -93,10 +93,15 @@ def colour_grid(g):
     grid = []
     for y in range(200):
         row = []
-        for x in range(160):
-            v = g.bitmap[(y >> 3) * 320 + (x >> 2) * 8 + (y & 7)] >> (6 - 2 * (x & 3)) & 3
-            cell = (y >> 3) * 40 + (x >> 2)
-            row.append((g.bg, g.scr[cell] >> 4, g.scr[cell] & 15, g.col[cell] & 15)[v])
+        for x in range(160 if g.mode == 1 else 320):
+            if g.mode == 1:
+                v = g.bitmap[(y >> 3) * 320 + (x >> 2) * 8 + (y & 7)] >> (6 - 2 * (x & 3)) & 3
+                cell = (y >> 3) * 40 + (x >> 2)
+                row.append((g.bg, g.scr[cell] >> 4, g.scr[cell] & 15, g.col[cell] & 15)[v])
+            else:
+                v = g.bitmap[(y >> 3) * 320 + (x >> 3) * 8 + (y & 7)] >> (7 - (x & 7)) & 1
+                cell = (y >> 3) * 40 + (x >> 3)
+                row.append((g.scr[cell] & 15, g.scr[cell] >> 4)[v])
         grid.append(row)
     return grid
 
@@ -106,21 +111,23 @@ def check_picture(name, lines):
     text = quad(" ⋄ ".join(lines)) + "{RET}"
     files = run(text)
     g = model_picture(lines)
-    assert g.mode == 1
+    assert g.mode in (1, 2)
     vic = files["vic.bin"]
-    assert vic[0x11] & 0x20 and vic[0x16] & 0x10 and vic[0x18] & 0x0F in (0x8, 0x9), (vic[0x11], vic[0x16], vic[0x18])
+    assert vic[0x11] & 0x20 and (vic[0x16] & 0x10 != 0) == (g.mode == 1) and vic[0x18] & 0x0F in (0x8, 0x9), (vic[0x11], vic[0x16], vic[0x18])
     assert vic[0x20] & 15 == g.bg and vic[0x21] & 15 == g.bg
     assert files["bmp.bin"] == bytes(g.bitmap), f"{name}: the bitmap differs from the model's"
     assert files["scr.bin"][:1000] == bytes(g.scr), f"{name}: screen RAM differs"
-    assert [b & 15 for b in files["col.bin"][:1000]] == list(g.col), f"{name}: colour RAM differs"
+    if g.mode == 1:
+        assert [b & 15 for b in files["col.bin"][:1000]] == list(g.col), f"{name}: colour RAM differs"
     w, h, rows = png_pixels(files["shot.png"])
     ox, oy = 32, 35          # where the 320 x 200 picture starts in VICE 3.9's 384 x 272 PAL screenshot (measured: it is not centred)
     assert (w, h) == (384, 272), (w, h)
     seen, bad = {}, 0
     for y, grow in enumerate(colour_grid(g)):
         for x, c in enumerate(grow):
-            px = rows[oy + y][ox + 2 * x]
-            assert px == rows[oy + y][ox + 2 * x + 1], f"{name}: pixel {x},{y} is not double width"
+            px = rows[oy + y][ox + (2 * x if g.mode == 1 else x)]
+            if g.mode == 1:
+                assert px == rows[oy + y][ox + 2 * x + 1], f"{name}: pixel {x},{y} is not double width"
             if seen.setdefault(c, px) != px:
                 bad += 1
     assert not bad, f"{name}: {bad} pixels of the screenshot show the wrong colour"
@@ -136,7 +143,9 @@ def test_pictures():
     n += check_picture("rows", ["⎕GR 1", "⎕PAL 6 1 2 3", "(5 10 11) ⎕PAL 15 14 13", "⎕INK 1", "(0 0) ⎕BOX (159 199)", "⎕INK 0", "(0 100) ⎕LINE (159 101)", "⎕INK 3",
                                 "(10 20 30 40) ⎕PLOT 100 101 102 103", "⎕INK 2", "(50 50) ⎕BOX (70 150)"])
     n += check_picture("plot", ["⎕GR 1", "⎕PAL 0 5 10 3", "⎕INK 1", "(⍳150) ⎕PLOT 100+50×2○(⍳150)÷10", "⎕INK 2", "(⍳150) ⎕PLOT 100+50×1○(⍳150)÷10"])
-    print(f"gfx vice: 4 pictures drawn by scripted keys match the model in the bitmap, screen RAM, colour RAM, VIC-II registers and the screenshot ({n} colours checked)")
+    n += check_picture("hires", ["⎕GR 2", "⎕PAL 6 1", "(¯1+⍳25) ⎕PAL ⍉2 25⍴(25⍴2),(25⍴7)", "(0 0) ⎕LINE (319 199)", "(319 0) ⎕LINE (0 199)", "(100 50) ⎕BOX (219 150)", "⎕INK 0",
+                                 "(120 60) ⎕BOX (199 140)", "⎕INK 1", "(⍳300) ⎕PLOT 100+90×1○(⍳300)÷20"])
+    print(f"gfx vice: 5 pictures drawn by scripted keys match the model in the bitmap, screen RAM, colour RAM, VIC-II registers and the screenshot ({n} colours checked)")
 
 
 def test_text_returns():

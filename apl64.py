@@ -1600,6 +1600,7 @@ PRIMS[','] = (ravel, catenate)
 GFX_ROWS = 25
 GFX_COLS = 40
 GFX_DEFAULT_PAL = (0, 1, 2, 14)             # background, then the colours of pixel values 1, 2, 3
+HIRES_DEFAULT_PAL = (0, 1)                  # the colours of pixel values 0 and 1 in hires mode
 QUAD_NAMES = ['GR', 'PAL', 'INK', 'PLOT', 'LINE', 'BOX', 'WAIT']        # tokens $A0 + i
 QUAD_TOKEN = 0xA0
 
@@ -1609,7 +1610,7 @@ class _Gfx:
         self.reset()
 
     def reset(self):
-        self.mode = 0                       # 0 text, 1 multicolor
+        self.mode = 0                       # 0 text, 1 multicolor, 2 hires
         self.ink = 1
         self.bg = 0
         self.bitmap = bytearray(8000)
@@ -1664,22 +1665,31 @@ def _q_range(vals, lo, hi):
 
 
 def q_gr(v):
-    n = _q_one(v, 0, 1)
+    n = _q_one(v, 0, 2)
     if n == 0:
         GFX.mode = 0
         return None
-    GFX.mode = 1
+    GFX.mode = n
     GFX.ink = 1
     GFX.bitmap = bytearray(8000)
-    GFX.bg = GFX_DEFAULT_PAL[0]
-    GFX.scr = bytearray([GFX_DEFAULT_PAL[1] << 4 | GFX_DEFAULT_PAL[2]] * (GFX_ROWS * GFX_COLS))
-    GFX.col = bytearray([GFX_DEFAULT_PAL[3]] * (GFX_ROWS * GFX_COLS))
+    if n == 1:
+        GFX.bg = GFX_DEFAULT_PAL[0]
+        GFX.scr = bytearray([GFX_DEFAULT_PAL[1] << 4 | GFX_DEFAULT_PAL[2]] * (GFX_ROWS * GFX_COLS))
+        GFX.col = bytearray([GFX_DEFAULT_PAL[3]] * (GFX_ROWS * GFX_COLS))
+    else:                                   # hires: white on black; colour RAM is not used, and is left as it was
+        GFX.bg = HIRES_DEFAULT_PAL[0]
+        GFX.scr = bytearray([HIRES_DEFAULT_PAL[1] << 4 | HIRES_DEFAULT_PAL[0]] * (GFX_ROWS * GFX_COLS))
     return None
+
+
+def _q_ncol():
+    """The colours of a cell's palette: pixel values 0 to 3 in multicolor mode (the background is the same everywhere), 0 and 1 in hires."""
+    return 4 if GFX.mode == 1 else 2
 
 
 def q_ink(v):
     _q_mode()
-    GFX.ink = _q_one(v, 0, 3)
+    GFX.ink = _q_one(v, 0, _q_ncol() - 1)
 
 
 def q_wait(v):
@@ -1687,39 +1697,55 @@ def q_wait(v):
 
 
 def q_pal(v):
-    """bg c1 c2 c3: the background and the three colours of every cell."""
+    """Multicolor: bg c1 c2 c3, the background and the three colours of every cell. Hires: c0 c1 for every cell (and the border)."""
     _q_mode()
     _q_types(v)
-    if v.count != 4:
+    if v.count != _q_ncol():
         raise AplError('LENGTH ERROR')
-    bg, c1, c2, c3 = _q_range(_q_ints(v), 0, 15)
-    GFX.bg = bg
-    GFX.scr = bytearray([c1 << 4 | c2] * (GFX_ROWS * GFX_COLS))
-    GFX.col = bytearray([c3] * (GFX_ROWS * GFX_COLS))
+    cols = _q_range(_q_ints(v), 0, 15)
+    GFX.bg = cols[0]
+    if GFX.mode == 1:
+        GFX.scr = bytearray([cols[1] << 4 | cols[2]] * (GFX_ROWS * GFX_COLS))
+        GFX.col = bytearray([cols[3]] * (GFX_ROWS * GFX_COLS))
+    else:
+        GFX.scr = bytearray([cols[1] << 4 | cols[0]] * (GFX_ROWS * GFX_COLS))
 
 
 def q_pal2(a, v):
-    """rows ⎕PAL c1 c2 c3: the colours of the cells in those rows (0 to 24); or three colours for each row, in a
-    vector or matrix of 3 times as many numbers as rows (one row of the matrix per row)."""
+    """rows ⎕PAL c1 c2 c3 (hires: c0 c1): the colours of the cells in those rows (0 to 24); or the colours for each row, in a
+    vector or matrix of as many times the numbers as rows (one row of the matrix per row)."""
     _q_mode()
     _q_types(v, a)
-    uniform = v.count == 3
-    if not uniform and v.count != 3 * a.count:
+    k = 4 - GFX.mode                       # 3 colours per row in multicolor, 2 in hires
+    uniform = v.count == k
+    if not uniform and v.count != k * a.count:
         raise AplError('LENGTH ERROR')
     cols = _q_range(_q_ints(v), 0, 15)
     for i, r in enumerate(_q_range(_q_ints(a), 0, GFX_ROWS - 1)):
-        c1, c2, c3 = cols[:3] if uniform else cols[3 * i:3 * i + 3]
+        cs = cols[:k] if uniform else cols[k * i:k * i + k]
         for c in range(GFX_COLS):
-            GFX.scr[r * GFX_COLS + c] = c1 << 4 | c2
-            GFX.col[r * GFX_COLS + c] = c3
+            if GFX.mode == 1:
+                GFX.scr[r * GFX_COLS + c] = cs[0] << 4 | cs[1]
+                GFX.col[r * GFX_COLS + c] = cs[2]
+            else:
+                GFX.scr[r * GFX_COLS + c] = cs[1] << 4 | cs[0]
+
+
+def gfx_width():
+    return 160 if GFX.mode == 1 else 320
 
 
 def gfx_plot(x, y):
     """Set the pixel to the ink; a point off the screen is skipped."""
-    if 0 <= x < 160 and 0 <= y < 200:
-        a = (y >> 3) * 320 + (x >> 2) * 8 + (y & 7)
-        sh = 6 - 2 * (x & 3)
-        GFX.bitmap[a] = GFX.bitmap[a] & ~(3 << sh) & 0xFF | GFX.ink << sh
+    if 0 <= x < gfx_width() and 0 <= y < 200:
+        if GFX.mode == 1:
+            a = (y >> 3) * 320 + (x >> 2) * 8 + (y & 7)
+            sh = 6 - 2 * (x & 3)
+            GFX.bitmap[a] = GFX.bitmap[a] & ~(3 << sh) & 0xFF | GFX.ink << sh
+        else:
+            a = (y >> 3) * 320 + (x >> 3) * 8 + (y & 7)
+            sh = 7 - (x & 7)
+            GFX.bitmap[a] = GFX.bitmap[a] & ~(1 << sh) & 0xFF | GFX.ink << sh
 
 
 def q_plot(a, b):
@@ -1771,7 +1797,7 @@ def q_box(a, b):
     """(x0 y0) ⎕BOX (x1 y1): the filled rectangle between the corners, both included."""
     x0, y0, x1, y1 = _q_corners(a, b, -32768, 32767)
     for y in range(max(min(y0, y1), 0), min(max(y0, y1), 199) + 1):
-        for x in range(max(min(x0, x1), 0), min(max(x0, x1), 159) + 1):
+        for x in range(max(min(x0, x1), 0), min(max(x0, x1), gfx_width() - 1) + 1):
             gfx_plot(x, y)
 
 

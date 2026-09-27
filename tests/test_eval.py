@@ -95,7 +95,7 @@ class Session:
         if m[0xD021] != g.bg or m[0xD020] != g.bg:
             diffs.append(f"background {m[0xD021]} border {m[0xD020]}, model {g.bg}")
         for name, mem, want in (("bitmap", m[0xE000:0xE000 + 8000], g.bitmap), ("screen RAM", m[0xCC00:0xCC00 + 1000], g.scr),
-                                ("colour RAM", m[0xD800:0xD800 + 1000], g.col)):
+                                ("colour RAM", m[0xD800:0xD800 + 1000], g.col))[:3 if g.mode == 1 else 2]:      # (hires does not use colour RAM)
             if bytes(mem) != bytes(want):
                 bad = [i for i in range(len(want)) if mem[i] != want[i]]
                 diffs.append(f"{name}: {len(bad)} bytes differ, the first at {bad[0]} ({mem[bad[0]]:02x}, model {want[bad[0]]:02x})")
