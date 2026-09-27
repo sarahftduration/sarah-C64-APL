@@ -1,0 +1,25 @@
+# a sunset: the first picture, drawn by a function typed in (multicolor graphics, palette bands, a random sky)
+@pace 0.14
+@wait 1
+)SEED 5
+∇SUNSET;A;R
+A←(⍳40)×0.16
+R←2×⍳12
+⎕GR 1 ⋄ ⎕INK 1 ⋄ (0 0) ⎕BOX (159 199)
+(¯1+⍳4) ⎕PAL 6 1 7
+(3+⍳3) ⎕PAL 4 1 7
+(6+⍳3) ⎕PAL 2 1 7
+(9+⍳3) ⎕PAL 10 1 7
+(12+⍳4) ⎕PAL 8 1 7
+(16+⍳8) ⎕PAL 6 14 7
+⎕INK 3 ⋄ (80+0.5×R∘.×2○A) ⎕PLOT 128+R∘.×1○A
+⎕INK 1 ⋄ (0 136) ⎕BOX (159 199)
+⎕INK 2 ⋄ (?60⍴158) ⎕PLOT 137+?60⍴60
+(?25⍴158) ⎕PLOT ?25⍴50
+⎕INK 3 ⋄ (80+?30⍴12) ⎕PLOT 140+?30⍴40
+∇
+@wait 1
+SUNSET
+@wait 9
+@key Return
+@wait 2

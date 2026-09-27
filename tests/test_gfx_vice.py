@@ -22,7 +22,7 @@ from test_vice import ROMS
 Q = "{P}L"
 
 
-KEYS = {"⎕": "{P}L", "⋄": "{P}.", "⍳": "{P}i", "○": "{P}o", "×": "{P}-", "÷": "{P}=", "⍴": "{P}r", "←": "{LA}", "⌊": "{P}d", "¯": "{P}2"}
+KEYS = {"⍉": "{P}t", "⎕": "{P}L", "⋄": "{P}.", "⍳": "{P}i", "○": "{P}o", "×": "{P}-", "÷": "{P}=", "⍴": "{P}r", "←": "{LA}", "⌊": "{P}d", "¯": "{P}2"}
 
 
 def quad(text):
@@ -102,6 +102,7 @@ def colour_grid(g):
 
 
 def check_picture(name, lines):
+    assert len(" ⋄ ".join(lines)) < 250, "the line must fit the input buffer (255 characters)"
     text = quad(" ⋄ ".join(lines)) + "{RET}"
     files = run(text)
     g = model_picture(lines)
@@ -130,10 +131,12 @@ def check_picture(name, lines):
 def test_pictures():
     n = 0
     n += check_picture("lines", ["⎕GR 1", "⎕PAL 0 1 2 3", "(0 0) ⎕LINE (159 199)", "(159 0) ⎕LINE (0 199)", "⎕INK 2", "(20 20) ⎕BOX (60 60)"])
-    n += check_picture("colours", ["⎕GR 1", "⎕PAL 6 1 2 3", "(0 24) ⎕PAL 7 8 9", "(5 10 11) ⎕PAL 15 14 13", "⎕INK 1", "(0 0) ⎕BOX (39 199)", "⎕INK 2", "(40 0) ⎕BOX (79 199)",
-                                     "⎕INK 3", "(80 0) ⎕BOX (119 199)", "⎕INK 0", "(0 100) ⎕LINE (159 101)", "⎕INK 3", "(10 20 30 40) ⎕PLOT 100 101 102 103"])
+    n += check_picture("colours", ["⎕GR 1", "⎕PAL 6 1 2 3", "(0 24) ⎕PAL 7 8 9", "(¯1+⍳25) ⎕PAL ⍉3 25⍴(25⍴15),(25⍴14),25⍴13", "⎕INK 1", "(0 0) ⎕BOX (39 199)",
+                                     "⎕INK 2", "(40 0) ⎕BOX (79 199)", "⎕INK 3", "(80 0) ⎕BOX (119 199)"])
+    n += check_picture("rows", ["⎕GR 1", "⎕PAL 6 1 2 3", "(5 10 11) ⎕PAL 15 14 13", "⎕INK 1", "(0 0) ⎕BOX (159 199)", "⎕INK 0", "(0 100) ⎕LINE (159 101)", "⎕INK 3",
+                                "(10 20 30 40) ⎕PLOT 100 101 102 103", "⎕INK 2", "(50 50) ⎕BOX (70 150)"])
     n += check_picture("plot", ["⎕GR 1", "⎕PAL 0 5 10 3", "⎕INK 1", "(⍳150) ⎕PLOT 100+50×2○(⍳150)÷10", "⎕INK 2", "(⍳150) ⎕PLOT 100+50×1○(⍳150)÷10"])
-    print(f"gfx vice: 3 pictures drawn by scripted keys match the model in the bitmap, screen RAM, colour RAM, VIC-II registers and the screenshot ({n} colours checked)")
+    print(f"gfx vice: 4 pictures drawn by scripted keys match the model in the bitmap, screen RAM, colour RAM, VIC-II registers and the screenshot ({n} colours checked)")
 
 
 def test_text_returns():

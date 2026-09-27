@@ -19,8 +19,8 @@ def session():
 
     def skip(mpu):
         if mpu.memory[L["ov_cur"]] == L["OVID_GFX"]:
-            mpu.pc = L["gq_fret"]
-    m.hooks[L["gq_frame"]] = skip
+            mpu.pc = L["GQ_FRET"]
+    m.hooks[L["GQ_FRAME"]] = skip
     return s
 
 
@@ -93,7 +93,11 @@ def test_forms():
              "⎕GR\\1", "1 ⎕PLOT/2", "1 2∘.⎕PLOT 3 4", "⎕GR.+1", "⎕GR∘.+1", ON + "A←5 ⋄ A ⎕PLOT A", ON + "(⍳5) ⎕PLOT ⍳5", ON + "A←⍳5 ⋄ A ⎕PLOT A×A",
              ON + "(⍳3)[2] ⎕PLOT 5", ON + "(1 2)(3) ⎕PLOT 1", ON + "→⎕GR 1", ON + "2 ⎕PLOT ⎕GR 1", ON + "⎕PLOT", ON + "5 ⎕PLOT",
              ON + "⎕INK 1 ⋄ ⎕INK 2 ⋄ ⎕INK 3 ⋄ 5 5 ⎕PLOT 6 6", ON + "⎕INK 0 ⋄ 5 5 ⎕PLOT 6 6", "⎕WAIT 0 ⍝ nothing", "⎕GR 1 ⍝ up", "⎕WAIT ¯1", "⎕WAIT 1e10",
-             "⎕WAIT 0.5", "⎕WAIT 'a'", "⎕WAIT 0 0", "⎕WAIT ⍬"]
+             "⎕WAIT 0.5", "⎕WAIT 'a'", "⎕WAIT 0 0", "⎕WAIT ⍬",
+             ON + "(0 1 2) ⎕PAL 3 4 5 6 7 8 9 10 11", ON + "(0 1) ⎕PAL 3 4 5 6 7 8", ON + "(0 1) ⎕PAL 3 4 5 6 7", ON + "(0 1) ⎕PAL 3 4 5 6 7 8 9", ON + "(2) ⎕PAL 1 2 3",
+             ON + "(⍳0) ⎕PAL ⍬", ON + "(⍳0) ⎕PAL 1 2 3", ON + "(⍳0) ⎕PAL 1 2 3 4", ON + "(¯1+⍳25) ⎕PAL ⍉3 25⍴(25⍴15),(25⍴14),25⍴13", ON + "(¯1+⍳25) ⎕PAL 25 3⍴1+⍳15",
+             ON + "(0 1 2 3) ⎕PAL 4 3⍴1+⍳12", ON + "(0 1) ⎕PAL 3 2⍴1", ON + "(0 1) ⎕PAL 2 3⍴0 16 3 4 5 6", ON + "(25 1) ⎕PAL 1 2 3 4 5 6", ON + "(0 1) ⎕PAL 1 2 3 4 5 16",
+             ON + "(0 0 0) ⎕PAL 1 2 3 4 5 6 7 8 9", ON + "(0 1) ⎕PAL 1.5 2.5 3.5 4.5 5.5 6.5", ON + "(0 1) ⎕PAL 1 2 3 4 5 'a'", ON + "(0 1) ⎕PAL ⍬", ON + "(⍳0) ⎕PAL ⍬ ⋄ ⎕INK 1"]
     for l in lines:
         check(s, l)
     print(f"gfx: {len(lines)} lines where a call stands, or is refused, match the model")
@@ -145,8 +149,11 @@ def test_random():
             line = f"⎕INK {rng.randint(0, 3)}"
         elif r < 0.93:
             line = "⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(4))
-        else:
+        elif r < 0.97:
             line = f"{vec(rng.randint(1, 4)).replace('.', '')} ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(3))
+        else:
+            n = rng.randint(1, 6)
+            line = f"(¯1+⍳{n}) ⎕PAL " + " ".join(str(rng.randint(0, 15)) for _ in range(3 * n))
         check(s, line)
     print("gfx: 300 random calls give the same picture")
 
@@ -170,6 +177,13 @@ def test_lines_and_boxes():
         check(s, "⎕GR 1")
         check(s, "⎕INK 2")
         check(s, line)
+    check(s, "⎕GR 1")
+    n = 0
+    for x0 in list(range(0, 9)) + list(range(148, 160)):        # boxes whose ends fall on every pixel of a byte, in one byte, two or several
+        for x1 in range(x0, min(x0 + 11, 160)):
+            check(s, f"⎕INK {1 + (x0 + x1) % 3}")
+            check(s, f"({x0} {3 + n % 5}) ⎕BOX ({x1} {4 + n % 9})")
+            n += 1
     print("gfx: lines in every direction, and boxes at and beyond the edges, match the model")
 
 

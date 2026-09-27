@@ -1699,13 +1699,16 @@ def q_pal(v):
 
 
 def q_pal2(a, v):
-    """rows ⎕PAL c1 c2 c3: the colours of the cells in those rows (0 to 24)."""
+    """rows ⎕PAL c1 c2 c3: the colours of the cells in those rows (0 to 24); or three colours for each row, in a
+    vector or matrix of 3 times as many numbers as rows (one row of the matrix per row)."""
     _q_mode()
     _q_types(v, a)
-    if v.count != 3:
+    uniform = v.count == 3
+    if not uniform and v.count != 3 * a.count:
         raise AplError('LENGTH ERROR')
-    c1, c2, c3 = _q_range(_q_ints(v), 0, 15)
-    for r in _q_range(_q_ints(a), 0, GFX_ROWS - 1):
+    cols = _q_range(_q_ints(v), 0, 15)
+    for i, r in enumerate(_q_range(_q_ints(a), 0, GFX_ROWS - 1)):
+        c1, c2, c3 = cols[:3] if uniform else cols[3 * i:3 * i + 3]
         for c in range(GFX_COLS):
             GFX.scr[r * GFX_COLS + c] = c1 << 4 | c2
             GFX.col[r * GFX_COLS + c] = c3

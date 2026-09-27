@@ -969,8 +969,8 @@ the REU and come back when they are next used, so a workspace can be much bigger
 ## Graphics
 
 Done 2026-09-26: the multicolor bitmap (160 x 200, four values per pixel). The hires bitmap (320 x 200, two) is planned as
-a second mode of the same functions. Model: `apl64.py`, section Graphics; 6502: `asm/gfx.inc` (an overlay of 2.4 KB, so
-it needs an REU); tests: `tests/test_gfx.py` (py65 against the model, the picture compared byte for byte) and
+a second mode of the same functions. Model: `apl64.py`, section Graphics; 6502: two overlays (so an REU is needed), `asm/gfx.inc` (mode and colours, 1.4 KB) and
+`asm/draw.inc` (plot, line, box, 1.8 KB), which share `asm/gfxcom.inc` by including it each inside a `.block` of its own (`g1`, `g2`); tests: `tests/test_gfx.py` (py65 against the model, the picture compared byte for byte) and
 `tests/test_gfx_vice.py` (real VICE: registers, memory and a screenshot).
 
 **Where the picture lives.** The bitmap is the 8000 bytes at `$E000` (RAM under the KERNAL, in VIC bank 3, so it costs no
@@ -998,6 +998,7 @@ ERROR); the evaluator drops the dummy result the overlay leaves (`qfin`).
 | `⎕GR 1` / `⎕GR 0` | picture on (cleared, palette `0 1 2 14`, ink 1) / back to text; other values DOMAIN |
 | `⎕PAL b c1 c2 c3` | the background and the three cell colours (0-15) of every cell |
 | `rows ⎕PAL c1 c2 c3` | the three cell colours of those cell rows (0-24), each of 40 cells: horizontal colour bands |
+| `rows ⎕PAL cs` | the same with three colours for each row: `cs` has 3 times as many numbers as `rows`, a vector or a matrix with a row per row; one call sets a whole gradient |
 | `⎕INK n` | the pixel value (0-3) the drawing functions use |
 | `x ⎕PLOT y` | points; x and y are vectors of the same length, or one may be a single number; off-screen points are skipped |
 | `(x0 y0) ⎕LINE (x1 y1)` | Bresenham's line, ends included; end points within ±4095 (DOMAIN otherwise: the arithmetic stays in 16 bits) |
@@ -1012,8 +1013,9 @@ arguments (right then left) DOMAIN, lengths LENGTH, then values DOMAIN.
 **Code.** `apply_mon`/`apply_dy` send tokens `$A0`-`$AF` to the overlay (`s_gfxm`/`s_gfxd`, function number in A); the
 routines are dispatched by pushing their addresses and `rts`. Arguments are read through `gq_elem` (int, bool or float
 element as a saturated int16; floats through the resident `flr_q`). Each pixel is set by `gq_pix` from a table of cell-row
-addresses. The overlay window grew from 2,216 to 2,472 bytes for it, and the resident additions took the heap from 19,112 to
-18,556 bytes.
+addresses. Splitting the code over two overlays keeps the window at 2,216 bytes (the biggest overlay, still the numeric functions; the window's size
+is computed in `ovimg.inc`); the resident additions (dispatch, the tokenizer's quad names, `qfin`, `gr_after`, stubs) took the heap from 19,112
+to 18,812 bytes. `⎕BOX` sets the bytes of a row whole, with masks for the two ends, so a full screen takes 0.3 s (pixel by pixel it was 6).
 
 Reasons for the choices: floats need no `⌊` because demos compute coordinates all the time; `⎕PLOT` takes two vectors because
 `x y ⎕PLOT` with a matrix would need a reshape on every call; points off the screen are skipped, not errors, because a curve
