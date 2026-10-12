@@ -1,5 +1,21 @@
 # APL for the Commodore 64
 
+This is an APL for the Commodore 64 originally written as an experiment
+to test the capabilities of Claude Code.
+
+It hasn't had any human eyeballs on the code yet, and is at least somewhat
+unfinished, and non-code documentation for humans appears to be lacking,
+so I'm not sure if it's actually ready for public view... 
+but I've made it public anyway in case people want to take a look.
+
+Not taking pull requests at this time as I'm not sure we're prepared
+to make this a maintained public project.
+
+Sarah 10/12/2026
+
+
+## Reference Model
+
 - `apl64.py`: executable reference model (tokenizer, evaluator, float24, primitives)
 - `DESIGN.md`: the design decisions and the byte-level formats the 6502 must match
 
